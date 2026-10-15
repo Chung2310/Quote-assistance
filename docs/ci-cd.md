@@ -9,7 +9,9 @@ Sau khi build thành công, push lên nhánh mặc định hoặc tag phiên b�
 `.env` không được commit hoặc đưa vào Docker image. Build và publish image không cần `.env`; ứng dụng nhận cấu hình lúc chạy qua environment của container. Trong GitHub, khai báo giá trị tại **Settings → Secrets and variables → Actions**:
 
 - Dùng **Secrets** cho `MONGODB_URI`, `MONGODB_USER`, `MONGODB_PASSWORD`, `SESSION_SECRET`, `OPENROUTER_API_KEY`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` và `SEED_ADMIN_PASSWORD`.
-- Dùng **Variables** cho các giá trị không nhạy cảm như `PORT`, `SESSION_COOKIE_SECURE`, `MONGODB_AUTH_SOURCE`, `OPENROUTER_MODEL`, `OPENROUTER_APP_NAME`, `CLOUDINARY_CLOUD_NAME`, `DEFAULT_TAX_RATE`, `CURRENCY`, `SEED_ADMIN_EMAIL`, `SEED_ADMIN_NAME` và `SEED_ADMIN_COMPANY_NAME`.
+- Dùng **Variables** cho các giá trị không nhạy cảm như `PORT`, `SESSION_COOKIE_SECURE`, `MONGODB_AUTH_SOURCE`, `OPENROUTER_MODEL`, `CLOUDINARY_CLOUD_NAME`, `DEFAULT_TAX_RATE`, `CURRENCY`, `SEED_ADMIN_EMAIL`, `SEED_ADMIN_NAME` và `SEED_ADMIN_COMPANY_NAME`.
+
+`OPENROUTER_SITE_URL` (`http://localhost:3000`) và `OPENROUTER_APP_NAME` (`AI Bao Gia Pilot`) được cố định trong code, không cần khai báo trong `.env` hay GitHub Variables.
 
 GitHub Variables/Secrets không tự động đi theo image GHCR. Bước deploy cần chuyển các giá trị này thành environment variables của container trên máy chủ. Vì chưa có máy chủ/nền tảng đích trong cấu hình, workflow hiện chưa có bước deploy để lấy chúng.
 

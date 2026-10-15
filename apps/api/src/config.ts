@@ -71,8 +71,8 @@ export const config = {
   secureCookie: process.env.SESSION_COOKIE_SECURE === "true",
   openRouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
   openRouterModel: process.env.OPENROUTER_MODEL ?? "openai/gpt-4.1-mini",
-  openRouterSiteUrl: process.env.OPENROUTER_SITE_URL ?? `http://localhost:${port}`,
-  openRouterAppName: process.env.OPENROUTER_APP_NAME ?? "AI Bao Gia Pilot",
+  openRouterSiteUrl: "http://localhost:3000",
+  openRouterAppName: "AI Bao Gia Pilot",
   cloudinary: {
     cloudName: process.env.CLOUDINARY_CLOUD_NAME?.trim() ?? "",
     apiKey: process.env.CLOUDINARY_API_KEY?.trim() ?? "",
