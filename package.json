@@ -1,0 +1,20 @@
+{
+  "name": "bao-gia-ai",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "yarn@1.22.22",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "yarn workspace @bao-gia/api dev",
+    "build": "yarn build:api && yarn build:web",
+    "build:api": "yarn workspace @bao-gia/api build",
+    "build:web": "yarn workspace @bao-gia/web build",
+    "start": "yarn workspace @bao-gia/api start"
+  }
+}

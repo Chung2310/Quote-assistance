@@ -1,0 +1,25 @@
+{
+  "name": "@bao-gia/web",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && vite build"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "typescript": "~5.9.2",
+    "vite": "^7.1.4"
+  }
+}

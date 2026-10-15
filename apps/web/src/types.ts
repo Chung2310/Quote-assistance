@@ -1,0 +1,85 @@
+export type UserRole = "sales" | "admin";
+export type QuoteStatus = "draft" | "needs_info" | "pending_review" | "approved" | "rejected";
+export type MatchStatus = "matched" | "ambiguous" | "not_found";
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  companyId: string;
+  platformAdmin?: boolean;
+}
+
+export interface CatalogItem {
+  _id: string;
+  sku: string;
+  name: string;
+  description: string;
+  unit: string;
+  price: number;
+  currency: string;
+  active: boolean;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+}
+
+export interface AnalysisItem {
+  catalogItemId: string;
+  quantity: number;
+  unit: string;
+  attributes: Record<string, string>;
+  evidence: string;
+}
+
+export interface QuoteLine {
+  catalogItemId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  unitPrice: number;
+  currency: string;
+  attributes: Record<string, string>;
+  lineTotal: number;
+}
+
+export interface Quote {
+  _id: string;
+  quoteNumber: string;
+  requestId: string;
+  customerName: string;
+  customerEmail: string;
+  lines: QuoteLine[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  total: number;
+  currency: string;
+  informationNeeded: string[];
+  informationConfirmed: boolean;
+  status: QuoteStatus;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
+}
+
+export interface QuoteRequest {
+  _id: string;
+  customerName: string;
+  customerEmail: string;
+  requestText: string;
+  status: MatchStatus;
+  items: AnalysisItem[];
+  missingFields: string[];
+  createdAt: string;
+}
+
+export interface Analysis {
+  status: MatchStatus;
+  items: AnalysisItem[];
+  missingFields: string[];
+}
