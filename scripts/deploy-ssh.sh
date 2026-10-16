@@ -32,7 +32,7 @@ fi
   printf 'HOST_PORT=%q\n' "$app_port"
   printf 'APP_PORT=%q\n' "$app_port"
   printf 'DOCKER_NETWORK=%q\n' "$(cat "$staging/docker-network")"
-  printf 'BIND_ADDRESS=%q\n' "127.0.0.1"
+  printf 'BIND_ADDRESS=%q\n' "0.0.0.0"
 } > "$staging/deploy.conf"
 cp scripts/deploy-vps.sh "$staging/deploy-vps.sh"
 cp scripts/redact-container-logs.mjs "$staging/redact-container-logs.mjs"
