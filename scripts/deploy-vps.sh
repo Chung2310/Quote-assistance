@@ -4,6 +4,7 @@ umask 077
 staging=${1:?Missing deployment directory}
 [[ "$staging" =~ ^/tmp/bao-gia-deploy\.[a-zA-Z0-9]+$ ]] || exit 1
 source "$staging/deploy.conf"
+APP_PORT=${APP_PORT:-3013}
 export DOCKER_CONFIG="$staging/docker"
 backup="$CONTAINER-previous-${staging##*.}"
 candidate="$CONTAINER-candidate-${staging##*.}"
@@ -36,7 +37,7 @@ docker pull "$IMAGE"
 check_health() {
   local name=$1
   for ((attempt=0; attempt<30; attempt++)); do
-    if docker exec "$name" node -e 'fetch("http://127.0.0.1:3013/api/health", {signal: AbortSignal.timeout(3000)}).then(async r => {if (!r.ok || (await r.json()).status !== "ok") process.exit(1)}).catch(() => process.exit(1))' >/dev/null 2>&1; then
+    if docker exec "$name" node -e 'fetch("http://127.0.0.1:" + process.env.PORT + "/api/health", {signal: AbortSignal.timeout(3000)}).then(async r => {if (!r.ok || (await r.json()).status !== "ok") process.exit(1)}).catch(() => process.exit(1))' >/dev/null 2>&1; then
       return 0
     fi
     sleep 2
@@ -56,7 +57,7 @@ if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
   docker stop "$backup" >/dev/null
 fi
 docker create --name "$CONTAINER" --restart unless-stopped \
-  --env-file "$staging/app.env" -p "$BIND_ADDRESS:$HOST_PORT:3013" \
+  --env-file "$staging/app.env" -p "$BIND_ADDRESS:$HOST_PORT:$APP_PORT" \
   --label app=bao-gia "$IMAGE" >/dev/null
 new_created=true
 docker start "$CONTAINER" >/dev/null

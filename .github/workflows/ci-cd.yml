@@ -107,32 +107,12 @@ jobs:
       - name: Deploy and verify container
         shell: bash
         env:
-          VPS_HOST: ${{ secrets.VPS_HOST }}
-          VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          VPS_KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
-          VPS_SSH_PORT: ${{ vars.VPS_SSH_PORT || '22' }}
-          VPS_APP_PORT: ${{ vars.VPS_APP_PORT || '3013' }}
-          VPS_BIND_ADDRESS: ${{ vars.VPS_BIND_ADDRESS || '127.0.0.1' }}
-          VPS_CONTAINER_NAME: ${{ vars.VPS_CONTAINER_NAME || 'bao-gia' }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          ENV_FILE: ${{ vars.ENV_FILE }}
           IMAGE: ${{ needs.publish-image.outputs.image }}@${{ needs.publish-image.outputs.digest }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MONGODB_URI: ${{ secrets.MONGODB_URI }}
-          MONGODB_USER: ${{ secrets.MONGODB_USER }}
-          MONGODB_PASSWORD: ${{ secrets.MONGODB_PASSWORD }}
-          MONGODB_AUTH_SOURCE: ${{ vars.MONGODB_AUTH_SOURCE || 'admin' }}
-          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
-          SESSION_COOKIE_SECURE: ${{ vars.SESSION_COOKIE_SECURE || 'true' }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          OPENROUTER_MODEL: ${{ vars.OPENROUTER_MODEL || 'openai/gpt-4.1-mini' }}
-          CLOUDINARY_CLOUD_NAME: ${{ vars.CLOUDINARY_CLOUD_NAME }}
-          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
-          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
-          DEFAULT_TAX_RATE: ${{ vars.DEFAULT_TAX_RATE || '0' }}
-          CURRENCY: ${{ vars.CURRENCY || 'VND' }}
-          SEED_ADMIN_EMAIL: ${{ vars.SEED_ADMIN_EMAIL }}
-          SEED_ADMIN_PASSWORD: ${{ secrets.SEED_ADMIN_PASSWORD }}
-          SEED_ADMIN_NAME: ${{ vars.SEED_ADMIN_NAME }}
-          SEED_ADMIN_COMPANY_NAME: ${{ vars.SEED_ADMIN_COMPANY_NAME }}
         run: bash scripts/deploy-ssh.sh
