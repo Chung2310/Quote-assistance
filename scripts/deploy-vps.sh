@@ -42,6 +42,7 @@ if [[ -n "${DOCKER_NETWORK:-}" ]]; then
 fi
 docker login ghcr.io --username "$GHCR_USER" --password-stdin < "$staging/ghcr.token"
 docker pull "$IMAGE"
+docker tag "$IMAGE" "$IMAGE_TAG"
 # Inspect only networking metadata, never other containers' environment.
 docker ps -q > "$staging/container-ids"
 : > "$staging/networks.jsonl"
@@ -87,7 +88,7 @@ check_health() {
   return 1
 }
 # Verify startup before touching the running container or its port.
-docker run -d --name "$candidate" "${network_args[@]}" --env-file "$staging/app.env" "$IMAGE" >/dev/null
+docker run -d --name "$candidate" "${network_args[@]}" --env-file "$staging/app.env" "$IMAGE_TAG" >/dev/null
 check_health "$candidate"
 docker rm -f "$candidate" >/dev/null
 if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
@@ -99,9 +100,9 @@ fi
 docker create --name "$CONTAINER" --restart unless-stopped \
   "${network_args[@]}" \
   --env-file "$staging/app.env" -p "$BIND_ADDRESS:$HOST_PORT:$APP_PORT" \
-  --label app=bao-gia "$IMAGE" >/dev/null
+  --label app=bao-gia "$IMAGE_TAG" >/dev/null
 new_created=true
 docker start "$CONTAINER" >/dev/null
 check_health "$CONTAINER"
 if [[ "$old_moved" == true ]]; then docker rm "$backup" >/dev/null; fi
-echo "Deployment healthy: $CONTAINER ($IMAGE), listening on $BIND_ADDRESS:$HOST_PORT"
+echo "Deployment healthy: $CONTAINER ($IMAGE_TAG), listening on $BIND_ADDRESS:$HOST_PORT"

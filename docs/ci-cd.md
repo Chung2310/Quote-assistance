@@ -36,7 +36,7 @@ VPS Linux x86_64 cần Docker Engine, Bash, tar, flock. SSH_USER phải có quy�
 
 SSH dùng accept-new: nhận host key ở lần kết nối đầu của job, sau đó kiểm tra cùng key trong các kết nối còn lại. Không yêu cầu secret known_hosts riêng.
 
-Container tên bao-gia, restart policy unless-stopped. Cổng host bằng PORT trong ENV_FILE, bind 127.0.0.1. Cấu hình Nginx/Caddy trên VPS chuyển HTTPS tới 127.0.0.1:3013 (hoặc PORT bạn chọn). MongoDB phải truy cập được từ container; localhost trong URI là container ứng dụng, không phải VPS.
+Container tên bao-gia, restart policy unless-stopped. Image hiển thị theo tag nhánh từ GHCR, ví dụ `ghcr.io/<owner>/<repository>:develop`; bản deploy vẫn được pull theo digest. Cổng host bằng PORT trong ENV_FILE, bind 127.0.0.1. Cấu hình Nginx/Caddy trên VPS chuyển HTTPS tới 127.0.0.1:3013 (hoặc PORT bạn chọn). MongoDB phải truy cập được từ container; localhost trong URI là container ứng dụng, không phải VPS.
 
 Nếu MongoDB chạy trong container trên cùng VPS, deploy tự tìm network từ hostname/alias trong MONGODB_URI. Nếu URI dùng localhost/127.0.0.1, deploy tìm container đang publish đúng cổng MongoDB rồi chuyển host/port sang địa chỉ nội bộ của container đó; user/password/database/query được giữ nguyên. Không sửa variable ENV_FILE trên GitHub. Nếu có nhiều container trùng cổng hoặc không tìm được container, deploy dừng và báo rõ. MongoDB chạy trực tiếp trên host không được tự chuyển theo cơ chế này.
 

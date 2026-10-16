@@ -44,6 +44,7 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.name }}
       digest: ${{ steps.publish.outputs.digest }}
+      tag: ${{ steps.metadata.outputs.version }}
     permissions:
       contents: read
       packages: write
@@ -113,6 +114,7 @@ jobs:
           SSH_PORT: ${{ secrets.SSH_PORT }}
           ENV_FILE: ${{ vars.ENV_FILE }}
           IMAGE: ${{ needs.publish-image.outputs.image }}@${{ needs.publish-image.outputs.digest }}
+          IMAGE_TAG: ${{ needs.publish-image.outputs.image }}:${{ needs.publish-image.outputs.tag }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash scripts/deploy-ssh.sh

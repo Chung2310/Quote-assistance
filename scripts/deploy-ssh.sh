@@ -26,6 +26,7 @@ if [[ ! "$remote" =~ ^/tmp/bao-gia-deploy\.[a-zA-Z0-9]+$ ]]; then
 fi
 {
   printf 'IMAGE=%q\n' "$IMAGE"
+  printf 'IMAGE_TAG=%q\n' "$(cat "$staging/image-tag")"
   printf 'GHCR_USER=%q\n' "$GHCR_USER"
   printf 'CONTAINER=%q\n' "bao-gia"
   printf 'HOST_PORT=%q\n' "$app_port"

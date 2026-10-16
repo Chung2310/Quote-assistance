@@ -7,7 +7,7 @@ import { spawnSync } from "node:child_process";
 
 const configuration = {
   SSH_HOST: "example.com", SSH_USER: "deploy", SSH_KEY: "fake-key", SSH_PORT: "22",
-  IMAGE: "ghcr.io/test/app@sha256:" + "a".repeat(64), GHCR_USER: "test", GHCR_TOKEN: "fake-token",
+  IMAGE: "ghcr.io/test/app@sha256:" + "a".repeat(64), IMAGE_TAG: "ghcr.io/test/app:develop", GHCR_USER: "test", GHCR_TOKEN: "fake-token",
   ENV_FILE: "MONGODB_URI=mongodb://db:27017/test\nSESSION_SECRET=" + "x".repeat(32),
 };
 function prepare(overrides, check) {

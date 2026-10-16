@@ -15,6 +15,7 @@ case "$1" in
   network) [[ "$SCENARIO" != missing-network ]] ;;
   login) cat >/dev/null ;;
   pull) [[ "$SCENARIO" != pull-failure ]] ;;
+  tag) exit 0 ;;
   run|create)
     if [[ "${2:-}" == --rm ]]; then
       if [[ "$*" == *DEPLOY_NETWORK=* ]]; then
@@ -60,7 +61,7 @@ for SCENARIO in first-deploy upgrade pull-failure candidate-failure replacement-
   mkdir "$MOCK_STATE"
   if [[ "$SCENARIO" != first-deploy ]]; then touch "$MOCK_STATE/bao-gia-test"; fi
   staging=$(mktemp -d /tmp/bao-gia-deploy.XXXXXXXX)
-  printf 'IMAGE=test-image\nGHCR_USER=test-user\nCONTAINER=bao-gia-test\nHOST_PORT=3013\nBIND_ADDRESS=127.0.0.1\n' > "$staging/deploy.conf"
+  printf 'IMAGE=test-image\nIMAGE_TAG=test-image:develop\nGHCR_USER=test-user\nCONTAINER=bao-gia-test\nHOST_PORT=3013\nBIND_ADDRESS=127.0.0.1\n' > "$staging/deploy.conf"
   touch "$staging/app.env" "$staging/ghcr.token"
   printf 'DOCKER_NETWORK=database-network\n' >> "$staging/deploy.conf"
   cp "$root/scripts/redact-container-logs.mjs" "$staging/redact-container-logs.mjs"
