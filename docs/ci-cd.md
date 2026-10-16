@@ -1,36 +1,63 @@
-# CI/CD
+# CI/CD và deploy VPS
 
-Workflow `.github/workflows/ci-cd.yml` build API và giao diện trên mọi pull request và lần push. Workflow cài dependencies đúng theo `yarn.lock`, sau đó chạy `yarn build`.
+Workflow build trên mỗi pull request/push. Push nhánh develop, nhánh mặc định hoặc tag v* sẽ publish image lên GHCR. Riêng develop tiếp tục **Deploy develop to VPS** qua SSH. Có thể chạy thủ công tại **Actions → CI/CD → Run workflow → develop**.
 
-Sau khi build thành công, push lên nhánh mặc định hoặc tag phiên bản bắt đầu bằng `v` sẽ build và đẩy Docker image lên GitHub Container Registry (GHCR). Image được gắn tag theo tên nhánh/tag phiên bản và mã commit. Workflow dùng `GITHUB_TOKEN`, không cần tạo secret registry riêng. Package trên GHCR mặc định ở chế độ private, trừ khi đổi visibility trong GitHub.
+Deploy dùng digest image vừa build. Các lượt deploy chạy tuần tự; thiếu cấu hình hoặc health check thất bại sẽ làm job báo lỗi.
 
-## Cấu hình môi trường trên GitHub
+## Thiết lập một lần
 
-`.env` không được commit hoặc đưa vào Docker image. Build và publish image không cần `.env`; ứng dụng nhận cấu hình lúc chạy qua environment của container. Trong GitHub, khai báo giá trị tại **Settings → Secrets and variables → Actions**:
+VPS Linux x86_64 cần Docker Engine, Bash, tar và flock. Tài khoản SSH phải có quyền chạy Docker không cần nhập mật khẩu sudo.
 
-- Dùng **Secrets** cho `MONGODB_URI`, `MONGODB_USER`, `MONGODB_PASSWORD`, `SESSION_SECRET`, `OPENROUTER_API_KEY`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` và `SEED_ADMIN_PASSWORD`.
-- Dùng **Variables** cho các giá trị không nhạy cảm như `PORT`, `SESSION_COOKIE_SECURE`, `MONGODB_AUTH_SOURCE`, `OPENROUTER_MODEL`, `CLOUDINARY_CLOUD_NAME`, `DEFAULT_TAX_RATE`, `CURRENCY`, `SEED_ADMIN_EMAIL`, `SEED_ADMIN_NAME` và `SEED_ADMIN_COMPANY_NAME`.
+Tại **Settings → Secrets and variables → Actions → Secrets**, thêm:
 
-`OPENROUTER_SITE_URL` (`http://localhost:3000`) và `OPENROUTER_APP_NAME` (`AI Bao Gia Pilot`) được cố định trong code, không cần khai báo trong `.env` hay GitHub Variables.
+| Secret | Nội dung |
+| --- | --- |
+| VPS_HOST | IPv4 hoặc hostname VPS, không có https:// |
+| VPS_USER | Tài khoản SSH chạy Docker |
+| VPS_SSH_KEY | Private key riêng cho deploy, không có passphrase; public key tương ứng nằm trong authorized_keys của tài khoản VPS |
+| VPS_KNOWN_HOSTS | Dòng known_hosts của VPS đã xác minh từ nguồn tin cậy; cổng khác 22 dùng dạng [host]:port |
+| MONGODB_URI | URI MongoDB có tên database và truy cập được từ container |
+| SESSION_SECRET | Chuỗi bí mật ít nhất 32 ký tự |
 
-GitHub Variables/Secrets không tự động đi theo image GHCR. Bước deploy cần chuyển các giá trị này thành environment variables của container trên máy chủ. Vì chưa có máy chủ/nền tảng đích trong cấu hình, workflow hiện chưa có bước deploy để lấy chúng.
+Secrets tùy chọn: MONGODB_USER và MONGODB_PASSWORD (đi cùng nhau), OPENROUTER_API_KEY, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET, SEED_ADMIN_PASSWORD.
 
-## Chạy image đã phát hành
+GitHub tự cấp GITHUB_TOKEN để publish/pull GHCR. Package phải cho repository này quyền truy cập trong GHCR Actions access.
 
-Cung cấp cấu hình production qua secrets/environment của nền tảng triển khai hoặc file env chỉ lưu trên máy chủ. Không đưa `.env` vào image hay commit lên Git. Tối thiểu cần `MONGODB_URI` và `SESSION_SECRET` riêng, đủ mạnh; đặt `SESSION_COOKIE_SECURE=true` khi chạy sau HTTPS. Bổ sung các biến khác trong `.env.example` nếu cần. MongoDB phải truy cập được từ container; `localhost` bên trong container là chính container đó.
+Tại tab **Variables**, có thể khai báo:
 
-Trên máy chủ có Docker, đăng nhập GHCR nếu package ở chế độ private rồi chạy:
+| Variable | Mặc định |
+| --- | --- |
+| VPS_SSH_PORT | 22 |
+| VPS_CONTAINER_NAME | bao-gia |
+| VPS_APP_PORT | 3013 trên VPS |
+| VPS_BIND_ADDRESS | 127.0.0.1, dùng reverse proxy trên VPS |
+| SESSION_COOKIE_SECURE | true, dùng HTTPS |
+| MONGODB_AUTH_SOURCE | admin |
+| OPENROUTER_MODEL | openai/gpt-4.1-mini |
+| DEFAULT_TAX_RATE | 0 |
+| CURRENCY | VND |
+
+Các variable tùy chọn khác: CLOUDINARY_CLOUD_NAME, SEED_ADMIN_EMAIL, SEED_ADMIN_NAME, SEED_ADMIN_COMPANY_NAME. Tài khoản seed cần cả email và password hoặc để cả hai trống.
+
+Container dùng PORT=3013 và NODE_ENV=production. Mặc định cấu hình Nginx/Caddy HTTPS chuyển tới 127.0.0.1:3013. Nếu cần truy cập trực tiếp bên ngoài VPS, đặt VPS_BIND_ADDRESS=0.0.0.0 và mở cổng tương ứng. Reverse proxy chạy trong container cần cấu hình kết nối host phù hợp. localhost trong MONGODB_URI là chính container ứng dụng, không phải VPS.
+
+## Trình tự deploy
+
+1. Kiểm tra cấu hình và tạo env file tạm từ GitHub Secrets/Variables.
+2. Xác minh SSH host key, chuyển file qua SSH. Env không được commit hoặc đưa vào image.
+3. Đăng nhập GHCR bằng token tạm, pull image theo digest.
+4. Chạy container thử không mở cổng và kiểm tra /api/health.
+5. Giữ container cũ, tạo container mới với restart policy unless-stopped và kiểm tra health lần nữa.
+6. Thành công mới xóa container cũ. Nếu lỗi khi chuyển container, thử khôi phục container cũ và đánh dấu job thất bại.
+
+Có gián đoạn ngắn khi chuyển cổng. Rollback container không hoàn tác dữ liệu MongoDB.
+
+File cấu hình và token tạm được dọn sau khi chạy. Khi mất kết nối hoặc hủy job cưỡng bức, kiểm tra thư mục /tmp/bao-gia-deploy.* trên VPS. Không in Docker inspect đầy đủ vì chứa environment credentials. Kiểm tra trạng thái bằng:
 
 ```sh
-docker pull ghcr.io/OWNER/REPOSITORY:develop
-docker run -d \
-  --name bao-gia \
-  --restart unless-stopped \
-  --env-file /path/to/production.env \
-  -p 3013:3013 \
-  ghcr.io/OWNER/REPOSITORY:develop
+docker ps -a --filter name=bao-gia
+docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' bao-gia
+curl --fail http://127.0.0.1:3013/api/health
 ```
 
-Thay `OWNER/REPOSITORY` bằng tên GitHub viết thường. Ví dụ dùng tag `develop` vì nhánh mặc định được yêu cầu là `develop`. Đặt ứng dụng sau HTTPS và chuyển lưu lượng tới cổng 3013.
-
-Pipeline phát hành image sẵn sàng triển khai; nó chưa kết nối hoặc khởi động lại máy chủ cụ thể nào. Tự động triển khai lên máy chủ cần biết nền tảng, địa chỉ đích và thông tin xác thực. Có thể lưu các thông tin đó trong GitHub environment secrets rồi thêm bước deploy phù hợp sau job `publish-image`.
+Nếu pipeline dừng ở Deploy, xem step **Deploy and verify container**. Lỗi thiếu secret ghi đúng tên cần bổ sung; lỗi SSH cần kiểm tra key, host key và firewall; lỗi health cần xem log ứng dụng trực tiếp trên VPS. Không chia sẻ log chứa mật khẩu/URI kết nối.
