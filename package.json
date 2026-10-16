@@ -15,6 +15,7 @@
     "build": "yarn build:api && yarn build:web",
     "build:api": "yarn workspace @bao-gia/api build",
     "build:web": "yarn workspace @bao-gia/web build",
+    "seed:demo": "yarn build:api && yarn workspace @bao-gia/api seed:demo",
     "start": "yarn workspace @bao-gia/api start"
   }
 }
