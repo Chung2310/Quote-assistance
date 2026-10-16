@@ -70,7 +70,8 @@ export const config = {
   sessionSecret: required("SESSION_SECRET", "development-only-change-me-before-deploy"),
   secureCookie: process.env.SESSION_COOKIE_SECURE === "true",
   openRouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
-  openRouterModel: process.env.OPENROUTER_MODEL ?? "openai/gpt-4.1-mini",
+  openRouterModel: process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731",
+  openRouterFileModel: process.env.OPENROUTER_FILE_MODEL ?? "openai/gpt-4o-mini",
   openRouterSiteUrl: "http://localhost:3000",
   openRouterAppName: "AI Bao Gia Pilot",
   cloudinary: {

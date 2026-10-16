@@ -22,6 +22,7 @@ export interface QuoteTemplate {
   extension: string;
   bytes: number;
   data: Binary;
+  fillPlanCache?: Record<string, TemplateFillPlan>;
   capacity?: number; // Only for previously created placeholder-based quotes.
   createdAt: Date;
   uploadedBy: string;
@@ -71,6 +72,23 @@ export async function templateAiContent(template: QuoteTemplate): Promise<Record
   return [{ type: "text", text }];
 }
 
+export function previewDocxHtml(bytes: Buffer, filename: string) {
+  const zip = openZip(bytes);
+  const part = zip.file("word/document.xml");
+  if (!part) throw new Error("File Word không có nội dung xem trước.");
+  const document = validateXml(part.asText());
+  const escapeHtml = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const paragraphs = Array.from(document.getElementsByTagName("*"))
+    .filter((element) => element.localName === "p")
+    .map((paragraph) => {
+      let text = "";
+      const descendants = paragraph.getElementsByTagName("*");
+      for (let index = 0; index < descendants.length; index++) if (descendants.item(index)?.localName === "t") text += descendants.item(index)?.textContent ?? "";
+      return text ? `<p>${escapeHtml(text)}</p>` : "";
+    }).filter(Boolean).join("\n");
+  return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(filename)}</title><style>body{font:15px/1.65 Arial,sans-serif;color:#27352c;max-width:850px;margin:32px auto;padding:32px;background:#fff;box-shadow:0 2px 18px #0001}p{margin:0 0 9px;min-height:1em}@media(max-width:600px){body{margin:0;padding:18px}}</style></head><body>${paragraphs || "<p>File không có văn bản để xem trước.</p>"}</body></html>`;
+}
+
 const fillSchema = {
   type: "object", additionalProperties: false, required: ["edits", "pdfEdits"],
   properties: {
@@ -84,13 +102,45 @@ const fillSchema = {
 export async function createTemplateFillPlan(template: QuoteTemplate, quote: Quote): Promise<TemplateFillPlan> {
   const raw = await requestTemplatePlan([
     { type: "text", text: JSON.stringify({
-      instruction: "Fill this actual company template using the supplied quote bindings. Never require the user to add placeholders. Office: edits are exact unique XML find/replace operations applied in order to the supplied parts; preserve namespaces, styles, drawings, page settings. Use [[key]] inside XML text nodes. For XLSX use inlineStr cells when replacing shared-string references, preserve cell style attributes; never put localized amounts in numeric <v> cells. Can duplicate existing styled table rows as needed; adjust row/cell references and merges consistently. Replace old example line items, clear unused example rows. PDF: pdfEdits places text within boxes in PDF points (bottom-left origin); erase=true covers old example text only, never labels or logo. Do not overlap boxes. Use existing pages; if layout cannot fit, return empty arrays. All new quote data uses [[key]] bindings, not literal values, so later quantity edits stay accurate. Include the customer's name, total and each item's name, quantity, unit price and line total. Other template-specific sections can remain unchanged when no new data is supplied. Return edits=[] for PDF or pdfEdits=[] for Office.",
-      bindings: quoteValues(quote),
+      instruction: "Create a reusable fill plan for this actual company template. Never require the user to add placeholders. Office: edits are exact unique XML find/replace operations applied in order to the supplied parts; preserve namespaces, styles, drawings, page settings. Use only [[key]] bindings inside XML text nodes, never literal quote data. For XLSX use inlineStr cells when replacing shared-string references, preserve cell style attributes; never put localized amounts in numeric <v> cells. Duplicate existing styled table rows as needed for the specified lineCount; adjust row/cell references and merges consistently. Replace old example line items, clear unused example rows. PDF: pdfEdits places text within boxes in PDF points (bottom-left origin); erase=true covers old example text only, never labels or logo. Do not overlap boxes. Use existing pages; if layout cannot fit, return empty arrays. Include customerName, total and every available line's name, quantity, unit price and line total. Other template-specific sections can remain unchanged when no new data is supplied. Return edits=[] for PDF or pdfEdits=[] for Office.",
+      lineCount: quote.lines.length,
+      availableBindings: Object.keys(quoteValues(quote)),
+      ...(template.extension === "pdf" ? { exampleValues: quoteValues(quote) } : {}),
     }) },
     ...await templateAiContent(template),
   ], fillSchema);
   const plan = validateFillPlan(raw, quote);
   await renderAiTemplate(template, quote, plan);
+  return plan;
+}
+
+export async function getOrCreateTemplateFillPlan(db: Db, template: QuoteTemplate, quote: Quote): Promise<TemplateFillPlan> {
+  const key = String(quote.lines.length);
+  const cached = template.extension === "pdf" || quote.lines.length > 30 ? undefined : template.fillPlanCache?.[key];
+  if (cached) {
+    try {
+      validateFillPlan(cached, quote);
+      await renderAiTemplate(template, quote, cached);
+      return cached;
+    } catch {
+      // A cached plan can fail for unusually long quote values; regenerate it for this quote.
+    }
+  }
+
+  const plan = await createTemplateFillPlan(template, quote);
+  if (template.extension !== "pdf" && quote.lines.length <= 30 && template._id) {
+    const cache = template.fillPlanCache ?? {};
+    const planBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
+    const otherEntries = Object.entries(cache).filter(([entryKey]) => entryKey !== key);
+    const cachedBytes = otherEntries.reduce((total, [, entry]) => total + Buffer.byteLength(JSON.stringify(entry), "utf8"), 0);
+    if (planBytes <= 1024 * 1024 && (key in cache || otherEntries.length < 8) && cachedBytes + planBytes <= 4 * 1024 * 1024) {
+      await db.collection<QuoteTemplate>("quoteTemplates").updateOne(
+        { _id: template._id, companyId: template.companyId },
+        { $set: { [`fillPlanCache.${key}`]: plan } },
+      );
+      template.fillPlanCache = { ...cache, [key]: plan };
+    }
+  }
   return plan;
 }
 
@@ -200,7 +250,7 @@ export function templateDetails(template: QuoteTemplate) {
 export async function currentTemplate(db: Db, companyId: string) {
   const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(companyId) });
   return company?.quoteTemplateId && ObjectId.isValid(company.quoteTemplateId)
-    ? db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: new ObjectId(company.quoteTemplateId), companyId }, { projection: { data: 0 } }) : null;
+    ? db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: new ObjectId(company.quoteTemplateId), companyId }, { projection: { data: 0, fillPlanCache: 0 } }) : null;
 }
 
 export async function savedTemplate(db: Db, companyId: string, snapshot: QuoteTemplateSnapshot) {
@@ -210,7 +260,8 @@ export async function savedTemplate(db: Db, companyId: string, snapshot: QuoteTe
 }
 
 export async function renderTemplate(template: QuoteTemplate, quote: Quote) {
-  if (quote.templateFillPlan) return renderAiTemplate(template, quote, quote.templateFillPlan);
+  const fillPlan = quote.templateFillPlan ?? template.fillPlanCache?.[String(quote.lines.length)];
+  if (fillPlan) return renderAiTemplate(template, quote, fillPlan);
   if (!template.capacity) throw new Error("Báo giá chưa được AI điền theo mẫu. Vui lòng tạo lại báo giá.");
   if (quote.lines.length > template.capacity) throw new Error(`Mẫu cũ chỉ có ${template.capacity} dòng. Hãy tạo báo giá mới để AI điền mẫu.`);
   const values: Record<string, string> = {

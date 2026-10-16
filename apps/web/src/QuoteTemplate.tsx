@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { api, formatDate } from "./api";
+import FilePreview, { type PreviewFile } from "./FilePreview";
 
 export interface TemplateDetails {
   id: string;
@@ -22,6 +23,7 @@ export function QuoteTemplatePanel({ canManage, onContinue, onManage }: { canMan
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [preview, setPreview] = useState<PreviewFile | null>(null);
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -61,11 +63,13 @@ export function QuoteTemplatePanel({ canManage, onContinue, onManage }: { canMan
         <div className="quote-template-card-top"><span className="quote-template-format">{template.extension.toUpperCase()}</span>{template.id === defaultTemplateId && <span className="quote-template-badge">Mặc định</span>}</div>
         <div className="quote-template-art" aria-hidden="true"><div className="quote-template-paper"><span/><i/><i/><div className="quote-template-paper-table"/><i/></div></div>
         <div className="quote-template-card-content"><h3>{template.name || template.originalFilename}</h3><p className="quote-template-filename" title={template.originalFilename}>{template.originalFilename}</p><p className="quote-template-meta">{(template.bytes / 1024).toLocaleString("vi-VN", { maximumFractionDigits: 0 })} KB · {formatDate(template.createdAt)}</p></div>
-        <a className="button button-soft quote-template-download" href={`/api/quote-template/${template.id}/file`} aria-label={`Tải mẫu ${template.name || template.originalFilename}`}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 17v4h16v-4"/></svg>Tải mẫu</a>
+        <button type="button" className="button button-soft quote-template-download" onClick={() => setPreview({ name: template.originalFilename, url: `/api/quote-template/${template.id}/file?preview=1` })}>Xem trước mẫu</button>
+        <a className="text-button quote-template-download-link" href={`/api/quote-template/${template.id}/file`}>Tải mẫu gốc</a>
       </article>)}
     </div> : <p>Doanh nghiệp chưa có mẫu báo giá. {canManage ? "Hãy tải mẫu lên trước khi tạo báo giá đầu tiên." : "Vui lòng nhờ quản trị viên doanh nghiệp bổ sung mẫu."}</p>}
     {!onContinue && nextCursor && <div className="preview-actions"><button className="button button-soft" disabled={loading || loadingMore} onClick={() => void loadMore()}>{loadingMore ? "Đang tải…" : "Xem thêm mẫu"}</button></div>}
     {error && <div className="inline-error" role="alert">{error} <button className="text-button" disabled={loading || loadingMore} onClick={() => void load()}>Tải lại mẫu</button></div>}
+    <FilePreview file={preview} onClose={() => setPreview(null)} />
     {canManage && onContinue && onManage && <button className="button button-soft" onClick={onManage}>Quản lý mẫu báo giá</button>}
     {onContinue && <div className="preview-actions"><button className="button button-primary" disabled={!template || loading || Boolean(error)} onClick={() => template && onContinue(template)}>Tiếp tục tạo báo giá</button></div>}
     {creating && canManage && !onContinue && <CreateTemplateDialog onClose={() => setCreating(false)} onSaved={() => { setCreating(false); void load(); }}/>}
@@ -78,6 +82,7 @@ function CreateTemplateDialog({ onClose, onSaved }: { onClose: () => void; onSav
   const [file, setFile] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
   useEffect(() => {
     const element = dialog.current!;
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -108,9 +113,11 @@ function CreateTemplateDialog({ onClose, onSaved }: { onClose: () => void; onSav
     <form className="email-settings-form" onSubmit={(event) => void upload(event)} aria-busy={busy}>
       <label>Tên mẫu<input autoFocus type="text" value={name} maxLength={200} required disabled={busy} placeholder="Nhập tên mẫu báo giá" onChange={(event) => setName(event.target.value)}/></label>
       <label>File mẫu báo giá<input type="file" accept=".docx,.xlsx,.pdf" required disabled={busy} onChange={(event) => { setFile(event.target.files?.[0] ?? null); setError(""); }}/></label>
+      {file && <button type="button" className="text-button" onClick={() => setPreviewFile({ name: file.name, file })}>Xem trước file đã chọn</button>}
       {error && <div className="inline-error" role="alert">{error}</div>}
       {busy && <p role="status">Đang kiểm tra và lưu mẫu…</p>}
       <div className="preview-actions"><button type="button" className="button button-soft" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="button button-primary" disabled={!name.trim() || !file || busy}>{busy ? "Đang lưu…" : "Lưu mẫu"}</button></div>
     </form>
+    <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
   </dialog>;
 }

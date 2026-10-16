@@ -58,3 +58,14 @@ export async function uploadCompanyFile(
   }
   return { publicId: result.public_id, assetId: result.asset_id, resourceType };
 }
+
+export async function downloadCompanyFile(assetId: string, settings: CloudinaryConfig): Promise<Buffer> {
+  if (!settings.cloudName || !settings.apiKey || !settings.apiSecret) throw new Error("Cloudinary chưa được cấu hình.");
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const parameters = { asset_id: assetId, attachment: "false", timestamp };
+  const signature = uploadSignature(parameters, settings.apiSecret);
+  const query = new URLSearchParams({ ...parameters, api_key: settings.apiKey, signature });
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(settings.cloudName)}/asset/download?${query}`, { signal: AbortSignal.timeout(45_000) });
+  if (!response.ok) throw new Error("Không thể tải file từ Cloudinary để xem trước.");
+  return Buffer.from(await response.arrayBuffer());
+}

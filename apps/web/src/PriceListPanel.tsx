@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { api, formatDate } from "./api";
+import FilePreview, { type PreviewFile } from "./FilePreview";
 
 interface StoredPriceList { _id: string; originalFilename: string; bytes: number; updatedAt: string }
 export default function PriceListPanel({ onToast }: { onToast: (message: string) => void }) {
@@ -7,6 +8,7 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [preview, setPreview] = useState<PreviewFile | null>(null);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
     api<{ files: StoredPriceList[] }>("/api/price-list").then(({ files }) => setFiles(files)).catch((cause) => setError(cause.message)).finally(() => setLoading(false));
@@ -40,8 +42,10 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
         <div className="quote-template-card-top"><span className="quote-template-format">{file.originalFilename.split(".").pop()?.toUpperCase()}</span><span className="quote-template-badge">Đã lưu</span></div>
         <div className="quote-template-art" aria-hidden="true"><div className="quote-template-paper"><span /><i /><div className="quote-template-paper-table" /><div className="quote-template-paper-table" /></div></div>
         <div className="quote-template-card-content"><h3>{file.originalFilename}</h3><p className="quote-template-filename">Có thể chọn khi tạo báo giá</p><p className="quote-template-meta">{(file.bytes / 1024).toLocaleString("vi-VN", { maximumFractionDigits: 1 })} KB · Cập nhật {formatDate(file.updatedAt)}</p></div>
+        <button type="button" className="button button-soft quote-template-download" onClick={() => setPreview({ name: file.originalFilename, url: `/api/price-list/${file._id}/file` })}>Xem trước bảng giá</button>
       </article>)}
     </div> : <section className="content-card detail-card"><h2>Chưa có file bảng giá</h2><p>Tải file CSV, XLSX hoặc XLS của doanh nghiệp lên để AI sử dụng.</p></section>}
     <p className="catalog-note">CSV / XLSX / XLS · Tối đa 5 MB mỗi file · Có thể chọn nhiều file cùng lúc.</p>
+    <FilePreview file={preview} onClose={() => setPreview(null)} />
   </div>;
 }

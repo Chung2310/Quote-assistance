@@ -7,6 +7,7 @@ import { hashPassword } from "./password.js";
 import type { CatalogItem, Company, QuoteRequest, UserAccount } from "./types.js";
 import type { PriceList } from "./price-list.js";
 import type { QuoteTemplate } from "./quote-template.js";
+import { requestFileContent, type RequestFile } from "./request-file.js";
 
 interface DemoProduct {
   sku: string;
@@ -22,7 +23,7 @@ interface DemoRequest {
   customerPhone: string;
   requestText: string;
   daysAgo: number;
-  preanalyzedItems?: Array<{ sku: string; quantity: number }>;
+  requestedItems: Array<{ sku: string; quantity: number; note?: string }>;
 }
 
 interface DemoCompany {
@@ -59,9 +60,9 @@ const demoCompanies: DemoCompany[] = [
       { sku: "VP-GHE-ERGONOMIC", name: "Ghế văn phòng lưng lưới công thái học", description: "Ghế lưng lưới, nâng hạ chiều cao, bánh xe", unit: "cái", price: 2850000 },
     ],
     requests: [
-      { customerName: "Công ty Demo Sao Mai", customerEmail: "muahang@saomai.example.test", customerPhone: "090 000 1001", requestText: "Báo giá giúp 10 ream giấy in A4 80gsm, giao trong tuần này.", daysAgo: 1, preanalyzedItems: [{ sku: "VP-GIAY-A4-80", quantity: 10 }] },
-      { customerName: "Trung tâm Demo Hướng Dương", customerEmail: "hanhchinh@huongduong.example.test", customerPhone: "090 000 1002", requestText: "Bên tôi cần 2 máy in laser trắng đen khổ A4, in hai mặt tự động và 2 hộp mực dự phòng. Vui lòng báo giá riêng từng mặt hàng.", daysAgo: 3 },
-      { customerName: "Cửa hàng Demo Bình Minh", customerEmail: "vanphong@binhminh.example.test", customerPhone: "090 000 1003", requestText: "Xin báo giá 6 ghế văn phòng lưng lưới công thái học, giao đến Quận 3. Cho biết thời gian giao hàng và phí vận chuyển.", daysAgo: 6 },
+      { customerName: "Công ty Demo Sao Mai", customerEmail: "muahang@saomai.example.test", customerPhone: "090 000 1001", requestText: "Báo giá giúp 10 ream giấy in A4 80gsm, giao trong tuần này.", daysAgo: 1, requestedItems: [{ sku: "VP-GIAY-A4-80", quantity: 10, note: "Giao trong tuần này." }] },
+      { customerName: "Trung tâm Demo Hướng Dương", customerEmail: "hanhchinh@huongduong.example.test", customerPhone: "090 000 1002", requestText: "Bên tôi cần 2 máy in laser trắng đen khổ A4, in hai mặt tự động và 2 hộp mực dự phòng. Vui lòng báo giá riêng từng mặt hàng.", daysAgo: 3, requestedItems: [{ sku: "VP-MAY-IN-LASER", quantity: 2 }, { sku: "VP-MUC-LASER-2600", quantity: 2, note: "Báo giá riêng từng mặt hàng." }] },
+      { customerName: "Cửa hàng Demo Bình Minh", customerEmail: "vanphong@binhminh.example.test", customerPhone: "090 000 1003", requestText: "Xin báo giá 6 ghế văn phòng lưng lưới công thái học, giao đến Quận 3. Cho biết thời gian giao hàng và phí vận chuyển.", daysAgo: 6, requestedItems: [{ sku: "VP-GHE-ERGONOMIC", quantity: 6, note: "Giao Quận 3; vui lòng báo thời gian giao và phí vận chuyển." }] },
     ],
   },
   {
@@ -83,9 +84,9 @@ const demoCompanies: DemoCompany[] = [
       { sku: "DL-VE-SINH", name: "Vệ sinh và bảo trì máy lạnh treo tường", description: "Vệ sinh lưới lọc, dàn lạnh và kiểm tra vận hành", unit: "máy", price: 280000 },
     ],
     requests: [
-      { customerName: "Văn phòng Demo Hải Âu", customerEmail: "admin@haiau.example.test", customerPhone: "090 000 2001", requestText: "Báo giá 2 máy điều hòa inverter 1.5 HP và công lắp đặt tiêu chuẩn cho văn phòng.", daysAgo: 1, preanalyzedItems: [{ sku: "DL-MAYLANH-15", quantity: 2 }, { sku: "DL-LAPDAT-STD", quantity: 2 }] },
-      { customerName: "Công ty Demo Biển Xanh", customerEmail: "facility@bienxanh.example.test", customerPhone: "090 000 2002", requestText: "Cần 3 máy lạnh inverter 2 HP, lắp đặt tại tầng 2. Dự kiến mỗi máy dùng khoảng 8 mét ống đồng phi 9.52, vui lòng tách vật tư và nhân công.", daysAgo: 4 },
-      { customerName: "Nhà hàng Demo Bếp Việt", customerEmail: "quanly@bepviet.example.test", customerPhone: "090 000 2003", requestText: "Xin báo giá vệ sinh, bảo trì định kỳ 8 máy lạnh treo tường. Có thể thực hiện ngoài giờ mở cửa không?", daysAgo: 7 },
+      { customerName: "Văn phòng Demo Hải Âu", customerEmail: "admin@haiau.example.test", customerPhone: "090 000 2001", requestText: "Báo giá 2 máy điều hòa inverter 1.5 HP và công lắp đặt tiêu chuẩn cho văn phòng.", daysAgo: 1, requestedItems: [{ sku: "DL-MAYLANH-15", quantity: 2 }, { sku: "DL-LAPDAT-STD", quantity: 2 }] },
+      { customerName: "Công ty Demo Biển Xanh", customerEmail: "facility@bienxanh.example.test", customerPhone: "090 000 2002", requestText: "Cần 3 máy lạnh inverter 2 HP, lắp đặt tại tầng 2. Dự kiến mỗi máy dùng khoảng 8 mét ống đồng phi 9.52, vui lòng tách vật tư và nhân công.", daysAgo: 4, requestedItems: [{ sku: "DL-MAYLANH-20", quantity: 3, note: "Lắp tầng 2." }, { sku: "DL-ONGDONG-10", quantity: 24, note: "Khoảng 8 mét cho mỗi máy; tách vật tư." }, { sku: "DL-LAPDAT-STD", quantity: 3, note: "Tách nhân công." }] },
+      { customerName: "Nhà hàng Demo Bếp Việt", customerEmail: "quanly@bepviet.example.test", customerPhone: "090 000 2003", requestText: "Xin báo giá vệ sinh, bảo trì định kỳ 8 máy lạnh treo tường. Có thể thực hiện ngoài giờ mở cửa không?", daysAgo: 7, requestedItems: [{ sku: "DL-VE-SINH", quantity: 8, note: "Hỏi khả năng thực hiện ngoài giờ mở cửa." }] },
     ],
   },
   {
@@ -107,9 +108,9 @@ const demoCompanies: DemoCompany[] = [
       { sku: "BB-TUI-ZIP-20", name: "Túi zipper trong 20 x 30 cm", description: "Túi zipper trong suốt, đóng gói theo túi 100 cái", unit: "túi 100 cái", price: 68000 },
     ],
     requests: [
-      { customerName: "Cửa hàng Demo Mộc Miên", customerEmail: "kho@mocmien.example.test", customerPhone: "090 000 3001", requestText: "Báo giá 500 thùng carton 5 lớp kích thước 60 x 40 x 40 cm, giao một lần.", daysAgo: 1, preanalyzedItems: [{ sku: "BB-CARTON-5L-604040", quantity: 500 }] },
-      { customerName: "Công ty Demo Nông sản Miền Tây", customerEmail: "muahang@nongsan.example.test", customerPhone: "090 000 3002", requestText: "Cần 50 cuộn băng keo trong khổ 48 mm và 20 cuộn màng PE quấn pallet khổ 50 cm. Xin báo riêng từng loại.", daysAgo: 3 },
-      { customerName: "Xưởng Demo Gốm Nhà", customerEmail: "sanxuat@gom-nha.example.test", customerPhone: "090 000 3003", requestText: "Xin báo giá thùng carton 3 lớp 40 x 30 x 30 cm, in logo hai màu, số lượng khoảng 1.000 cái. Báo giúp chi phí làm khuôn in nếu có.", daysAgo: 6 },
+      { customerName: "Cửa hàng Demo Mộc Miên", customerEmail: "kho@mocmien.example.test", customerPhone: "090 000 3001", requestText: "Báo giá 500 thùng carton 5 lớp kích thước 60 x 40 x 40 cm, giao một lần.", daysAgo: 1, requestedItems: [{ sku: "BB-CARTON-5L-604040", quantity: 500, note: "Giao một lần." }] },
+      { customerName: "Công ty Demo Nông sản Miền Tây", customerEmail: "muahang@nongsan.example.test", customerPhone: "090 000 3002", requestText: "Cần 50 cuộn băng keo trong khổ 48 mm và 20 cuộn màng PE quấn pallet khổ 50 cm. Xin báo riêng từng loại.", daysAgo: 3, requestedItems: [{ sku: "BB-BANGKEO-48-100", quantity: 50 }, { sku: "BB-MANG-PE-50", quantity: 20, note: "Báo giá riêng từng loại." }] },
+      { customerName: "Xưởng Demo Gốm Nhà", customerEmail: "sanxuat@gom-nha.example.test", customerPhone: "090 000 3003", requestText: "Xin báo giá thùng carton 3 lớp 40 x 30 x 30 cm, in logo hai màu, số lượng khoảng 1.000 cái. Báo giúp chi phí làm khuôn in nếu có.", daysAgo: 6, requestedItems: [{ sku: "BB-CARTON-3L-403030", quantity: 1000, note: "In logo hai màu. Báo riêng phí khuôn in nếu có trong bảng giá." }] },
     ],
   },
 ];
@@ -118,51 +119,73 @@ function stableObjectId(key: string) {
   return new ObjectId(createHash("sha256").update(`bao-gia-demo:${key}`).digest("hex").slice(0, 24));
 }
 
-function xmlEscape(value: string) {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&apos;");
-}
-
-function wordParagraph(text: string, options: { bold?: boolean; size?: number; align?: "center" | "right" } = {}) {
-  const paragraphProperties = options.align ? `<w:pPr><w:jc w:val="${options.align}"/></w:pPr>` : "";
-  const runProperties = `${options.bold ? "<w:b/>" : ""}${options.size ? `<w:sz w:val="${options.size}"/>` : ""}`;
-  return `<w:p>${paragraphProperties}<w:r><w:rPr>${runProperties}</w:rPr><w:t xml:space="preserve">${xmlEscape(text)}</w:t></w:r></w:p>`;
-}
-
-function wordCell(text: string, width: number, bold = false) {
-  return `<w:tc><w:tcPr><w:tcW w:w="${width}" w:type="dxa"/></w:tcPr>${wordParagraph(text, { bold })}</w:tc>`;
-}
-
 function makeQuoteTemplate(company: DemoCompany) {
-  const widths = [1100, 3700, 700, 1000, 1600, 2000];
-  const row = (cells: string[], bold = false) => `<w:tr>${cells.map((text, index) => wordCell(text, widths[index]!, bold)).join("")}</w:tr>`;
-  const table = `<w:tbl><w:tblPr><w:tblW w:w="10100" w:type="dxa"/><w:tblBorders><w:top w:val="single" w:sz="4" w:color="AAB8B2"/><w:left w:val="single" w:sz="4" w:color="AAB8B2"/><w:bottom w:val="single" w:sz="4" w:color="AAB8B2"/><w:right w:val="single" w:sz="4" w:color="AAB8B2"/><w:insideH w:val="single" w:sz="4" w:color="D5DDD9"/><w:insideV w:val="single" w:sz="4" w:color="D5DDD9"/></w:tblBorders></w:tblPr><w:tblGrid>${widths.map((width) => `<w:gridCol w:w="${width}"/>`).join("")}</w:tblGrid>${row(["Mã hàng", "Tên sản phẩm / dịch vụ", "SL", "Đơn vị", "Đơn giá", "Thành tiền"], true)}${row(["DEMO-001", "Mặt hàng mẫu — thay bằng sản phẩm được báo giá", "1", "cái", "0", "0"])}</w:tbl>`;
-  const body = [
-    wordParagraph(company.name, { bold: true, size: 28, align: "center" }),
-    wordParagraph(`MST: ${company.taxId}  |  ${company.address}`, { align: "center" }),
-    wordParagraph(`Điện thoại: ${company.phone}  |  Email: ${company.businessEmail}`, { align: "center" }),
-    wordParagraph("BÁO GIÁ", { bold: true, size: 36, align: "center" }),
-    wordParagraph("Số báo giá: [Số báo giá]                         Ngày lập: [Ngày lập]"),
-    wordParagraph("THÔNG TIN KHÁCH HÀNG", { bold: true, size: 24 }),
-    wordParagraph("Khách hàng: [Tên khách hàng]"),
-    wordParagraph("Email: [Email khách hàng]                         Điện thoại: [Số điện thoại]"),
-    wordParagraph("NỘI DUNG BÁO GIÁ", { bold: true, size: 24 }),
-    table,
-    wordParagraph("Tạm tính: [Tạm tính]"),
-    wordParagraph("Thuế: [Thuế]"),
-    wordParagraph("TỔNG CỘNG: [Tổng cộng]", { bold: true, size: 24 }),
-    wordParagraph("Điều khoản: Giá có hiệu lực trong 15 ngày kể từ ngày lập báo giá."),
-    wordParagraph("Cảm ơn Quý khách đã quan tâm. Vui lòng liên hệ doanh nghiệp nếu cần thêm thông tin."),
-    wordParagraph(`ĐẠI DIỆN ${company.name.toLocaleUpperCase("vi")}`, { bold: true, align: "right" }),
-    wordParagraph(company.representativeName, { align: "right" }),
-  ].join("");
-  const zip = new PizZip();
-  zip.file("[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`);
-  zip.file("_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`);
-  zip.file("word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
-  zip.file("word/styles.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:eastAsia="Arial"/><w:sz w:val="22"/></w:rPr><w:pPr><w:spacing w:after="120"/></w:pPr></w:style></w:styles>`);
-  zip.file("word/document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="850" w:right="850" w:bottom="850" w:left="850" w:header="425" w:footer="425" w:gutter="0"/></w:sectPr></w:body></w:document>`);
+  const rows: string[][] = Array.from({ length: 28 }, () => Array(13).fill(""));
+  const set = (row: number, column: number, value: string) => { rows[row - 1]![column - 1] = value; };
+  set(1, 1, company.name);
+  set(2, 1, `MST: ${company.taxId}  |  ${company.address}`);
+  set(3, 1, `Điện thoại: ${company.phone}  |  Email: ${company.businessEmail}`);
+  set(4, 1, "BẢNG BÁO GIÁ / DỰ TOÁN");
+  set(6, 1, "Số báo giá"); set(6, 3, "[Số báo giá]"); set(6, 5, "Ngày lập"); set(6, 7, "[Ngày lập]");
+  set(7, 1, "Khách hàng"); set(7, 3, "[Tên khách hàng]"); set(7, 9, "Điện thoại"); set(7, 11, "[Số điện thoại]");
+  set(8, 1, "Email"); set(8, 3, "[Email khách hàng]");
+  set(10, 1, "STT"); set(10, 2, "HÌNH ẢNH SP"); set(10, 3, "TÊN SẢN PHẨM");
+  set(10, 4, "CHẤT LIỆU, QUY CÁCH SP"); set(11, 4, "Vật liệu / cấu hình"); set(11, 5, "Quy cách / xuất xứ");
+  set(10, 6, "THÔNG SỐ"); set(11, 6, "Dài / rộng"); set(11, 7, "Sâu"); set(11, 8, "Cao");
+  set(10, 9, "ĐVT"); set(10, 10, "SL"); set(10, 11, "ĐƠN GIÁ"); set(10, 12, "THÀNH TIỀN"); set(10, 13, "GHI CHÚ");
+  set(12, 1, "DANH MỤC SẢN PHẨM MẪU");
+  company.products.forEach((product, index) => {
+    const row = index + 13;
+    set(row, 1, String(index + 1)); set(row, 2, "Ảnh minh họa"); set(row, 3, product.name);
+    set(row, 4, product.description); set(row, 5, "Quy cách theo yêu cầu khách hàng");
+    set(row, 6, "—"); set(row, 7, "—"); set(row, 8, "—"); set(row, 9, product.unit);
+    set(row, 10, "1"); set(row, 11, product.price.toLocaleString("vi-VN")); set(row, 12, product.price.toLocaleString("vi-VN"));
+    set(row, 13, "Dữ liệu demo");
+  });
+  set(20, 1, "TẠM TÍNH"); set(20, 12, "[Tạm tính]");
+  set(21, 1, "THUẾ VAT"); set(21, 12, "[Tiền thuế]");
+  set(22, 1, "TỔNG CỘNG"); set(22, 12, "[Tổng cộng]");
+  set(24, 1, "Điều khoản: Giá có hiệu lực trong 15 ngày kể từ ngày lập báo giá.");
+  set(25, 1, "Thời gian giao hàng và điều kiện thanh toán sẽ được xác nhận khi chốt đơn.");
+  set(26, 1, "Cảm ơn Quý khách đã quan tâm. Vui lòng liên hệ doanh nghiệp nếu cần thêm thông tin.");
+  set(27, 10, `ĐẠI DIỆN ${company.name.toLocaleUpperCase("vi")}`);
+  set(28, 10, company.representativeName);
+
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  const merge = (range: string) => XLSX.utils.decode_range(range);
+  sheet["!merges"] = [
+    "A1:M1", "A2:M2", "A3:M3", "A4:M4", "A6:B6", "C6:D6", "E6:F6", "G6:H6", "I6:M6",
+    "A7:B7", "C7:H7", "I7:J7", "K7:M7", "A8:B8", "C8:H8", "I8:M8",
+    "A10:A11", "B10:B11", "C10:C11", "D10:E10", "F10:H10", "I10:I11", "J10:J11", "K10:K11", "L10:L11", "M10:M11",
+    "A12:M12", "A20:K20", "L20:M20", "A21:K21", "L21:M21", "A22:K22", "L22:M22",
+    "A24:M24", "A25:M25", "A26:M26", "J27:M27", "J28:M28",
+  ].map(merge);
+  sheet["!cols"] = [8, 14, 36, 29, 29, 12, 10, 10, 12, 10, 18, 18, 22].map((wch) => ({ wch }));
+  sheet["!rows"] = Array.from({ length: 28 }, (_, index) => ({ hpt: index === 0 ? 28 : index === 3 ? 30 : index === 9 || index === 10 ? 25 : index >= 12 && index <= 17 ? 34 : 22 }));
+  sheet["!pageSetup"] = { orientation: "landscape", paperSize: 9, fitToWidth: 1, fitToHeight: 0 };
+  sheet["!margins"] = { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.2, footer: 0.2 };
+  XLSX.utils.book_append_sheet(workbook, sheet, "Dự toán");
+  const zip = new PizZip(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer);
+  zip.file("xl/styles.xml", quoteTemplateStyles);
+  const worksheet = zip.file("xl/worksheets/sheet1.xml");
+  if (!worksheet) throw new Error("Could not create demo quote worksheet.");
+  zip.file("xl/worksheets/sheet1.xml", worksheet.asText().replace(/<c\b[^>]*>/g, (cell) => {
+    const address = cell.match(/\br="([A-Z]+)(\d+)"/);
+    if (!address) return cell;
+    const column = XLSX.utils.decode_col(address[1]!);
+    const row = Number(address[2]);
+    const style = row === 4 ? 1 : row <= 3 || row === 27 || row === 28 ? 2
+      : row === 10 ? 3 : row === 11 ? 4 : row === 12 ? 5
+        : row >= 13 && row <= 18 ? column === 10 || column === 11 ? 7 : 6
+          : row >= 20 && row <= 22 ? row === 22 ? column <= 10 ? 11 : 12 : column <= 10 ? 8 : 9
+            : row >= 24 && row <= 26 ? 10 : row >= 6 && row <= 8 ? 6 : 0;
+    return /\bs="\d+"/.test(cell) ? cell.replace(/\bs="\d+"/, `s="${style}"`) : cell.replace(/\/?>(?=$)/, (end) => ` s="${style}"${end}`);
+  }));
   return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
 }
+
+const quoteTemplateStyles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="0"/><fonts count="6"><font><sz val="11"/><color rgb="FF27352C"/><name val="Arial"/></font><font><b/><sz val="18"/><color rgb="FF176B50"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FF27352C"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font><font><i/><sz val="9"/><color rgb="FF62756D"/><name val="Arial"/></font><font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="Arial"/></font></fonts><fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF176B50"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF3EF"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF5F7F6"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD5DDD9"/></left><right style="thin"><color rgb="FFD5DDD9"/></right><top style="thin"><color rgb="FFD5DDD9"/></top><bottom style="thin"><color rgb="FFD5DDD9"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="13"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="5" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium9" defaultPivotStyle="PivotStyleMedium4"/></styleSheet>`;
 
 function makePriceList(company: DemoCompany, effectiveFrom: string) {
   const workbook = XLSX.utils.book_new();
@@ -178,6 +201,31 @@ function makePriceList(company: DemoCompany, effectiveFrom: string) {
   const sheet = XLSX.utils.json_to_sheet(rows, { header: ["sku", "name", "unit", "price", "currency", "description", "effectiveFrom"] });
   sheet["!cols"] = [{ wch: 24 }, { wch: 44 }, { wch: 14 }, { wch: 16 }, { wch: 12 }, { wch: 52 }, { wch: 16 }];
   XLSX.utils.book_append_sheet(workbook, sheet, "Bang gia demo");
+  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+}
+
+function makeRequestFile(company: DemoCompany, request: DemoRequest) {
+  const productsBySku = new Map(company.products.map((product) => [product.sku, product]));
+  const rows: unknown[][] = [
+    ["YÊU CẦU BÁO GIÁ"],
+    ["Khách hàng", request.customerName, "Email", request.customerEmail],
+    ["Điện thoại", request.customerPhone],
+    [],
+    ["Nội dung yêu cầu", request.requestText],
+    [],
+    ["STT", "Sản phẩm / hạng mục khách yêu cầu", "Số lượng", "Đơn vị", "Thông tin thêm"],
+    ...request.requestedItems.map(({ sku, quantity, note }, index) => {
+      const product = productsBySku.get(sku);
+      if (!product) throw new Error(`Unknown demo SKU ${sku} in ${company.slug}`);
+      return [index + 1, product.name, quantity, product.unit, note ?? ""];
+    }),
+  ];
+  const sheet = XLSX.utils.aoa_to_sheet(rows);
+  sheet["!merges"] = ["A1:E1", "B5:E5"].map((range) => XLSX.utils.decode_range(range));
+  sheet["!cols"] = [{ wch: 12 }, { wch: 48 }, { wch: 13 }, { wch: 14 }, { wch: 56 }];
+  sheet["!rows"] = [{ hpt: 28 }, { hpt: 22 }, { hpt: 22 }, {}, { hpt: 48 }, {}, { hpt: 25 }];
+  const workbook = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(workbook, sheet, "Yêu cầu báo giá");
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
 }
 
@@ -278,14 +326,14 @@ async function seedCompany(db: Db, companyData: DemoCompany, now: Date, effectiv
   await db.collection<PriceList>("priceLists").replaceOne({ _id: priceListId }, priceList, { upsert: true });
 
   const templateId = stableObjectId(`${companyData.slug}:quote-template`);
-  const templateFilename = `mau-bao-gia-${companyData.slug}.docx`;
+  const templateFilename = `mau-bao-gia-${companyData.slug}.xlsx`;
   const templateBytes = makeQuoteTemplate(companyData);
   const template: QuoteTemplate & { _id: ObjectId } = {
     _id: templateId,
     companyId,
     name: `Mẫu báo giá ${companyData.name}`,
     originalFilename: templateFilename,
-    extension: "docx",
+    extension: "xlsx",
     bytes: templateBytes.length,
     data: new Binary(templateBytes),
     createdAt: now,
@@ -295,14 +343,25 @@ async function seedCompany(db: Db, companyData: DemoCompany, now: Date, effectiv
   await companies.updateOne({ _id: company._id }, { $set: { quoteTemplateId: templateId.toHexString(), updatedAt: now } });
 
   const requests = db.collection<QuoteRequest>("quoteRequests");
-  const productsBySku = new Map(catalogItems.map((item) => [item.sku, item]));
+  const requestFiles = db.collection<RequestFile>("requestFiles");
+  const requestFileFilenames: string[] = [];
   for (const [index, demoRequest] of companyData.requests.entries()) {
     const requestId = stableObjectId(`${companyData.slug}:request:${index + 1}`);
-    const preanalyzed = demoRequest.preanalyzedItems?.map(({ sku, quantity }) => {
-      const product = productsBySku.get(sku);
-      if (!product?._id) throw new Error(`Unknown demo SKU ${sku} in ${companyData.slug}`);
-      return { product, quantity };
-    });
+    const requestFileId = stableObjectId(`${companyData.slug}:request-file:${index + 1}`);
+    const requestFileFilename = `yeu-cau-${companyData.slug}-${index + 1}.xlsx`;
+    const requestFileBytes = makeRequestFile(companyData, demoRequest);
+    const requestFile: RequestFile & { _id: ObjectId } = {
+      _id: requestFileId,
+      companyId,
+      uploadedBy: account.id,
+      originalFilename: requestFileFilename,
+      bytes: requestFileBytes.length,
+      data: new Binary(requestFileBytes),
+      createdAt: new Date(now.getTime() - demoRequest.daysAgo * 24 * 60 * 60 * 1000),
+    };
+    await requestFileContent(requestFile);
+    await requestFiles.replaceOne({ _id: requestFileId }, requestFile, { upsert: true });
+    requestFileFilenames.push(requestFileFilename);
     const createdAt = new Date(now.getTime() - demoRequest.daysAgo * 24 * 60 * 60 * 1000);
     const request: QuoteRequest = {
       _id: requestId,
@@ -310,20 +369,14 @@ async function seedCompany(db: Db, companyData: DemoCompany, now: Date, effectiv
       template: { id: templateId.toHexString(), name: template.name, originalFilename: templateFilename },
       priceListId: priceListId.toHexString(),
       priceListFilename,
+      requestFile: { id: requestFileId.toHexString(), originalFilename: requestFileFilename },
       idempotencyKey: `demo-${companyData.slug}-${index + 1}`,
-      customerName: demoRequest.customerName,
-      customerEmail: demoRequest.customerEmail,
-      customerPhone: demoRequest.customerPhone,
-      requestText: demoRequest.requestText,
-      status: preanalyzed ? "matched" : "not_found",
-      items: preanalyzed?.map(({ product, quantity }) => ({
-        catalogItemId: product._id!.toHexString(),
-        quantity,
-        unit: product.unit,
-        attributes: {},
-        evidence: `Yêu cầu demo; đối chiếu ${priceListFilename}, sheet Bang gia demo.`,
-      })) ?? [],
-      ...(preanalyzed ? { candidates: preanalyzed.map(({ product }) => product), analyzedAt: createdAt } : {}),
+      customerName: "",
+      customerEmail: "",
+      customerPhone: "",
+      requestText: "",
+      status: "not_found",
+      items: [],
       missingFields: [],
       createdBy: account.id,
       createdAt,
@@ -339,6 +392,7 @@ async function seedCompany(db: Db, companyData: DemoCompany, now: Date, effectiv
     requestCount: companyData.requests.length,
     priceListFilename,
     templateFilename,
+    requestFileFilenames,
   };
 }
 
@@ -365,7 +419,7 @@ async function main() {
       console.log(`  Login: ${result.adminEmail}`);
       console.log(result.password ? `  Password: ${result.password}` : "  Password: retained from previous seed run");
       console.log(`  Catalog: ${result.productCount} products; requests: ${result.requestCount}`);
-      console.log(`  Files: ${result.priceListFilename}; ${result.templateFilename}`);
+      console.log(`  Files: ${result.templateFilename}; ${result.priceListFilename}; ${result.requestFileFilenames.join(", ")}`);
     }
   } finally {
     await client.close();

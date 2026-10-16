@@ -9,13 +9,13 @@ import { connectDatabase, closeDatabase } from "./db.js";
 import { login, logout, requireAuth, requirePlatformAdmin, requireRole } from "./auth.js";
 import { hashPassword } from "./password.js";
 import { analyzeRequest } from "./ai.js";
-import { analyzePriceList, type PriceList } from "./price-list.js";
+import { analyzePriceList, extractPriceListRows, type PriceList } from "./price-list.js";
 import { requestFileContent, type RequestFile } from "./request-file.js";
 import { createCompanySmtpTransport, encryptSmtpPassword } from "./mail.js";
-import { uploadCompanyFile } from "./cloudinary.js";
+import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot } from "./pricing.js";
 import { attachWeb } from "./web.js";
-import { createTemplateFillPlan, currentTemplate, inspectTemplate, renderTemplate, savedTemplate, templateAiContent, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
+import { currentTemplate, getOrCreateTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, CompanySmtpSettings, Quote, QuoteRequest, QuoteStatus, SessionUser, UserAccount } from "./types.js";
 
 const app = express();
@@ -788,7 +788,7 @@ app.get("/api/quote-templates", requireRole("sales", "admin"), async (request, r
   if (request.query.cursor !== undefined && !cursor) return fail(response, "Trang danh sách mẫu không hợp lệ.");
   const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) }, { projection: { quoteTemplateId: 1 } });
   const templates = await db.collection<QuoteTemplate>("quoteTemplates")
-    .find({ companyId: user.companyId, ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0 } })
+    .find({ companyId: user.companyId, ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0, fillPlanCache: 0 } })
     .sort({ _id: -1 }).limit(13).toArray();
   const page = templates.slice(0, 12);
   response.json({ templates: page.map(templateDetails), defaultTemplateId: company?.quoteTemplateId ?? null, nextCursor: templates.length > 12 ? page[11]._id!.toHexString() : null });
@@ -828,11 +828,26 @@ app.get("/api/quote-template/:id/file", async (request, response) => {
   const id = asId(request.params.id);
   if (!id) return fail(response, "Mã mẫu không hợp lệ.");
   const db = await connectDatabase();
-  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: id, companyId: userOf(request).companyId });
+  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: id, companyId: userOf(request).companyId }, { projection: { fillPlanCache: 0 } });
   if (!template) return fail(response, "Không tìm thấy mẫu.", 404);
+  const bytes = Buffer.from(template.data.buffer);
+  if (request.query.preview === "1" && template.extension === "docx") {
+    response.type("html").setHeader("Content-Disposition", "inline").send(previewDocxHtml(bytes, template.originalFilename));
+    return;
+  }
   response.setHeader("Content-Type", templateFormats[template.extension]);
-  response.setHeader("Content-Disposition", `attachment; filename="template.${template.extension}"; filename*=UTF-8''${encodeURIComponent(template.originalFilename)}`);
-  response.send(Buffer.from(template.data.buffer));
+  response.setHeader("Content-Disposition", `${request.query.preview === "1" ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(template.originalFilename)}`);
+  response.send(bytes);
+});
+
+app.get("/api/price-list/:id/file", async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã bảng giá không hợp lệ.");
+  const file = await (await connectDatabase()).collection<PriceList>("priceLists").findOne({ _id: id, companyId: userOf(request).companyId }, { projection: { analysisRows: 0 } });
+  if (!file) return fail(response, "Không tìm thấy bảng giá.", 404);
+  response.type(file.originalFilename.split(".").pop() === "csv" ? "text/csv" : "application/octet-stream")
+    .setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.originalFilename)}`)
+    .send(Buffer.from(file.data.buffer));
 });
 
 app.get("/api/files", requireRole("admin"), async (request, response) => {
@@ -844,6 +859,18 @@ app.get("/api/files", requireRole("admin"), async (request, response) => {
     .limit(50)
     .toArray();
   response.json({ files: files.map(uploadedFileDetails) });
+});
+
+app.get("/api/files/:id/preview", requireRole("admin"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã tệp không hợp lệ.");
+  const user = userOf(request);
+  const file = await (await connectDatabase()).collection<CompanyFile>("companyFiles").findOne({ _id: id, companyId: user.companyId });
+  if (!file) return fail(response, "Không tìm thấy tệp.", 404);
+  try {
+    const bytes = await downloadCompanyFile(file.assetId, config.cloudinary);
+    response.setHeader("Content-Type", file.mimeType).setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.originalFilename)}`).setHeader("X-Content-Type-Options", "nosniff").send(bytes);
+  } catch (error) { return fail(response, error instanceof Error ? error.message : "Không thể tải tệp xem trước.", 502); }
 });
 
 app.post("/api/files", requireRole("admin"), express.raw({ type: "application/octet-stream", limit: "10mb" }), async (request, response) => {
@@ -917,7 +944,7 @@ app.get("/api/dashboard", async (request, response) => {
 });
 
 app.get("/api/price-list", async (request, response) => {
-  const files = await (await connectDatabase()).collection<PriceList>("priceLists").find({ companyId: userOf(request).companyId }, { projection: { data: 0 } }).sort({ updatedAt: -1, _id: -1 }).toArray();
+  const files = await (await connectDatabase()).collection<PriceList>("priceLists").find({ companyId: userOf(request).companyId }, { projection: { data: 0, analysisRows: 0 } }).sort({ updatedAt: -1, _id: -1 }).toArray();
   response.json({ files });
 });
 
@@ -929,6 +956,8 @@ app.post("/api/price-list", requireRole("admin"), express.raw({ type: "applicati
   if (!originalFilename || originalFilename.length > 255 || !/\.(csv|xlsx|xls)$/i.test(originalFilename)) return fail(response, "Chọn file CSV, XLSX hoặc XLS.");
   const user = userOf(request);
   const file: PriceList = { companyId: user.companyId, originalFilename, bytes: request.body.length, data: new Binary(request.body), uploadedBy: user.id, updatedAt: new Date() };
+  try { file.analysisRows = extractPriceListRows(file); }
+  catch (error) { return fail(response, error instanceof Error ? error.message : "Không đọc được bảng giá.", 422); }
   const db = await connectDatabase();
   const saved = await db.collection<PriceList>("priceLists").insertOne(file);
   await writeAudit(db, user, "price_list_uploaded", "company", user.companyId, { originalFilename });
@@ -1028,6 +1057,22 @@ app.post("/api/request-files", requireRole("sales", "admin"), express.raw({ type
   response.status(201).json({ file: { id: saved.insertedId.toHexString(), originalFilename, bytes: file.bytes } });
 });
 
+app.get("/api/request-files/:id/preview", requireRole("sales", "admin"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã file yêu cầu không hợp lệ.");
+  const user = userOf(request);
+  const file = await (await connectDatabase()).collection<RequestFile>("requestFiles").findOne({ _id: id, companyId: user.companyId });
+  if (!file) return fail(response, "Không tìm thấy file yêu cầu.", 404);
+  const extension = file.originalFilename.split(".").pop()?.toLowerCase() ?? "";
+  const mimeTypes: Record<string, string> = { pdf: "application/pdf", docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", txt: "text/plain; charset=utf-8", csv: "text/csv; charset=utf-8", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xls: "application/vnd.ms-excel" };
+  if (!mimeTypes[extension]) return fail(response, "Định dạng file này chưa hỗ trợ xem trước.", 415);
+  if (extension === "docx") {
+    response.type("html").setHeader("Content-Disposition", "inline").send(previewDocxHtml(Buffer.from(file.data.buffer), file.originalFilename));
+    return;
+  }
+  response.setHeader("Content-Type", mimeTypes[extension]).setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.originalFilename)}`).setHeader("X-Content-Type-Options", "nosniff").send(Buffer.from(file.data.buffer));
+});
+
 app.post("/api/quote-requests", requireRole("sales", "admin"), async (request, response) => {
   const { customerName = "", customerEmail = "", customerPhone = "", requestText = "", idempotencyKey } = request.body ?? {};
   const requestFileId = request.body?.requestFileId ? asId(String(request.body.requestFileId)) : undefined;
@@ -1045,8 +1090,8 @@ app.post("/api/quote-requests", requireRole("sales", "admin"), async (request, r
     response.status(200).json({ request: existing });
     return;
   }
-  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId }, { projection: { data: 0 } });
-  const priceList = await db.collection<PriceList>("priceLists").findOne({ _id: priceListId, companyId: user.companyId }, { projection: { data: 0 } });
+  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId }, { projection: { data: 0, fillPlanCache: 0 } });
+  const priceList = await db.collection<PriceList>("priceLists").findOne({ _id: priceListId, companyId: user.companyId }, { projection: { data: 0, analysisRows: 0 } });
   if (!template || !priceList) return fail(response, "Mẫu báo giá hoặc bảng giá không thuộc doanh nghiệp hoặc không còn tồn tại.", 404);
   const requestFile = requestFileId ? await db.collection<RequestFile>("requestFiles").findOne({ _id: requestFileId, companyId: user.companyId, uploadedBy: user.id }, { projection: { data: 0 } }) : null;
   if (requestFileId && !requestFile) return fail(response, "Không tìm thấy file yêu cầu đã tải lên.", 404);
@@ -1101,16 +1146,24 @@ app.post("/api/quote-requests/:id/analyze", requireRole("sales", "admin"), async
     response.json({ analysis: { status: quoteRequest.status, items: quoteRequest.items, missingFields: quoteRequest.missingFields, customerName: quoteRequest.customerName, customerEmail: quoteRequest.customerEmail }, candidates: quoteRequest.candidates ?? [] });
     return;
   }
-  const catalog = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(user.companyId)).limit(5000).toArray();
-  const template = quoteRequest.template ? await savedTemplate(db, user.companyId, quoteRequest.template) : null;
   const priceLists = await db.collection<PriceList>("priceLists").find({ companyId: user.companyId, ...(quoteRequest.priceListId ? { _id: new ObjectId(quoteRequest.priceListId) } : {}) }).sort({ updatedAt: -1, _id: -1 }).toArray();
   if (quoteRequest.priceListId && !priceLists.length) return fail(response, "Không tìm thấy bảng giá đã chọn.", 404);
+  const catalog = priceLists.length ? [] : await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(user.companyId)).limit(5000).toArray();
+  for (const priceList of priceLists) {
+    if (!priceList.analysisRows) {
+      try { priceList.analysisRows = extractPriceListRows(priceList); }
+      catch (error) { return fail(response, error instanceof Error ? error.message : "Không đọc được bảng giá.", 422); }
+      await db.collection<PriceList>("priceLists").updateOne(
+        { _id: priceList._id, companyId: user.companyId },
+        { $set: { analysisRows: priceList.analysisRows } },
+      );
+    }
+  }
   const requestFile = quoteRequest.requestFile ? await db.collection<RequestFile>("requestFiles").findOne({ _id: new ObjectId(quoteRequest.requestFile.id), companyId: user.companyId, uploadedBy: quoteRequest.createdBy }) : null;
   if (quoteRequest.requestFile && !requestFile) return fail(response, "Không tìm thấy file yêu cầu.", 404);
-  const templateContent = template ? await templateAiContent(template) : [];
   const result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string } = priceLists.length
-    ? await analyzePriceList(quoteRequest.requestText, priceLists, templateContent, requestFile ? await requestFileContent(requestFile) : [])
-    : await analyzeRequest(quoteRequest.requestText, catalog, templateContent);
+    ? await analyzePriceList(quoteRequest.requestText, priceLists, [], requestFile ? await requestFileContent(requestFile) : [])
+    : await analyzeRequest(quoteRequest.requestText, catalog);
   result.customerName = quoteRequest.customerName.trim() || result.customerName || "";
   result.customerEmail = quoteRequest.customerEmail.trim() || result.customerEmail || "";
   const candidates = result.candidates ?? catalog.filter((candidate) => result.items.some((item) => item.catalogItemId === String(candidate._id)));
@@ -1180,6 +1233,7 @@ app.post("/api/quotes", requireRole("sales", "admin"), async (request, response)
     companyId: user.companyId,
     template: source.template,
     ...(source.priceListId ? { priceList: { id: source.priceListId, originalFilename: source.priceListFilename ?? "" } } : {}),
+    ...(source.requestFile ? { requestFile: source.requestFile } : {}),
     idempotencyKey,
     quoteNumber,
     requestId: requestId.toHexString(),
@@ -1194,7 +1248,10 @@ app.post("/api/quotes", requireRole("sales", "admin"), async (request, response)
     createdAt: now,
     updatedAt: now,
   };
-  try { quote.templateFillPlan = await createTemplateFillPlan(template, quote); }
+  try {
+    const plan = await getOrCreateTemplateFillPlan(db, template, quote);
+    if (template.extension === "pdf" || quote.lines.length > 30 || !template.fillPlanCache?.[String(quote.lines.length)]) quote.templateFillPlan = plan;
+  }
   catch (error) { return fail(response, error instanceof Error ? error.message : "AI chưa điền được mẫu báo giá. Hãy thử lại.", 422); }
   try {
     const result = await quotes.insertOne(quote);
@@ -1220,6 +1277,28 @@ app.get("/api/quotes/:id", async (request, response) => {
   const quote = await db.collection<Quote>("quotes").findOne({ _id: id, companyId: userOf(request).companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
   response.json({ quote });
+});
+
+app.get("/api/quotes/:id/request-file/preview", requireRole("sales", "admin"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã báo giá không hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const quote = await db.collection<Quote>("quotes").findOne({ _id: id, companyId: user.companyId });
+  if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
+  const sourceId = asId(quote.requestId);
+  const source = sourceId ? await db.collection<QuoteRequest>("quoteRequests").findOne({ _id: sourceId, companyId: user.companyId }) : null;
+  if (!source?.requestFile) return fail(response, "Yêu cầu này không có file đính kèm.", 404);
+  const file = await db.collection<RequestFile>("requestFiles").findOne({ _id: new ObjectId(source.requestFile.id), companyId: user.companyId, uploadedBy: source.createdBy });
+  if (!file) return fail(response, "Không tìm thấy file yêu cầu.", 404);
+  const extension = file.originalFilename.split(".").pop()?.toLowerCase() ?? "";
+  if (extension === "docx") {
+    response.type("html").setHeader("Content-Disposition", "inline").send(previewDocxHtml(Buffer.from(file.data.buffer), file.originalFilename));
+    return;
+  }
+  const mimeTypes: Record<string, string> = { pdf: "application/pdf", txt: "text/plain; charset=utf-8", csv: "text/csv; charset=utf-8", xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", xls: "application/vnd.ms-excel" };
+  if (!mimeTypes[extension]) return fail(response, "Định dạng file này chưa hỗ trợ xem trước.", 415);
+  response.setHeader("Content-Type", mimeTypes[extension]).setHeader("Content-Disposition", `inline; filename*=UTF-8''${encodeURIComponent(file.originalFilename)}`).setHeader("X-Content-Type-Options", "nosniff").send(Buffer.from(file.data.buffer));
 });
 
 app.patch("/api/quotes/:id", requireRole("sales", "admin"), async (request, response) => {
@@ -1252,14 +1331,24 @@ app.patch("/api/quotes/:id", requireRole("sales", "admin"), async (request, resp
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail.trim() && !validEmail(customerEmail.trim()))) return fail(response, "Vui lòng nhập tên khách hàng và email hợp lệ (nếu có).");
   const customer = { customerName: customerName.trim(), customerEmail: customerEmail.trim(), customerPhone: customerPhone.trim() };
   const updatedQuote = { ...quote, ...totals, ...customer };
-  if (quote.template && quote.templateFillPlan) {
+  if (quote.template) {
     try {
       const template = await savedTemplate(db, user.companyId, quote.template);
-      if (totals.lines.length !== quote.lines.length) updatedQuote.templateFillPlan = await createTemplateFillPlan(template, updatedQuote);
-      else await renderTemplate(template, updatedQuote);
+      if (totals.lines.length !== quote.lines.length) {
+        const plan = await getOrCreateTemplateFillPlan(db, template, updatedQuote);
+        if (template.extension === "pdf" || totals.lines.length > 30 || !template.fillPlanCache?.[String(totals.lines.length)]) updatedQuote.templateFillPlan = plan;
+        else updatedQuote.templateFillPlan = undefined;
+      } else if (!quote.templateFillPlan && !template.fillPlanCache?.[String(totals.lines.length)]) {
+        const plan = await getOrCreateTemplateFillPlan(db, template, updatedQuote);
+        if (template.extension === "pdf" || totals.lines.length > 30 || !template.fillPlanCache?.[String(totals.lines.length)]) updatedQuote.templateFillPlan = plan;
+      }
+      await renderTemplate(template, updatedQuote);
     } catch (error) { return fail(response, error instanceof Error ? error.message : "Không cập nhật được mẫu báo giá.", 422); }
   }
-  await quotes.updateOne({ _id: id, companyId: user.companyId }, { $set: { ...totals, ...customer, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() } });
+  await quotes.updateOne({ _id: id, companyId: user.companyId }, {
+    $set: { ...totals, ...customer, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() },
+    ...(updatedQuote.templateFillPlan ? {} : { $unset: { templateFillPlan: "" } }),
+  });
   await writeAudit(db, user, "quote_recalculated", "quote", id.toHexString(), { total: totals.total });
   response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
 });
@@ -1322,8 +1411,12 @@ app.get("/api/quotes/:id/export", async (request, response) => {
     const template = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
     const bytes = template ? await renderTemplate(template, quote) : await makePdfBuffer(quote);
     const extension = template?.extension ?? "pdf";
+    if (request.query.preview === "1" && extension === "docx") {
+      response.type("html").setHeader("Content-Disposition", "inline").send(previewDocxHtml(bytes, `${quote.quoteNumber}.docx`));
+      return;
+    }
     response.setHeader("Content-Type", templateFormats[extension]);
-    response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.${extension}"`);
+    response.setHeader("Content-Disposition", `${request.query.preview === "1" ? "inline" : "attachment"}; filename="${quote.quoteNumber}.${extension}"`);
     response.send(bytes);
   } catch (error) { return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu.", 422); }
 });

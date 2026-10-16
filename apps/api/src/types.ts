@@ -135,6 +135,7 @@ export interface QuoteLine {
 
 export interface Quote {
   priceList?: { id: string; originalFilename: string };
+  requestFile?: { id: string; originalFilename: string };
   _id?: ObjectId;
   companyId: string;
   template?: QuoteTemplateSnapshot;

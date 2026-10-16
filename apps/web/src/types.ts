@@ -47,6 +47,8 @@ export interface QuoteLine {
 export interface Quote {
   _id: string;
   template?: { id: string; name?: string; originalFilename: string };
+  priceList?: { id: string; originalFilename: string };
+  requestFile?: { id: string; originalFilename: string };
   quoteNumber: string;
   requestId: string;
   customerName: string;
