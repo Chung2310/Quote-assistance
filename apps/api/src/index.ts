@@ -2,17 +2,20 @@ import express from "express";
 import { randomUUID } from "node:crypto";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
-import { ObjectId, type Db, type Document, type Filter } from "mongodb";
+import { Binary, ObjectId, type Db, type Document, type Filter } from "mongodb";
 import PdfPrinter from "pdfmake";
 import { config } from "./config.js";
 import { connectDatabase, closeDatabase } from "./db.js";
 import { login, logout, requireAuth, requirePlatformAdmin, requireRole } from "./auth.js";
 import { hashPassword } from "./password.js";
 import { analyzeRequest } from "./ai.js";
+import { analyzePriceList, type PriceList } from "./price-list.js";
+import { requestFileContent, type RequestFile } from "./request-file.js";
 import { createCompanySmtpTransport, encryptSmtpPassword } from "./mail.js";
 import { uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot } from "./pricing.js";
 import { attachWeb } from "./web.js";
+import { createTemplateFillPlan, currentTemplate, inspectTemplate, renderTemplate, savedTemplate, templateAiContent, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, CompanySmtpSettings, Quote, QuoteRequest, QuoteStatus, SessionUser, UserAccount } from "./types.js";
 
 const app = express();
@@ -234,6 +237,7 @@ function makePdf(quote: Quote) {
       { text: `Số ${quote.quoteNumber}`, style: "subtitle", margin: [0, 4, 0, 24] },
       { text: "THÔNG TIN KHÁCH HÀNG", style: "section" },
       { columns: [{ width: "*", text: `Khách hàng: ${quote.customerName}` }, { width: "*", text: `Email: ${quote.customerEmail || "—"}`, alignment: "right" }], margin: [0, 5, 0, 22] },
+      ...(quote.customerPhone ? [{ text: `Số điện thoại: ${quote.customerPhone}`, margin: [0, 0, 0, 12] as [number, number, number, number] }] : []),
       {
         table: {
           headerRows: 1,
@@ -336,8 +340,8 @@ app.post("/api/auth/register", async (request, response) => {
   const profile = parseCompanyProfile(body);
   if (!validText(name, 200)) return fail(response, "Họ tên người quản trị bắt buộc, tối đa 200 ký tự.");
   if (!validEmail(email)) return fail(response, "Email đăng nhập không hợp lệ.");
-  if (typeof password !== "string" || password.length < 12 || password.length > 200) {
-    return fail(response, "Mật khẩu cần dài từ 12 đến 200 ký tự.");
+  if (typeof password !== "string" || password.length < 7 || password.length > 200) {
+    return fail(response, "Mật khẩu cần dài từ 7 đến 200 ký tự.");
   }
   if (!profile.value) return fail(response, profile.error ?? "Thông tin doanh nghiệp chưa đầy đủ.");
 
@@ -433,8 +437,8 @@ app.post("/api/admin/businesses", requirePlatformAdmin, async (request, response
   const profile = parseCompanyProfile(body);
   if (!validText(name, 200)) return fail(response, "Họ tên người quản trị bắt buộc, tối đa 200 ký tự.");
   if (!validEmail(email)) return fail(response, "Email đăng nhập không hợp lệ.");
-  if (typeof password !== "string" || password.length < 12 || password.length > 200) {
-    return fail(response, "Mật khẩu ban đầu phải dài từ 12 đến 200 ký tự.");
+  if (typeof password !== "string" || password.length < 7 || password.length > 200) {
+    return fail(response, "Mật khẩu ban đầu phải dài từ 7 đến 200 ký tự.");
   }
   if (!profile.value) return fail(response, profile.error ?? "Thông tin doanh nghiệp chưa đầy đủ.");
 
@@ -556,8 +560,8 @@ app.patch("/api/admin/businesses/:id", requirePlatformAdmin, async (request, res
 
 app.put("/api/admin/businesses/:id/password", requirePlatformAdmin, async (request, response) => {
   const password = request.body?.password;
-  if (typeof password !== "string" || password.length < 12 || password.length > 200) {
-    return fail(response, "Mật khẩu mới phải dài từ 12 đến 200 ký tự.");
+  if (typeof password !== "string" || password.length < 7 || password.length > 200) {
+    return fail(response, "Mật khẩu mới phải dài từ 7 đến 200 ký tự.");
   }
   const targetId = request.params.id;
   if (typeof targetId !== "string") return fail(response, "Mã tài khoản không hợp lệ.");
@@ -777,6 +781,60 @@ app.post("/api/settings/email/test", requireRole("admin"), async (request, respo
   }
 });
 
+app.get("/api/quote-templates", requireRole("sales", "admin"), async (request, response) => {
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const cursor = request.query.cursor === undefined ? undefined : asId(String(request.query.cursor));
+  if (request.query.cursor !== undefined && !cursor) return fail(response, "Trang danh sách mẫu không hợp lệ.");
+  const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) }, { projection: { quoteTemplateId: 1 } });
+  const templates = await db.collection<QuoteTemplate>("quoteTemplates")
+    .find({ companyId: user.companyId, ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0 } })
+    .sort({ _id: -1 }).limit(13).toArray();
+  const page = templates.slice(0, 12);
+  response.json({ templates: page.map(templateDetails), defaultTemplateId: company?.quoteTemplateId ?? null, nextCursor: templates.length > 12 ? page[11]._id!.toHexString() : null });
+});
+
+app.get("/api/quote-template", async (request, response) => {
+  const template = await currentTemplate(await connectDatabase(), userOf(request).companyId);
+  response.json({ template: template ? templateDetails(template) : null });
+});
+
+app.post("/api/quote-template", requireRole("admin"), express.raw({ type: "application/octet-stream", limit: "10mb" }), async (request, response) => {
+  if (!Buffer.isBuffer(request.body) || !request.body.length) return fail(response, "Hãy chọn file mẫu báo giá.");
+  let name: string;
+  try { name = decodeURIComponent(request.header("x-template-name") ?? "").trim(); }
+  catch { return fail(response, "Tên mẫu không hợp lệ."); }
+  if (!name || name.length > 200 || /[\u0000-\u001f\u007f]/.test(name)) return fail(response, "Vui lòng nhập tên mẫu, tối đa 200 ký tự.");
+  let originalFilename: string;
+  try { originalFilename = decodeURIComponent(request.header("x-file-name") ?? "").split(/[\\/]/).pop()!.replace(/[\u0000-\u001f]/g, "").trim(); }
+  catch { return fail(response, "Tên file không hợp lệ."); }
+  if (!originalFilename || originalFilename.length > 255) return fail(response, "Tên file không hợp lệ.");
+  const extension = originalFilename.split(".").pop()!.toLowerCase();
+  try { await inspectTemplate(request.body, extension); }
+  catch (error) { return fail(response, error instanceof Error ? error.message : "Không đọc được mẫu báo giá.", 422); }
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const companyId = new ObjectId(user.companyId);
+  if (!await db.collection<Company>("companies").findOne({ _id: companyId })) return fail(response, "Không tìm thấy doanh nghiệp.", 404);
+  const template: QuoteTemplate = { companyId: user.companyId, name, originalFilename, extension, bytes: request.body.length, data: new Binary(request.body), createdAt: new Date(), uploadedBy: user.id };
+  const result = await db.collection<QuoteTemplate>("quoteTemplates").insertOne(template);
+  template._id = result.insertedId;
+  await db.collection<Company>("companies").updateOne({ _id: companyId }, { $set: { quoteTemplateId: result.insertedId.toHexString(), updatedAt: new Date() } });
+  await writeAudit(db, user, "quote_template_uploaded", "company", user.companyId, { templateId: result.insertedId.toHexString(), originalFilename });
+  response.status(201).json({ template: templateDetails(template) });
+});
+
+app.get("/api/quote-template/:id/file", async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã mẫu không hợp lệ.");
+  const db = await connectDatabase();
+  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: id, companyId: userOf(request).companyId });
+  if (!template) return fail(response, "Không tìm thấy mẫu.", 404);
+  response.setHeader("Content-Type", templateFormats[template.extension]);
+  response.setHeader("Content-Disposition", `attachment; filename="template.${template.extension}"; filename*=UTF-8''${encodeURIComponent(template.originalFilename)}`);
+  response.send(Buffer.from(template.data.buffer));
+});
+
 app.get("/api/files", requireRole("admin"), async (request, response) => {
   const db = await connectDatabase();
   const user = userOf(request);
@@ -858,6 +916,25 @@ app.get("/api/dashboard", async (request, response) => {
   response.json({ counts: { total, drafts, pending, approved }, recent });
 });
 
+app.get("/api/price-list", async (request, response) => {
+  const files = await (await connectDatabase()).collection<PriceList>("priceLists").find({ companyId: userOf(request).companyId }, { projection: { data: 0 } }).sort({ updatedAt: -1, _id: -1 }).toArray();
+  response.json({ files });
+});
+
+app.post("/api/price-list", requireRole("admin"), express.raw({ type: "application/octet-stream", limit: "5mb" }), async (request, response) => {
+  if (!Buffer.isBuffer(request.body) || !request.body.length) return fail(response, "Hãy chọn file bảng giá.");
+  let originalFilename: string;
+  try { originalFilename = decodeURIComponent(request.header("x-file-name") ?? "").split(/[\\/]/).pop()!.replace(/[\u0000-\u001f\u007f]/g, "").trim(); }
+  catch { return fail(response, "Tên file không hợp lệ."); }
+  if (!originalFilename || originalFilename.length > 255 || !/\.(csv|xlsx|xls)$/i.test(originalFilename)) return fail(response, "Chọn file CSV, XLSX hoặc XLS.");
+  const user = userOf(request);
+  const file: PriceList = { companyId: user.companyId, originalFilename, bytes: request.body.length, data: new Binary(request.body), uploadedBy: user.id, updatedAt: new Date() };
+  const db = await connectDatabase();
+  const saved = await db.collection<PriceList>("priceLists").insertOne(file);
+  await writeAudit(db, user, "price_list_uploaded", "company", user.companyId, { originalFilename });
+  response.status(201).json({ file: { _id: saved.insertedId.toHexString(), originalFilename, bytes: file.bytes, updatedAt: file.updatedAt } });
+});
+
 app.get("/api/catalog", async (request, response) => {
   const db = await connectDatabase();
   const user = userOf(request);
@@ -937,10 +1014,27 @@ app.post("/api/catalog/import/confirm", requireRole("admin"), async (request, re
   response.json({ imported: normalized.length, inserted: result.upsertedCount, updated: result.modifiedCount });
 });
 
+app.post("/api/request-files", requireRole("sales", "admin"), express.raw({ type: "application/octet-stream", limit: "10mb" }), async (request, response) => {
+  if (!Buffer.isBuffer(request.body) || !request.body.length) return fail(response, "Hãy chọn file yêu cầu.");
+  let originalFilename: string;
+  try { originalFilename = decodeURIComponent(request.header("x-file-name") ?? "").split(/[\\/]/).pop()!.replace(/[\u0000-\u001f\u007f]/g, "").trim(); }
+  catch { return fail(response, "Tên file không hợp lệ."); }
+  if (!originalFilename || originalFilename.length > 255) return fail(response, "Tên file không hợp lệ.");
+  const user = userOf(request);
+  const file: RequestFile = { companyId: user.companyId, uploadedBy: user.id, originalFilename, bytes: request.body.length, data: new Binary(request.body), createdAt: new Date() };
+  try { await requestFileContent(file); }
+  catch (error) { return fail(response, error instanceof Error ? error.message : "Không đọc được file yêu cầu.", 422); }
+  const saved = await (await connectDatabase()).collection<RequestFile>("requestFiles").insertOne(file);
+  response.status(201).json({ file: { id: saved.insertedId.toHexString(), originalFilename, bytes: file.bytes } });
+});
+
 app.post("/api/quote-requests", requireRole("sales", "admin"), async (request, response) => {
-  const { customerName, customerEmail = "", requestText, idempotencyKey } = request.body ?? {};
-  if (!validText(idempotencyKey, 100) || !validText(customerName, 250) || (customerEmail && (typeof customerEmail !== "string" || customerEmail.length > 250)) || !validText(requestText, 10_000)) {
-    fail(response, "Vui lòng nhập tên khách hàng và nội dung yêu cầu (tối đa 10.000 ký tự).");
+  const { customerName = "", customerEmail = "", customerPhone = "", requestText = "", idempotencyKey } = request.body ?? {};
+  const requestFileId = request.body?.requestFileId ? asId(String(request.body.requestFileId)) : undefined;
+  const templateId = asId(String(request.body?.templateId ?? ""));
+  const priceListId = asId(String(request.body?.priceListId ?? ""));
+  if (!validText(idempotencyKey, 100) || typeof customerName !== "string" || customerName.length > 250 || typeof customerPhone !== "string" || customerPhone.length > 50 || typeof customerEmail !== "string" || customerEmail.length > 250 || typeof requestText !== "string" || requestText.length > 10_000 || (!requestText.trim() && !requestFileId) || (request.body?.requestFileId && !requestFileId) || !templateId || !priceListId) {
+    fail(response, "Hãy chọn mẫu báo giá, bảng giá và nhập yêu cầu khách hàng hoặc tải file yêu cầu (văn bản tối đa 10.000 ký tự).");
     return;
   }
   const db = await connectDatabase();
@@ -951,11 +1045,21 @@ app.post("/api/quote-requests", requireRole("sales", "admin"), async (request, r
     response.status(200).json({ request: existing });
     return;
   }
+  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId }, { projection: { data: 0 } });
+  const priceList = await db.collection<PriceList>("priceLists").findOne({ _id: priceListId, companyId: user.companyId }, { projection: { data: 0 } });
+  if (!template || !priceList) return fail(response, "Mẫu báo giá hoặc bảng giá không thuộc doanh nghiệp hoặc không còn tồn tại.", 404);
+  const requestFile = requestFileId ? await db.collection<RequestFile>("requestFiles").findOne({ _id: requestFileId, companyId: user.companyId, uploadedBy: user.id }, { projection: { data: 0 } }) : null;
+  if (requestFileId && !requestFile) return fail(response, "Không tìm thấy file yêu cầu đã tải lên.", 404);
   const document: QuoteRequest = {
     companyId: user.companyId,
+    template: { id: template._id!.toHexString(), name: template.name || template.originalFilename, originalFilename: template.originalFilename },
+    priceListId: priceListId.toHexString(),
+    priceListFilename: priceList.originalFilename,
+    ...(requestFile ? { requestFile: { id: requestFile._id.toHexString(), originalFilename: requestFile.originalFilename } } : {}),
     idempotencyKey,
     customerName: customerName.trim(),
     customerEmail: customerEmail.trim(),
+    customerPhone: customerPhone.trim(),
     requestText: requestText.trim(),
     status: "not_found",
     items: [],
@@ -994,14 +1098,25 @@ app.post("/api/quote-requests/:id/analyze", requireRole("sales", "admin"), async
   const quoteRequest = await requests.findOne({ _id: id, companyId: user.companyId });
   if (!quoteRequest) return fail(response, "Không tìm thấy yêu cầu.", 404);
   if (quoteRequest.analyzedAt) {
-    response.json({ analysis: { status: quoteRequest.status, items: quoteRequest.items, missingFields: quoteRequest.missingFields }, candidates: [] });
+    response.json({ analysis: { status: quoteRequest.status, items: quoteRequest.items, missingFields: quoteRequest.missingFields, customerName: quoteRequest.customerName, customerEmail: quoteRequest.customerEmail }, candidates: quoteRequest.candidates ?? [] });
     return;
   }
   const catalog = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(user.companyId)).limit(5000).toArray();
-  const result = await analyzeRequest(quoteRequest.requestText, catalog);
-  await requests.updateOne({ _id: id, companyId: user.companyId }, { $set: { ...result, analyzedAt: new Date() } });
+  const template = quoteRequest.template ? await savedTemplate(db, user.companyId, quoteRequest.template) : null;
+  const priceLists = await db.collection<PriceList>("priceLists").find({ companyId: user.companyId, ...(quoteRequest.priceListId ? { _id: new ObjectId(quoteRequest.priceListId) } : {}) }).sort({ updatedAt: -1, _id: -1 }).toArray();
+  if (quoteRequest.priceListId && !priceLists.length) return fail(response, "Không tìm thấy bảng giá đã chọn.", 404);
+  const requestFile = quoteRequest.requestFile ? await db.collection<RequestFile>("requestFiles").findOne({ _id: new ObjectId(quoteRequest.requestFile.id), companyId: user.companyId, uploadedBy: quoteRequest.createdBy }) : null;
+  if (quoteRequest.requestFile && !requestFile) return fail(response, "Không tìm thấy file yêu cầu.", 404);
+  const templateContent = template ? await templateAiContent(template) : [];
+  const result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string } = priceLists.length
+    ? await analyzePriceList(quoteRequest.requestText, priceLists, templateContent, requestFile ? await requestFileContent(requestFile) : [])
+    : await analyzeRequest(quoteRequest.requestText, catalog, templateContent);
+  result.customerName = quoteRequest.customerName.trim() || result.customerName || "";
+  result.customerEmail = quoteRequest.customerEmail.trim() || result.customerEmail || "";
+  const candidates = result.candidates ?? catalog.filter((candidate) => result.items.some((item) => item.catalogItemId === String(candidate._id)));
+  await requests.updateOne({ _id: id, companyId: user.companyId }, { $set: { ...result, candidates, ...(priceLists.length ? { priceListFilenames: priceLists.map((file) => file.originalFilename) } : {}), analyzedAt: new Date() } });
   await writeAudit(db, user, "request_analyzed", "quoteRequest", id.toHexString(), { status: result.status, itemCount: result.items.length });
-  response.json({ analysis: result, candidates: result.items.map((item) => catalog.find((candidate) => String(candidate._id) === item.catalogItemId)).filter(Boolean) });
+  response.json({ analysis: result, candidates });
 });
 
 app.get("/api/quotes", async (request, response) => {
@@ -1032,6 +1147,8 @@ app.post("/api/quotes", requireRole("sales", "admin"), async (request, response)
   }
   const source = await db.collection<QuoteRequest>("quoteRequests").findOne({ _id: requestId, companyId: user.companyId });
   if (!source || !source.analyzedAt) return fail(response, "Hãy phân tích yêu cầu trước khi tạo báo giá.");
+  if (!source.template) return fail(response, "Yêu cầu chưa có mẫu báo giá. Vui lòng tạo yêu cầu mới để tự chọn mẫu doanh nghiệp.", 409);
+  const template = await savedTemplate(db, user.companyId, source.template);
   for (const item of requestedItems) {
     if (!isRecord(item) || typeof item.catalogItemId !== "string") {
       return fail(response, "Dòng hàng không hợp lệ.");
@@ -1041,7 +1158,7 @@ app.post("/api/quotes", requireRole("sales", "admin"), async (request, response)
   const catalog = await db.collection<CatalogItem>("catalogItems").find({ _id: { $in: catalogIds }, ...currentCatalogFilter(user.companyId) }).toArray();
   let totals;
   try {
-    totals = calculateQuote(catalog, requestedItems);
+    totals = calculateQuote(source.priceListId ? (source.candidates ?? []) : [...catalog, ...(source.candidates ?? [])], requestedItems);
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không thể tính báo giá.");
   }
@@ -1054,13 +1171,21 @@ app.post("/api/quotes", requireRole("sales", "admin"), async (request, response)
   const quoteNumber = `BG-${year}-${String(counter?.value ?? 1).padStart(5, "0")}`;
   const now = new Date();
   const informationConfirmed = request.body?.informationConfirmed === true;
+  const customerName = request.body?.customerName ?? source.customerName;
+  const customerEmail = request.body?.customerEmail ?? source.customerEmail;
+  const customerPhone = request.body?.customerPhone ?? source.customerPhone ?? "";
+  if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
+  if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail && !validEmail(customerEmail))) return fail(response, "Vui lòng xác nhận tên khách hàng và email hợp lệ (nếu có).");
   const quote: Quote = {
     companyId: user.companyId,
+    template: source.template,
+    ...(source.priceListId ? { priceList: { id: source.priceListId, originalFilename: source.priceListFilename ?? "" } } : {}),
     idempotencyKey,
     quoteNumber,
     requestId: requestId.toHexString(),
-    customerName: source.customerName,
-    customerEmail: source.customerEmail,
+    customerName: customerName.trim(),
+    customerEmail: customerEmail.trim(),
+    customerPhone: customerPhone.trim(),
     ...totals,
     informationNeeded: source.missingFields,
     informationConfirmed,
@@ -1069,6 +1194,8 @@ app.post("/api/quotes", requireRole("sales", "admin"), async (request, response)
     createdAt: now,
     updatedAt: now,
   };
+  try { quote.templateFillPlan = await createTemplateFillPlan(template, quote); }
+  catch (error) { return fail(response, error instanceof Error ? error.message : "AI chưa điền được mẫu báo giá. Hãy thử lại.", 422); }
   try {
     const result = await quotes.insertOne(quote);
     const saved = { ...quote, _id: result.insertedId };
@@ -1118,7 +1245,21 @@ app.patch("/api/quotes/:id", requireRole("sales", "admin"), async (request, resp
   }
   const informationConfirmed = request.body?.informationConfirmed === true || quote.informationConfirmed;
   const nextStatus: QuoteStatus = quote.status === "rejected" || (quote.status === "needs_info" && informationConfirmed) ? "draft" : quote.status;
-  await quotes.updateOne({ _id: id, companyId: user.companyId }, { $set: { ...totals, informationConfirmed, status: nextStatus, updatedAt: new Date() } });
+  const customerName = request.body?.customerName ?? quote.customerName;
+  const customerEmail = request.body?.customerEmail ?? quote.customerEmail;
+  const customerPhone = request.body?.customerPhone ?? quote.customerPhone ?? "";
+  if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
+  if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail.trim() && !validEmail(customerEmail.trim()))) return fail(response, "Vui lòng nhập tên khách hàng và email hợp lệ (nếu có).");
+  const customer = { customerName: customerName.trim(), customerEmail: customerEmail.trim(), customerPhone: customerPhone.trim() };
+  const updatedQuote = { ...quote, ...totals, ...customer };
+  if (quote.template && quote.templateFillPlan) {
+    try {
+      const template = await savedTemplate(db, user.companyId, quote.template);
+      if (totals.lines.length !== quote.lines.length) updatedQuote.templateFillPlan = await createTemplateFillPlan(template, updatedQuote);
+      else await renderTemplate(template, updatedQuote);
+    } catch (error) { return fail(response, error instanceof Error ? error.message : "Không cập nhật được mẫu báo giá.", 422); }
+  }
+  await quotes.updateOne({ _id: id, companyId: user.companyId }, { $set: { ...totals, ...customer, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() } });
   await writeAudit(db, user, "quote_recalculated", "quote", id.toHexString(), { total: totals.total });
   response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
 });
@@ -1170,6 +1311,23 @@ app.post("/api/quotes/:id/reject", requireRole("admin"), async (request, respons
   response.json({ quote: result });
 });
 
+app.get("/api/quotes/:id/export", async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã báo giá không hợp lệ.");
+  const db = await connectDatabase();
+  const quote = await db.collection<Quote>("quotes").findOne({ _id: id, companyId: userOf(request).companyId });
+  if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
+  if (quote.status !== "approved") return fail(response, "Chỉ có thể xuất file sau khi báo giá được duyệt.", 409);
+  try {
+    const template = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
+    const bytes = template ? await renderTemplate(template, quote) : await makePdfBuffer(quote);
+    const extension = template?.extension ?? "pdf";
+    response.setHeader("Content-Type", templateFormats[extension]);
+    response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.${extension}"`);
+    response.send(bytes);
+  } catch (error) { return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu.", 422); }
+});
+
 app.get("/api/quotes/:id/pdf", async (request, response) => {
   const id = asId(request.params.id);
   if (!id) return fail(response, "Mã báo giá không hợp lệ.");
@@ -1178,6 +1336,7 @@ app.get("/api/quotes/:id/pdf", async (request, response) => {
   const quote = await db.collection<Quote>("quotes").findOne({ _id: id, companyId: user.companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
   if (quote.status !== "approved") return fail(response, "Chỉ có thể xuất PDF sau khi báo giá được duyệt.", 409);
+  if (quote.template) return response.redirect(307, `/api/quotes/${quote._id}/export`);
   const pdf = makePdf(quote);
   response.setHeader("Content-Type", "application/pdf");
   response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.pdf"`);
@@ -1202,13 +1361,15 @@ app.post("/api/quotes/:id/email", requireRole("sales", "admin"), async (request,
   let transport: ReturnType<typeof createCompanySmtpTransport> | undefined;
   try {
     transport = createCompanySmtpTransport(company.smtpSettings);
-    const attachment = await makePdfBuffer(quote);
+    const template = quote.template ? await savedTemplate(db, user.companyId, quote.template) : null;
+    const attachment = template ? await renderTemplate(template, quote) : await makePdfBuffer(quote);
+    const extension = template?.extension ?? "pdf";
     await transport.sendMail({
       from: company.smtpSettings.from,
       to: quote.customerEmail,
       subject: `Báo giá ${quote.quoteNumber}`,
-      text: `Kính gửi ${quote.customerName},\n\nChúng tôi gửi bạn báo giá ${quote.quoteNumber} trong tệp PDF đính kèm.\n\nTrân trọng.`,
-      attachments: [{ filename: `${quote.quoteNumber}.pdf`, content: attachment, contentType: "application/pdf" }],
+      text: `Kính gửi ${quote.customerName},\n\nChúng tôi gửi bạn báo giá ${quote.quoteNumber} trong tệp đính kèm.\n\nTrân trọng.`,
+      attachments: [{ filename: `${quote.quoteNumber}.${extension}`, content: attachment, contentType: templateFormats[extension] }],
     });
   } catch {
     return fail(response, "Gửi email không thành công. Hãy kiểm tra cấu hình SMTP hoặc thử lại sau.", 502);
@@ -1227,6 +1388,10 @@ closeWeb = await attachWeb(app, server);
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   console.error("Request failed:", error instanceof Error ? error.message : "unknown error");
   if (response.headersSent) return;
+  if (isRecord(error) && error.type === "entity.too.large") {
+    response.status(413).json({ error: "Tệp hoặc nội dung vượt dung lượng cho phép. Mẫu báo giá tối đa 10 MB." });
+    return;
+  }
   const message = error instanceof Error ? error.message : "Đã có lỗi xảy ra.";
   response.status(500).json({ error: message.includes("Dịch vụ AI") || message.includes("AI trả về") ? message : "Đã có lỗi xảy ra. Vui lòng thử lại." });
 });

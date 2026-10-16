@@ -47,6 +47,7 @@ export interface Company extends Partial<CompanyProfileDetails> {
   normalizedName: string;
   legacyPartitionId?: string;
   smtpSettings?: CompanySmtpSettings;
+  quoteTemplateId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -99,11 +100,18 @@ export interface AnalyzedItem {
 }
 
 export interface QuoteRequest {
+  priceListId?: string;
+  requestFile?: { id: string; originalFilename: string };
+  candidates?: CatalogItem[];
+  priceListFilename?: string;
+  priceListFilenames?: string[];
   _id?: ObjectId;
   companyId: string;
+  template?: QuoteTemplateSnapshot;
   idempotencyKey?: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   requestText: string;
   status: MatchStatus;
   items: AnalyzedItem[];
@@ -126,13 +134,17 @@ export interface QuoteLine {
 }
 
 export interface Quote {
+  priceList?: { id: string; originalFilename: string };
   _id?: ObjectId;
   companyId: string;
+  template?: QuoteTemplateSnapshot;
+  templateFillPlan?: TemplateFillPlan;
   idempotencyKey?: string;
   quoteNumber: string;
   requestId: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   lines: QuoteLine[];
   subtotal: number;
   taxRate: number;
@@ -148,4 +160,15 @@ export interface Quote {
   approvedBy?: string;
   approvedAt?: Date;
   rejectionReason?: string;
+}
+
+export interface TemplateFillPlan {
+  edits: Array<{ part: string; find: string; replace: string }>;
+  pdfEdits: Array<{ page: number; x: number; y: number; width: number; height: number; fontSize: number; text: string; erase: boolean }>;
+}
+
+export interface QuoteTemplateSnapshot {
+  id: string;
+  name?: string;
+  originalFilename: string;
 }

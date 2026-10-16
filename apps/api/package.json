@@ -12,11 +12,17 @@
     "start": "node dist/start.js"
   },
   "dependencies": {
+    "xlsx": "^0.18.5",
+    "@pdf-lib/fontkit": "^1.1.1",
+    "@xmldom/xmldom": "^0.9.12",
+    "docxtemplater": "^3.71.1",
     "dotenv": "^16.6.1",
     "express": "^5.1.0",
     "mongodb": "^6.19.0",
     "nodemailer": "^10.1.1",
-    "pdfmake": "^0.2.20"
+    "pdf-lib": "^1.17.1",
+    "pdfmake": "^0.2.20",
+    "pizzip": "^3.3.0"
   },
   "devDependencies": {
     "@types/express": "^5.0.3",

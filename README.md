@@ -56,11 +56,23 @@ Tên cột tiếng Việt cũng được nhận diện: `mã hàng`, `tên hàng
 
 ## Luồng pilot
 
-1. Admin nhập bảng giá.
-2. Nhân viên tạo yêu cầu, xem gợi ý AI và chọn mặt hàng; nếu AI chưa rõ, có thể tìm trong danh mục.
+1. Admin nhập bảng giá và khai báo mẫu báo giá tại mục **Mẫu báo giá** trong menu.
+2. Popup tạo báo giá có dropdown chọn mẫu (chọn sẵn mẫu mặc định), dropdown chọn bảng giá và ô nhập yêu cầu hoặc tải file yêu cầu. File hỗ trợ TXT, PDF, DOCX, CSV, XLS, XLSX, tối đa 10 MB. AI nhận mẫu và đúng bảng giá đã chọn cùng yêu cầu của khách; nhân viên xác nhận thông tin khách hàng và mặt hàng sau khi phân tích.
 3. Máy chủ đọc giá hiệu lực, chụp tên/mã/đơn vị/đơn giá và tính tạm tính, thuế, tổng tiền.
 4. Nhân viên chỉnh số lượng và gửi duyệt. Quản trị viên của doanh nghiệp có thể duyệt hoặc trả lại với lý do.
-5. Sau khi được doanh nghiệp duyệt, nhân viên có thể tải PDF hoặc gửi trực tiếp cho khách qua SMTP đã cấu hình.
+5. Sau khi được doanh nghiệp duyệt, nhân viên tải file đúng định dạng mẫu hoặc gửi file đó qua SMTP đã cấu hình. Báo giá cũ chưa gắn mẫu vẫn xuất PDF như trước.
+
+## Mẫu báo giá theo doanh nghiệp
+
+Mỗi doanh nghiệp có một mẫu mặc định, hỗ trợ `.docx`, `.xlsx` và `.pdf` (tối đa 10 MB). Trong menu **Mẫu báo giá**, bấm **Tạo mẫu** để nhập tên và chọn file trong popup. Mẫu được lưu trong MongoDB, không phụ thuộc Cloudinary. Chỉ admin doanh nghiệp được thay mẫu; người dùng chỉ truy cập mẫu thuộc doanh nghiệp của mình. Mỗi lần thay tạo một phiên bản mới. Yêu cầu đã bắt đầu và báo giá đã tạo giữ phiên bản mẫu ban đầu.
+
+Doanh nghiệp tải mẫu đang dùng, không cần thêm placeholder, trường đặt tên sẵn hoặc khai báo số dòng sản phẩm. Upload chỉ kiểm tra định dạng và khả năng đọc file, không bắt mẫu có trường khách hàng/tổng tiền. Khi phân tích yêu cầu và tạo bản nháp, hệ thống gửi nội dung mẫu cho OpenRouter: Word/Excel dưới dạng XML giữ cấu trúc, định dạng và ô dữ liệu; PDF gửi nguyên file base64 cùng kích thước trang. Word/Excel giới hạn nội dung gửi AI ở 600.000 ký tự; mẫu lớn hơn vẫn lưu được nhưng bước AI sẽ báo không xử lý được trong một lần.
+
+AI xác định vị trí thay dữ liệu và cách bố trí các dòng sản phẩm dựa trên mẫu và dữ liệu báo giá. Giá/số lượng/tổng tiền vẫn do máy chủ tính và điền qua tham chiếu nội bộ, không lấy giá minh họa trong mẫu. Cách điền được kiểm tra và lưu cùng báo giá; tải file/gửi email sử dụng cách điền đã lưu, không gọi AI lại. Khi sửa số lượng, file dùng giá trị mới; nếu thay số dòng thì hệ thống xác định lại cách điền. Mẫu cũ và báo giá đã tạo trước thay đổi này vẫn được hỗ trợ.
+
+File đầu ra giữ định dạng gốc. Word/Excel áp dụng các thay đổi vào XML của file gốc; các phần logo, kiểu trình bày và tài nguyên khác được giữ trong file. PDF không cần AcroForm: AI chọn vùng để ghi dữ liệu lên trang nền, vùng dữ liệu minh họa cũ có thể được phủ nền trắng (không phải xóa/redact nội dung gốc). Nếu AI trả kết quả thiếu dữ liệu, sai cấu trúc, vị trí PDF chồng nhau hoặc không vừa trang thì hệ thống báo lỗi để thử lại, không trả nguyên mẫu như báo giá hoàn tất. Cần cấu hình `OPENROUTER_API_KEY` và model hỗ trợ structured outputs; xử lý PDF phụ thuộc khả năng đọc file/OCR của model/provider. Kiểm tra bố cục với mẫu thực tế trước khi gửi khách vì cách điền do AI xác định.
+
+Kiểm thử xử lý mẫu: `node --import tsx --test apps/api/src/quote-template.test.ts`.
 
 ## Tài khoản doanh nghiệp
 
@@ -95,7 +107,7 @@ yarn start
 - Mỗi doanh nghiệp có hồ sơ trong collection `companies`; tài khoản đăng nhập lưu mã doanh nghiệp tham chiếu đến hồ sơ đó. Máy chủ lấy mã từ tài khoản đã xác thực và tự giới hạn truy vấn theo mã này; client không thể tự chọn doanh nghiệp trong API. Vẫn cần đánh giá bảo mật trước khi dùng production.
 - Nhật ký ghi các lần nhập giá, phân tích, tạo/sửa/gửi/duyệt/trả lại báo giá và thay đổi cài đặt SMTP. Mật khẩu SMTP được mã hóa trước khi lưu trong MongoDB.
 - PDF hiện là mẫu tối giản, chưa có logo, thông tin pháp nhân, điều khoản thương mại hay thời hạn hiệu lực do chưa có dữ liệu doanh nghiệp.
-- Ngoài phạm vi: PDF/ảnh đầu vào, gửi email tự động, CRM/ERP, nhiều cấp duyệt, bảng giá nhiều bậc, dựng mẫu tổng quát, phân tích giá mặt hàng chưa có và vận hành SaaS production.
+- Ngoài phạm vi: ảnh đầu vào, gửi email tự động, CRM/ERP, nhiều cấp duyệt, bảng giá nhiều bậc, dựng mẫu tổng quát, phân tích giá mặt hàng chưa có và vận hành SaaS production.
 
 ## Lưu trữ tệp và ảnh trên Cloudinary
 

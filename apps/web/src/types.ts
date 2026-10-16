@@ -46,10 +46,12 @@ export interface QuoteLine {
 
 export interface Quote {
   _id: string;
+  template?: { id: string; name?: string; originalFilename: string };
   quoteNumber: string;
   requestId: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   lines: QuoteLine[];
   subtotal: number;
   taxRate: number;
@@ -71,6 +73,7 @@ export interface QuoteRequest {
   _id: string;
   customerName: string;
   customerEmail: string;
+  customerPhone?: string;
   requestText: string;
   status: MatchStatus;
   items: AnalysisItem[];
@@ -79,6 +82,9 @@ export interface QuoteRequest {
 }
 
 export interface Analysis {
+  customerName?: string;
+  customerEmail?: string;
+  customerPhone?: string;
   status: MatchStatus;
   items: AnalysisItem[];
   missingFields: string[];

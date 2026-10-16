@@ -24,8 +24,8 @@ function readSeedAdmin() {
     throw new Error("SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD must both be set or both be empty");
   }
   if (!adminEmail) return undefined;
-  if (adminPassword.length < 12 || adminPassword.length > 200) {
-    throw new Error("SEED_ADMIN_PASSWORD must contain between 12 and 200 characters");
+  if (adminPassword.length < 7 || adminPassword.length > 200) {
+    throw new Error("SEED_ADMIN_PASSWORD must contain between 7 and 200 characters");
   }
   if (adminCompanyName.length > 200) {
     throw new Error("SEED_ADMIN_COMPANY_NAME must be at most 200 characters");
