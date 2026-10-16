@@ -16,7 +16,7 @@ FROM node:20.19-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=3013
-EXPOSE 3013
+# The deployment maps the runtime PORT from ENV_FILE.
 
 RUN corepack enable
 COPY package.json yarn.lock ./
