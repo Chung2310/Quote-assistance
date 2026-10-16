@@ -32,22 +32,62 @@ command -v flock >/dev/null
 exec 9>"/tmp/bao-gia-$CONTAINER.lock"
 flock -w 300 9
 docker info >/dev/null
+network_args=()
+if [[ -n "${DOCKER_NETWORK:-}" ]]; then
+  if ! docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1; then
+    echo "DOCKER_NETWORK does not exist on the VPS. Use the existing MongoDB network in ENV_FILE." >&2
+    exit 1
+  fi
+  network_args=(--network "$DOCKER_NETWORK")
+fi
 docker login ghcr.io --username "$GHCR_USER" --password-stdin < "$staging/ghcr.token"
 docker pull "$IMAGE"
+# Inspect only networking metadata, never other containers' environment.
+docker ps -q > "$staging/container-ids"
+: > "$staging/networks.jsonl"
+while IFS= read -r container_id; do
+  [[ -n "$container_id" ]] || continue
+  docker inspect --format '{"name":{{json .Name}},"networks":{{json .NetworkSettings.Networks}},"ports":{{json .NetworkSettings.Ports}}}' "$container_id" >> "$staging/networks.jsonl"
+done < "$staging/container-ids"
+{
+  cat "$staging/app.env"
+  printf '\0'
+  cat "$staging/networks.jsonl"
+} | docker run --rm -i --network none -e "DEPLOY_NETWORK=${DOCKER_NETWORK:-}" --entrypoint node "$IMAGE" \
+  --input-type=module -e "$(cat "$staging/resolve-mongo-network.mjs")" > "$staging/resolved-config"
+IFS= read -r resolved_network < "$staging/resolved-config" || true
+tail -n +2 "$staging/resolved-config" > "$staging/app.env"
+if [[ -n "$resolved_network" ]]; then
+  [[ "$resolved_network" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ ]] || exit 1
+  docker network inspect "$resolved_network" >/dev/null
+  network_args=(--network "$resolved_network")
+  echo "Using Docker network for MongoDB connectivity."
+fi
 check_health() {
   local name=$1
+  local state
   for ((attempt=0; attempt<30; attempt++)); do
     if docker exec "$name" node -e 'fetch("http://127.0.0.1:" + process.env.PORT + "/api/health", {signal: AbortSignal.timeout(3000)}).then(async r => {if (!r.ok || (await r.json()).status !== "ok") process.exit(1)}).catch(() => process.exit(1))' >/dev/null 2>&1; then
       return 0
     fi
+    state=$(docker inspect --format '{{.State.Status}}' "$name" 2>/dev/null || true)
+    if [[ "$state" == exited || "$state" == dead ]]; then break; fi
     sleep 2
   done
   docker inspect --format 'Container status={{.State.Status}} exit={{.State.ExitCode}}' "$name" >&2 || true
   echo "Health check failed for $name" >&2
+  echo "Startup logs (configuration values redacted):" >&2
+  # Keep raw logs in the private staging directory. Only sanitized output
+  # reaches Actions; use Node from the image, not a VPS Node installation.
+  docker logs --tail 100 "$name" > "$staging/startup.log" 2>&1 || true
+  if ! docker run --rm -i --env-file "$staging/app.env" --entrypoint node "$IMAGE" \
+    --input-type=module -e "$(cat "$staging/redact-container-logs.mjs")" < "$staging/startup.log"; then
+    echo "Unable to sanitize startup logs; raw output withheld. Inspect application logs directly on the VPS." >&2
+  fi
   return 1
 }
 # Verify startup before touching the running container or its port.
-docker run -d --name "$candidate" --env-file "$staging/app.env" "$IMAGE" >/dev/null
+docker run -d --name "$candidate" "${network_args[@]}" --env-file "$staging/app.env" "$IMAGE" >/dev/null
 check_health "$candidate"
 docker rm -f "$candidate" >/dev/null
 if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
@@ -57,6 +97,7 @@ if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
   docker stop "$backup" >/dev/null
 fi
 docker create --name "$CONTAINER" --restart unless-stopped \
+  "${network_args[@]}" \
   --env-file "$staging/app.env" -p "$BIND_ADDRESS:$HOST_PORT:$APP_PORT" \
   --label app=bao-gia "$IMAGE" >/dev/null
 new_created=true

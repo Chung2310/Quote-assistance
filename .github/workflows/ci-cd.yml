@@ -33,7 +33,7 @@ jobs:
 
       - name: Test deployment validation and rollback
         run: |
-          node --test scripts/prepare-deploy.test.mjs
+          node --test scripts/prepare-deploy.test.mjs scripts/redact-container-logs.test.mjs scripts/resolve-mongo-network.test.mjs
           bash scripts/deploy-vps.test.sh
 
   publish-image:

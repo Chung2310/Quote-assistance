@@ -38,6 +38,10 @@ SSH dùng accept-new: nhận host key ở lần kết nối đầu của job, sa
 
 Container tên bao-gia, restart policy unless-stopped. Cổng host bằng PORT trong ENV_FILE, bind 127.0.0.1. Cấu hình Nginx/Caddy trên VPS chuyển HTTPS tới 127.0.0.1:3013 (hoặc PORT bạn chọn). MongoDB phải truy cập được từ container; localhost trong URI là container ứng dụng, không phải VPS.
 
+Nếu MongoDB chạy trong container trên cùng VPS, deploy tự tìm network từ hostname/alias trong MONGODB_URI. Nếu URI dùng localhost/127.0.0.1, deploy tìm container đang publish đúng cổng MongoDB rồi chuyển host/port sang địa chỉ nội bộ của container đó; user/password/database/query được giữ nguyên. Không sửa variable ENV_FILE trên GitHub. Nếu có nhiều container trùng cổng hoặc không tìm được container, deploy dừng và báo rõ. MongoDB chạy trực tiếp trên host không được tự chuyển theo cơ chế này.
+
+Có thể thêm DOCKER_NETWORK=tên-network vào chính ENV_FILE để chỉ định network, không cần thêm GitHub Secret/Variable. Container thử và container chính đều dùng network này. Với Docker default bridge, kết nối dùng IP nội bộ; nếu MongoDB được tạo lại và đổi IP, cần deploy lại ứng dụng. Với network riêng, dùng DNS tên container.
+
 ## Deploy và kiểm tra lỗi
 
 Deploy dùng digest image vừa build; các lượt chạy tuần tự:
@@ -56,3 +60,5 @@ curl --fail http://127.0.0.1:3013/api/health
 ```
 
 Nếu pipeline dừng, xem step **Deploy and verify container**. Lỗi thiếu cấu hình ghi đúng tên cần bổ sung. Không chia sẻ log có mật khẩu hoặc URI kết nối.
+
+Health check dừng sớm nếu container đã exited/dead. Trước khi dọn container lỗi, deploy in tối đa 100 dòng startup log với các giá trị cấu hình và credentials đã che. Điều này giúp phân biệt lỗi MongoDB, tài khoản seed và thiếu module thay vì chỉ có exit code 1.

@@ -28,6 +28,13 @@ test("writes literal secrets without shell evaluation or logging", () => {
 test("missing SSH configuration fails with its name", () => {
   prepare({ SSH_HOST: "" }, (result) => { assert.notEqual(result.status, 0); assert.match(result.stderr, /SSH_HOST/); });
 });
+test("extracts Docker network without exposing it as application configuration", () => {
+  prepare({ ENV_FILE: configuration.ENV_FILE + "\nDOCKER_NETWORK=project_default" }, (result, dir) => {
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(join(dir, "docker-network"), "utf8"), "project_default");
+    assert.ok(!readFileSync(join(dir, "app.env"), "utf8").includes("DOCKER_NETWORK="));
+  });
+});
 test("rejects multiline env injection without exposing secret", () => {
   const secret = "sensitive-value\nPORT=9999";
   prepare({ ENV_FILE: configuration.ENV_FILE + '\nMONGODB_PASSWORD="' + secret + '"' }, (result) => {

@@ -22,6 +22,9 @@ if (!app.SESSION_SECRET || app.SESSION_SECRET.length < 32) throw new Error("ENV_
 app.NODE_ENV = "production";
 app.PORT ||= "3013";
 if (!validPort(app.PORT)) throw new Error("Invalid PORT in ENV_FILE");
+const dockerNetwork = app.DOCKER_NETWORK?.trim() ?? "";
+if (dockerNetwork && !/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(dockerNetwork)) throw new Error("Invalid DOCKER_NETWORK in ENV_FILE");
+delete app.DOCKER_NETWORK;
 const lines = [];
 for (const [name, value] of Object.entries(app)) {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name) || /[\r\n\0]/.test(value)) {
@@ -32,5 +35,6 @@ for (const [name, value] of Object.entries(app)) {
 const directory = process.argv[2];
 writeFileSync(join(directory, "app.env"), lines.join("\n") + "\n", { mode: 0o600 });
 writeFileSync(join(directory, "app-port"), app.PORT, { mode: 0o600 });
+writeFileSync(join(directory, "docker-network"), dockerNetwork, { mode: 0o600 });
 writeFileSync(join(directory, "ssh-key"), env.SSH_KEY.replace(/\r/g, "") + "\n", { mode: 0o600 });
 writeFileSync(join(directory, "ghcr.token"), env.GHCR_TOKEN, { mode: 0o600 });
