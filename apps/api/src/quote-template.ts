@@ -40,7 +40,12 @@ function quoteLineDetails(line: Quote["lines"][number]) {
   return [...description, ...catalogDetails, ...requestedDetails].join(" · ");
 }
 
-const xlsxScalarKeys = ["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt", "subtotal", "shippingFee", "taxRate", "taxAmount", "total", "currency", "validityDays", "completionDate"] as const;
+function quoteAdditionalInformation(quote: Quote) {
+  return Object.entries(quote.additionalInformation ?? {}).filter(([, value]) => value.trim())
+    .map(([field, value]) => `${field}: ${value.trim()}`).join("\n");
+}
+
+const xlsxScalarKeys = ["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt", "subtotal", "shippingFee", "taxRate", "taxAmount", "total", "currency", "validityDays", "completionDate", "additionalInformation"] as const;
 const xlsxLineKeys = ["index", "sku", "name", "details", "quantity", "unit", "unitPrice", "lineTotal"] as const;
 const spreadsheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
@@ -71,12 +76,14 @@ function validateXml(xml: string) {
 }
 
 function quoteValues(quote: Quote): Record<string, string> {
+  const additionalInformation = quoteAdditionalInformation(quote);
   const values: Record<string, string> = {
     quoteNumber: quote.quoteNumber, customerName: quote.customerName, customerEmail: quote.customerEmail, customerPhone: quote.customerPhone ?? "",
     createdAt: new Date(quote.createdAt).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
     subtotal: quote.subtotal.toLocaleString("vi-VN"), shippingFee: (quote.shippingFee ?? 0).toLocaleString("vi-VN"), taxRate: `${quote.taxRate * 100}%`, taxAmount: quote.taxAmount.toLocaleString("vi-VN"), total: quote.total.toLocaleString("vi-VN"), currency: quote.currency,
     validityDays: quote.validityDays == null ? "" : `${quote.validityDays} ngày`,
     completionDate: quote.completionDate ? new Date(`${quote.completionDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }) : "",
+    ...(additionalInformation ? { additionalInformation } : {}),
   };
   quote.lines.forEach((line, index) => {
     values[`line_${index + 1}_index`] = String(index + 1);
@@ -140,7 +147,7 @@ export async function createTemplateFillPlan(template: QuoteTemplate, quote: Quo
   const lineDetails = quote.lines.map((line, index) => ({ line: index + 1, value: quoteLineDetails(line) }));
   const raw = await requestTemplatePlan([
     { type: "text", text: JSON.stringify({
-      instruction: "Create a reusable fill plan for this actual company template. Never require the user to add placeholders. Office: edits are exact unique XML find/replace operations applied in order to the supplied parts; preserve namespaces, styles, drawings, page settings. Use only [[key]] bindings inside XML text nodes, never literal quote data. For XLSX use inlineStr cells when replacing shared-string references, preserve cell style attributes; never put localized amounts in numeric <v> cells. Duplicate existing styled table rows as needed for the specified lineCount; adjust row/cell references and merges consistently. Replace old example line items, clear unused example rows. PDF: pdfEdits places text within boxes in PDF points (bottom-left origin); erase=true covers old example text only, never labels or logo. Do not overlap boxes. Use existing pages; if layout cannot fit, return empty arrays. Include customerName, total and every available line's name, quantity, unit price and line total. When line_n_details is non-empty and the template has a suitable product specification or description area, include it with that line while keeping quantity and prices in their own fields. Other template-specific sections can remain unchanged when no new data is supplied. Return edits=[] for PDF or pdfEdits=[] for Office.",
+       instruction: "Create a reusable fill plan for this actual company template. Never require the user to add placeholders. Office: edits are exact unique XML find/replace operations applied in order to the supplied parts; preserve namespaces, styles, drawings, page settings. Use only [[key]] bindings inside XML text nodes, never literal quote data. For XLSX use inlineStr cells when replacing shared-string references, preserve cell style attributes; never put localized amounts in numeric <v> cells. Duplicate existing styled table rows as needed for the specified lineCount; adjust row/cell references and merges consistently. Replace old example line items, clear unused example rows. PDF: pdfEdits places text within boxes in PDF points (bottom-left origin); erase=true covers old example text only, never labels or logo. Do not overlap boxes. Use existing pages; if layout cannot fit, return empty arrays. Include customerName, total and every available line's name, quantity, unit price and line total. When line_n_details is non-empty and the template has a suitable product specification or description area, include it with that line while keeping quantity and prices in their own fields. If additionalInformation is available and the template has a clear notes or supplementary-information area, include it there. Other template-specific sections can remain unchanged when no new data is supplied. Return edits=[] for PDF or pdfEdits=[] for Office.",
       lineCount: quote.lines.length,
       availableBindings: Object.keys(quoteValues(quote)),
       lineDetails,
@@ -155,7 +162,7 @@ export async function createTemplateFillPlan(template: QuoteTemplate, quote: Quo
 
 export async function getOrCreateTemplateFillPlan(db: Db, template: QuoteTemplate, quote: Quote): Promise<TemplateFillPlan> {
   const hasLineDetails = quote.lines.some((line) => Boolean(quoteLineDetails(line)));
-  const key = `${hasLineDetails ? "v3d" : "v3"}_${quote.lines.length}`;
+  const key = `${hasLineDetails ? "v4d" : "v4"}_${quote.lines.length}_${quoteAdditionalInformation(quote) ? "i1" : "i0"}`;
   const cached = template.extension === "pdf" || quote.lines.length > 30 ? undefined : template.fillPlanCache?.[key];
   if (cached) {
     try {
@@ -169,7 +176,7 @@ export async function getOrCreateTemplateFillPlan(db: Db, template: QuoteTemplat
 
   const plan = await createTemplateFillPlan(template, quote);
   if (template.extension !== "pdf" && quote.lines.length <= 30 && template._id) {
-    const cache = Object.fromEntries(Object.entries(template.fillPlanCache ?? {}).filter(([entryKey]) => entryKey.startsWith("v3") && entryKey !== key));
+    const cache = Object.fromEntries(Object.entries(template.fillPlanCache ?? {}).filter(([entryKey]) => entryKey.startsWith("v4") && entryKey !== key));
     const planBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
     const otherEntries = Object.entries(cache);
     const cachedBytes = otherEntries.reduce((total, [, entry]) => total + Buffer.byteLength(JSON.stringify(entry), "utf8"), 0);
@@ -376,7 +383,7 @@ const xlsxMapSchema = {
   },
 };
 
-function xlsxPlanKey(quote: Quote) { return `v2_${quote.lines.length}_${quote.lines.map((line) => quoteLineDetails(line) ? "1" : "0").join("")}`; }
+function xlsxPlanKey(quote: Quote) { return `v3_${quote.lines.length}_${quote.lines.map((line) => quoteLineDetails(line) ? "1" : "0").join("")}_${quoteAdditionalInformation(quote) ? "i1" : "i0"}`; }
 
 function normalizeSheetLabel(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLocaleLowerCase("vi").replace(/[^a-z0-9]+/g, " ").trim();
@@ -455,6 +462,12 @@ function inferXlsxTemplateFillPlan(template: QuoteTemplate, quote: Quote): XlsxT
     if (candidateRows.length < quote.lines.length) continue;
     const columns = new Map(header.columns);
     const cells = [{ key: "customerName", sheet: sheet.name, cell: customerLabel.ref }, { key: "total", sheet: sheet.name, cell: totalTarget.ref }];
+    if (quoteAdditionalInformation(quote)) {
+      const noteLabel = [...sheet.cells.values()].find((cell) => /^(ghi chu|thong tin bo sung|ghi chu them|additional information|notes?)$/.test(normalizeSheetLabel(cell.value)));
+      const notePoint = noteLabel ? parseCellRef(noteLabel.ref) : undefined;
+      const noteCell = notePoint ? sheet.cells.get(`${columnLetters(columnNumber(notePoint.column) + 1)}${notePoint.row}`) : undefined;
+      if (noteCell && !noteCell.formula) cells.push({ key: "additionalInformation", sheet: sheet.name, cell: noteCell.ref });
+    }
     const lineRows = candidateRows.slice(0, quote.lines.length).map((row) => ({
       sheet: sheet.name,
       row,
@@ -477,8 +490,8 @@ export async function createXlsxTemplateFillPlan(template: QuoteTemplate, quote:
   }
   const info = workbookInfo(template);
   const raw = await requestTemplatePlan([{ type: "text", text: JSON.stringify({
-    instruction: "Map the supplied quote fields to existing cells in this Excel quote template. Return cell coordinates only; never return XML edits. `cells` maps scalar keys to cells. `lineRows` must contain exactly one row per quote product, in order, and all its cells must be in that same existing row. Include name, quantity, unitPrice and lineTotal for every line. Also include sku and unit when the template has columns for them, and details when it has a description/specification column. Map quoteNumber, customerName and total when those fields have a suitable location. Map other scalar keys only when the template has a matching field. Use only listed cell coordinates and row numbers; never use formulas as text cells. Formula cells may be mapped only to numeric amount/quantity fields: the server will preserve each formula and update its cached result. Do not map labels, headers, terms, seller details, logos, or decorative cells. If the template does not have enough existing product rows or a suitable place for required values, return empty arrays.",
-    requiredScalars: ["customerName", "total"], availableScalars: xlsxScalarKeys, lineCount: quote.lines.length,
+    instruction: "Map the supplied quote fields to existing cells in this Excel quote template. Return cell coordinates only; never return XML edits. `cells` maps scalar keys to cells. `lineRows` must contain exactly one row per quote product, in order, and all its cells must be in that same existing row. Include name, quantity, unitPrice and lineTotal for every line. Also include sku and unit when the template has columns for them, and details when it has a description/specification column. Map quoteNumber, customerName and total when those fields have a suitable location. Map additionalInformation only when supplied and when the template has a clear notes or supplementary-information cell. Map other scalar keys only when the template has a matching field. Use only listed cell coordinates and row numbers; never use formulas as text cells. Formula cells may be mapped only to numeric amount/quantity fields: the server will preserve each formula and update its cached result. Do not map labels, headers, terms, seller details, logos, or decorative cells. If the template does not have enough existing product rows or a suitable place for required values, return empty arrays.",
+    requiredScalars: ["customerName", "total"], availableScalars: xlsxScalarKeys.filter((key) => key !== "additionalInformation" || Boolean(quoteAdditionalInformation(quote))), lineCount: quote.lines.length,
     lines: quote.lines.map((line, index) => ({ index: index + 1, detailsAvailable: Boolean(quoteLineDetails(line)), hasDescription: Boolean(line.description?.trim()) })),
     workbook: JSON.parse(xlsxWorkbookSummary(template, info)),
   }) }], xlsxMapSchema);
@@ -576,12 +589,14 @@ export function validateXlsxTemplateFillPlan(raw: unknown, template: QuoteTempla
 }
 
 function xlsxQuoteValues(quote: Quote): Record<string, string | number> {
+  const additionalInformation = quoteAdditionalInformation(quote);
   const values: Record<string, string | number> = {
     quoteNumber: quote.quoteNumber, customerName: quote.customerName, customerEmail: quote.customerEmail, customerPhone: quote.customerPhone ?? "",
     createdAt: new Date(quote.createdAt).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
     subtotal: quote.subtotal, shippingFee: quote.shippingFee ?? 0, taxRate: quote.taxRate, taxAmount: quote.taxAmount, total: quote.total, currency: quote.currency,
     validityDays: quote.validityDays ?? "",
     completionDate: quote.completionDate ? new Date(`${quote.completionDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }) : "",
+    ...(additionalInformation ? { additionalInformation } : {}),
   };
   quote.lines.forEach((line, index) => {
     const lineValues: Record<string, string | number> = {

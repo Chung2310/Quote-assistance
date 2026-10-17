@@ -32,8 +32,18 @@ export interface AnalysisItem {
   evidence: string;
 }
 
+export interface SuggestedProduct {
+  name: string;
+  description: string;
+  unit: string;
+  quantity: number;
+  informationField?: string;
+}
+
 export interface QuoteLine {
   catalogItemId: string;
+  source?: "catalog" | "supplemental";
+  supplementalFor?: string;
   sku: string;
   name: string;
   description?: string;
@@ -69,6 +79,8 @@ export interface Quote {
   total: number;
   currency: string;
   informationNeeded: string[];
+  additionalInformation?: Record<string, string>;
+  suggestedProducts?: SuggestedProduct[];
   informationConfirmed: boolean;
   status: QuoteStatus;
   createdBy: string;
@@ -88,6 +100,7 @@ export interface QuoteRequest {
   status: MatchStatus;
   items: AnalysisItem[];
   missingFields: string[];
+  suggestedProducts?: SuggestedProduct[];
   createdAt: string;
 }
 
@@ -98,4 +111,5 @@ export interface Analysis {
   status: MatchStatus;
   items: AnalysisItem[];
   missingFields: string[];
+  suggestedProducts?: SuggestedProduct[];
 }

@@ -14,9 +14,9 @@ import { analyzePriceList, extractPriceListRows, type PriceList, type PriceListA
 import { requestFileContent, type RequestFile } from "./request-file.js";
 import { createCompanySmtpTransport, encryptSmtpPassword } from "./mail.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
-import { calculateQuote, recalculateSnapshot } from "./pricing.js";
+import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
-import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isTaxInformation } from "./quote-terms.js";
+import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { attachWeb } from "./web.js";
 import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, CompanySmtpSettings, Quote, QuoteRequest, QuoteStatus, SessionUser, UserAccount } from "./types.js";
@@ -37,7 +37,10 @@ function quoteForResponse(quote: Quote): Quote {
   );
   if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
   if (!shippingFeeConfirmed && !informationNeeded.some(isShippingInformation)) informationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
-  const unresolved = informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed;
+  const unresolved = informationNeeded.some((field) => isSupplementalProductInformation(field)
+    ? !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field)
+    : !quote.additionalInformation?.[field]?.trim())
+    || !taxRateConfirmed || !shippingFeeConfirmed;
   const status = quote.status === "draft" || quote.status === "needs_info"
     ? unresolved ? "needs_info" : "draft"
     : quote.status;
@@ -55,7 +58,10 @@ function quoteForResponse(quote: Quote): Quote {
 
 function quoteHasUnresolvedInformation(quote: Quote) {
   const normalized = quoteForResponse(quote);
-  return normalized.informationNeeded.length > 0 || !normalized.taxRateConfirmed || !normalized.shippingFeeConfirmed;
+  return normalized.informationNeeded.some((field) => isSupplementalProductInformation(field)
+    ? !normalized.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field)
+    : !normalized.additionalInformation?.[field]?.trim())
+    || !normalized.taxRateConfirmed || !normalized.shippingFeeConfirmed;
 }
 
 interface CatalogImportRow {
@@ -1386,7 +1392,7 @@ app.post("/api/quote-requests/:id/analyze", requireRole("user"), async (request,
   const quoteRequest = await requests.findOne({ _id: id, companyId: user.companyId });
   if (!quoteRequest) return fail(response, "Không tìm thấy yêu cầu.", 404);
   if (quoteRequest.analyzedAt) {
-    response.json({ analysis: { status: quoteRequest.status, items: quoteRequest.items, missingFields: quoteRequest.missingFields, customerName: quoteRequest.customerName, customerEmail: quoteRequest.customerEmail }, candidates: quoteRequest.candidates ?? [] });
+    response.json({ analysis: { status: quoteRequest.status, items: quoteRequest.items, missingFields: quoteRequest.missingFields, suggestedProducts: quoteRequest.suggestedProducts ?? [], customerName: quoteRequest.customerName, customerEmail: quoteRequest.customerEmail }, candidates: quoteRequest.candidates ?? [] });
     return;
   }
   const priceLists = quoteRequest.priceListId
@@ -1410,6 +1416,16 @@ app.post("/api/quote-requests/:id/analyze", requireRole("user"), async (request,
   const result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string } = priceLists.length
     ? await analyzePriceList(quoteRequest.requestText, priceLists, [], requestFile ? await requestFileContent(requestFile) : [])
     : await analyzeRequest(quoteRequest.requestText, catalog);
+  const suggestedProducts = (result.suggestedProducts ?? []).slice(0, 30);
+  if (suggestedProducts.length) {
+    const boundProducts = suggestedProducts.map((product, index) => ({
+      ...product,
+      informationField: `Sản phẩm cần bổ sung giá #${index + 1}: ${product.name}`,
+    }));
+    const otherMissingFields = result.missingFields.filter((field) => !isSupplementalProductInformation(field));
+    result.suggestedProducts = boundProducts;
+    result.missingFields = [...new Set([...otherMissingFields.slice(0, Math.max(0, 30 - boundProducts.length)), ...boundProducts.map((product) => product.informationField!)])];
+  }
   result.customerName = quoteRequest.customerName.trim() || result.customerName || "";
   result.customerEmail = quoteRequest.customerEmail.trim() || result.customerEmail || "";
   const candidates = result.candidates ?? catalog.filter((candidate) => result.items.some((item) => item.catalogItemId === String(candidate._id)));
@@ -1464,8 +1480,12 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
       unit: item.unit,
       attributes: requestedAttributes.get(String(item.catalogItemId)) ?? {},
     }));
-    const quoteCatalog = source.priceListId ? (source.candidates ?? []).map((item) => ({ ...item, description: "" })) : [...catalog, ...(source.candidates ?? [])];
-    totals = calculateQuote(quoteCatalog, trustedRequestedItems);
+    if (!trustedRequestedItems.length && source.suggestedProducts?.length) {
+      totals = { lines: [], subtotal: 0, taxRate: config.taxRate, taxAmount: 0, total: 0, currency: config.currency };
+    } else {
+      const quoteCatalog = source.priceListId ? (source.candidates ?? []).map((item) => ({ ...item, description: "" })) : [...catalog, ...(source.candidates ?? [])];
+      totals = calculateQuote(quoteCatalog, trustedRequestedItems);
+    }
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không thể tính báo giá.");
   }
@@ -1508,6 +1528,8 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
     taxAmount: taxRateConfirmed ? totals.taxAmount : 0,
     total: totals.subtotal + (taxRateConfirmed ? totals.taxAmount : 0) + (shippingFeeConfirmed ? shippingFee ?? 0 : 0),
     informationNeeded,
+    additionalInformation: {},
+    suggestedProducts: source.suggestedProducts ?? [],
     informationConfirmed,
     status: informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed ? "needs_info" : "draft",
     createdBy: user.id,
@@ -1576,11 +1598,69 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   const quote = await quotes.findOne({ _id: id, companyId: user.companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
   if (quote.status !== "draft" && quote.status !== "needs_info" && quote.status !== "pending_review" && quote.status !== "rejected") return fail(response, "Chỉ có thể chỉnh sửa báo giá đang ở trạng thái nháp, chờ duyệt hoặc cần chỉnh sửa.", 409);
-  if (updates.some((item: unknown) => !isRecord(item) || typeof item.catalogItemId !== "string" || !quote.lines.some((line) => line.catalogItemId === item.catalogItemId))) {
-    return fail(response, "Không thể thêm mặt hàng ngoài danh sách đã phân tích.");
+  const catalogLines = quote.lines.filter((line) => line.source !== "supplemental");
+  const updateIds = updates.map((item: unknown) => isRecord(item) && typeof item.catalogItemId === "string" ? item.catalogItemId : "");
+  if (updates.length !== catalogLines.length || new Set(updateIds).size !== updateIds.length || updates.some((item: unknown) => !isRecord(item) || typeof item.catalogItemId !== "string" || !catalogLines.some((line) => line.catalogItemId === item.catalogItemId))) {
+    return fail(response, "Danh sách sản phẩm trong báo giá đã thay đổi. Vui lòng tải lại trang rồi thử lại.");
   }
   const body = isRecord(request.body) ? request.body : {};
   const currentQuote = quoteForResponse(quote);
+  let additionalInformation = { ...(currentQuote.additionalInformation ?? {}) };
+  if (Object.prototype.hasOwnProperty.call(body, "additionalInformation")) {
+    if (!isRecord(body.additionalInformation) || Object.keys(body.additionalInformation).length > 30) return fail(response, "Thông tin bổ sung không hợp lệ (tối đa 30 mục).");
+    const allowedFields = new Set([...currentQuote.informationNeeded, ...Object.keys(additionalInformation)]);
+    additionalInformation = {};
+    let totalAnswerLength = 0;
+    for (const [field, value] of Object.entries(body.additionalInformation)) {
+      if (!allowedFields.has(field) || typeof value !== "string" || value.length > 2000) return fail(response, "Mỗi câu trả lời phải ứng với mục còn thiếu và không vượt quá 2.000 ký tự.");
+      const answer = value.trim();
+      if (answer) {
+        totalAnswerLength += field.length + answer.length;
+        if (totalAnswerLength > 12000) return fail(response, "Tổng nội dung bổ sung không được vượt quá 12.000 ký tự.");
+        additionalInformation[field] = answer;
+      }
+    }
+  }
+  const existingSupplementalLines = quote.lines.filter((line) => line.source === "supplemental");
+  const rawSupplementalProducts = Object.prototype.hasOwnProperty.call(body, "supplementalProducts")
+    ? body.supplementalProducts
+    : existingSupplementalLines.map((line) => ({
+      id: line.catalogItemId, informationField: line.supplementalFor, name: line.name, description: line.description ?? "",
+      unit: line.unit, quantity: line.quantity, unitPrice: line.unitPrice,
+    }));
+  if (!Array.isArray(rawSupplementalProducts) || rawSupplementalProducts.length > 30) return fail(response, "Báo giá chỉ được bổ sung tối đa 30 dòng sản phẩm.");
+  const existingSupplementalById = new Map(existingSupplementalLines.map((line) => [line.catalogItemId, line]));
+  const usedSupplementalIds = new Set<string>();
+  const supplementalLines: Quote["lines"] = [];
+  for (const rawProduct of rawSupplementalProducts) {
+    if (!isRecord(rawProduct)) return fail(response, "Dòng sản phẩm bổ sung không hợp lệ.");
+    const name = typeof rawProduct.name === "string" ? rawProduct.name.trim() : "";
+    if (rawProduct.description !== undefined && typeof rawProduct.description !== "string") return fail(response, "Quy cách sản phẩm bổ sung không hợp lệ.");
+    const description = typeof rawProduct.description === "string" ? rawProduct.description.trim() : "";
+    const unit = typeof rawProduct.unit === "string" ? rawProduct.unit.trim() : "";
+    const quantity = rawProduct.quantity;
+    const unitPrice = rawProduct.unitPrice;
+    if (!validText(name, 250) || description.length > 2000 || !validText(unit, 50)) return fail(response, "Mỗi dòng bổ sung cần có tên sản phẩm và đơn vị tính hợp lệ.");
+    if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) return fail(response, "Số lượng sản phẩm bổ sung phải lớn hơn 0 và không vượt quá 1.000.000.");
+    if (typeof unitPrice !== "number" || !Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 1e12) return fail(response, "Đơn giá sản phẩm bổ sung phải là số tiền không âm.");
+    if (rawProduct.id !== undefined && typeof rawProduct.id !== "string") return fail(response, "Mã dòng sản phẩm bổ sung không hợp lệ.");
+    const requestedId = typeof rawProduct.id === "string" ? rawProduct.id : "";
+    const existingLine = requestedId ? existingSupplementalById.get(requestedId) : undefined;
+    if (requestedId && !existingLine) return fail(response, "Không thể sửa dòng sản phẩm bổ sung không thuộc báo giá này.");
+    const id = existingLine?.catalogItemId ?? `supplemental:${randomUUID()}`;
+    if (usedSupplementalIds.has(id)) return fail(response, "Không thể lặp lại một dòng sản phẩm bổ sung.");
+    usedSupplementalIds.add(id);
+    if (rawProduct.informationField !== undefined && typeof rawProduct.informationField !== "string") return fail(response, "Mục thiếu thông tin không hợp lệ.");
+    const informationField = typeof rawProduct.informationField === "string" ? rawProduct.informationField : existingLine?.supplementalFor;
+    if (informationField && (!currentQuote.informationNeeded.includes(informationField) || !isSupplementalProductInformation(informationField))) {
+      return fail(response, "Mục thông tin cần bổ sung không khớp với sản phẩm.");
+    }
+    supplementalLines.push({
+      catalogItemId: id, source: "supplemental", ...(informationField ? { supplementalFor: informationField } : {}),
+      sku: "", name, description, quantity, unit, unitPrice, currency: quote.currency, catalogAttributes: {}, attributes: {},
+      lineTotal: roundMoney(quantity * unitPrice),
+    });
+  }
   const taxRate = Object.prototype.hasOwnProperty.call(body, "taxRate") ? Number(body.taxRate) : quote.taxRate;
   if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 1) return fail(response, "Thuế suất VAT phải từ 0 đến 100%.");
   if (Object.prototype.hasOwnProperty.call(body, "taxRateConfirmed") && typeof body.taxRateConfirmed !== "boolean") return fail(response, "Trạng thái xác nhận VAT không hợp lệ.");
@@ -1599,16 +1679,22 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   if (completionDate !== null && (!parsedCompletionDate || Number.isNaN(parsedCompletionDate.getTime()) || parsedCompletionDate.toISOString().slice(0, 10) !== completionDate)) return fail(response, "Hạn hoàn thành không hợp lệ.");
   let totals;
   try {
-    const recalculated = recalculateSnapshot(quote.lines, updates.map((item: Record<string, unknown>) => ({
+    const recalculated = recalculateSnapshot(catalogLines, updates.map((item: Record<string, unknown>) => ({
       catalogItemId: String(item.catalogItemId), quantity: Number(item.quantity),
     })), taxRateConfirmed ? taxRate : 0);
+    const lines = [...recalculated.lines, ...supplementalLines];
+    const subtotal = roundMoney(lines.reduce((sum, line) => sum + line.lineTotal, 0));
+    const taxAmount = roundMoney(subtotal * (taxRateConfirmed ? taxRate : 0));
     totals = {
       ...recalculated,
+      lines,
+      subtotal,
       taxRate,
       taxRateConfirmed,
+      taxAmount,
       shippingFee,
       shippingFeeConfirmed,
-      total: Math.round((recalculated.subtotal + recalculated.taxAmount + (shippingFeeConfirmed ? shippingFee ?? 0 : 0)) * 100) / 100,
+      total: roundMoney(subtotal + taxAmount + (shippingFeeConfirmed ? shippingFee ?? 0 : 0)),
     };
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không thể tính lại báo giá.");
@@ -1619,7 +1705,10 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   );
   if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
   if (!shippingFeeConfirmed && !informationNeeded.some(isShippingInformation)) informationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
-  const unresolved = informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed;
+  const unresolved = informationNeeded.some((field) => isSupplementalProductInformation(field)
+    ? !supplementalLines.some((line) => line.supplementalFor === field)
+    : !additionalInformation[field]?.trim())
+    || !taxRateConfirmed || !shippingFeeConfirmed;
   const nextStatus: QuoteStatus = unresolved ? "needs_info"
     : quote.status === "rejected" || quote.status === "needs_info" ? "draft" : quote.status;
   const customerName = request.body?.customerName ?? quote.customerName;
@@ -1628,10 +1717,19 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail.trim() && !validEmail(customerEmail.trim()))) return fail(response, "Vui lòng nhập tên khách hàng và email hợp lệ (nếu có).");
   const customer = { customerName: customerName.trim(), customerEmail: customerEmail.trim(), customerPhone: customerPhone.trim() };
-  const updatedQuote = { ...quote, ...totals, ...customer, informationNeeded, validityDays, completionDate };
+  const hadAdditionalInformation = Object.values(currentQuote.additionalInformation ?? {}).some((answer) => answer.trim());
+  const hasAdditionalInformation = Object.values(additionalInformation).some((answer) => answer.trim());
+  const additionalInformationBindingChanged = hadAdditionalInformation !== hasAdditionalInformation;
+  const updatedQuote = {
+    ...quote, ...totals, ...customer, informationNeeded, additionalInformation, validityDays, completionDate,
+    ...(additionalInformationBindingChanged ? { templateFillPlan: undefined, xlsxTemplateFillPlan: undefined } : {}),
+  };
+  const unsetFillPlans: Record<string, ""> = {};
+  if (!updatedQuote.templateFillPlan) unsetFillPlans.templateFillPlan = "";
+  if (!updatedQuote.xlsxTemplateFillPlan) unsetFillPlans.xlsxTemplateFillPlan = "";
   await quotes.updateOne({ _id: id, companyId: user.companyId }, {
-    $set: { ...totals, ...customer, informationNeeded, validityDays, completionDate, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() },
-    ...(updatedQuote.templateFillPlan ? {} : { $unset: { templateFillPlan: "" } }),
+    $set: { ...totals, ...customer, informationNeeded, additionalInformation, validityDays, completionDate, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), ...(updatedQuote.xlsxTemplateFillPlan ? { xlsxTemplateFillPlan: updatedQuote.xlsxTemplateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() },
+    ...(Object.keys(unsetFillPlans).length ? { $unset: unsetFillPlans } : {}),
   });
   await writeAudit(db, user, "quote_recalculated", "quote", id.toHexString(), { total: totals.total });
   const updated = await quotes.findOne({ _id: id, companyId: user.companyId });
@@ -1698,7 +1796,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
   const quote = quoteForResponse(storedQuote);
   if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể xuất báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   const preview = request.query.preview === "1";
-  if (quote.status !== "approved" && !(preview && quote.status === "pending_review")) return fail(response, "Chỉ có thể xuất file sau khi báo giá được duyệt.", 409);
+  if (quote.status !== "approved" && !preview) return fail(response, "Chỉ có thể tải file chính thức sau khi báo giá được duyệt.", 409);
   try {
     const template = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
     let renderQuote = quote;
@@ -1709,7 +1807,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     } else if (template) {
       const plan = await getOrCreateTemplateFillPlan(db, template, quote);
       renderQuote = { ...quote, templateFillPlan: plan };
-      const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v3d" : "v3"}_${quote.lines.length}`;
+      const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v4d" : "v4"}_${quote.lines.length}_${Object.values(quote.additionalInformation ?? {}).some((answer) => answer.trim()) ? "i1" : "i0"}`;
       if (template.extension === "pdf" || quote.lines.length > 30 || !template.fillPlanCache?.[fillPlanKey]) {
         await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
       }
