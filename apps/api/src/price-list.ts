@@ -235,7 +235,7 @@ export async function analyzePriceList(requestText: string, input: PriceList | P
       customerName: { type: "string" }, customerEmail: { type: "string" },
       status: { type: "string", enum: ["matched", "ambiguous", "not_found"] },
       missingFields: { type: "array", items: { type: "string" } },
-      suggestedProducts: { type: "array", maxItems: 30, items: {
+      suggestedProducts: { type: "array", items: {
         type: "object", additionalProperties: false, required: ["name", "description", "unit", "quantity"],
         properties: { name: { type: "string" }, description: { type: "string" }, unit: { type: "string" }, quantity: { type: "number", exclusiveMinimum: 0, maximum: 1000000 } },
       } },
