@@ -60,7 +60,12 @@ export interface Quote {
   lines: QuoteLine[];
   subtotal: number;
   taxRate: number;
+  taxRateConfirmed?: boolean;
   taxAmount: number;
+  shippingFee?: number | null;
+  shippingFeeConfirmed?: boolean;
+  validityDays?: number | null;
+  completionDate?: string | null;
   total: number;
   currency: string;
   informationNeeded: string[];

@@ -295,6 +295,17 @@
 .quote-detail-layout { display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 20px; align-items: start; }
 .quote-main-column { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 .quote-side-column { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+.quote-terms-panel { padding: 20px 24px; border: 1px solid #e2e8e3; border-radius: 14px; background: #fff; }
+.quote-terms-heading { margin-bottom: 16px; }
+.quote-terms-heading h2 { margin: 0; color: #24352b; font-size: 15px; }
+.quote-terms-heading p { margin: 4px 0 0; color: #718078; font-size: 11px; }
+.quote-terms-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: end; }
+.quote-terms-grid label { display: grid; gap: 7px; min-width: 0; color: #4d5d53; font-size: 11px; font-weight: 650; }
+.quote-terms-grid input:not([type="checkbox"]) { width: 100%; min-width: 0; height: 38px; box-sizing: border-box; padding: 0 10px; border: 1px solid #d4ded6; border-radius: 8px; background: #fff; color: #27372e; font: inherit; font-weight: 500; }
+.quote-terms-grid input:focus { outline: 2px solid #34775a33; border-color: #34775a; }
+.quote-terms-grid small { min-height: 14px; color: #75837a; font-size: 10px; font-weight: 400; line-height: 1.4; }
+.quote-terms-grid .quote-term-confirm { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 0 10px; border: 1px solid #d4ded6; border-radius: 8px; }
+.quote-terms-grid .quote-term-confirm input { width: 16px; height: 16px; accent-color: #34775a; }
 
 /* Status Banners */
 .quote-status-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px; border-radius: 12px; flex-wrap: wrap; }
@@ -409,6 +420,7 @@
   .quote-stepper { min-width: 480px; }
 }
 @media (max-width: 680px) {
+  .quote-terms-grid { grid-template-columns: 1fr; }
   .quote-detail-header-card { flex-direction: column; align-items: stretch; gap: 14px; padding: 16px; }
   .quote-header-actions { flex-direction: column; align-items: stretch; }
   .quote-header-actions .button { width: 100%; justify-content: center; }

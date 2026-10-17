@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { Binary, ObjectId, type Db, type Document, type Filter } from "mongodb";
 import PdfPrinter from "pdfmake";
 import { config } from "./config.js";
+import { logger } from "./logger.js";
 import { connectDatabase, closeDatabase } from "./db.js";
 import { login, logout, requireAuth, requireSystemAdmin, requireRole } from "./auth.js";
 import { hashPassword } from "./password.js";
@@ -15,6 +16,7 @@ import { createCompanySmtpTransport, encryptSmtpPassword } from "./mail.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot } from "./pricing.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
+import { cleanMissingInformation, extractQuoteTerms, isShippingInformation, isTaxInformation } from "./quote-terms.js";
 import { attachWeb } from "./web.js";
 import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, CompanySmtpSettings, Quote, QuoteRequest, QuoteStatus, SessionUser, UserAccount } from "./types.js";
@@ -23,6 +25,32 @@ const app = express();
 const require = createRequire(import.meta.url);
 type PdfDocumentDefinition = Parameters<InstanceType<typeof PdfPrinter>["createPdfKitDocument"]>[0];
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function quoteForResponse(quote: Quote): Quote {
+  const information = cleanMissingInformation(quote.informationNeeded ?? [], quote.lines?.length > 0);
+  const taxRateConfirmed = quote.taxRateConfirmed ?? !information.some(isTaxInformation);
+  const shippingFeeConfirmed = quote.shippingFeeConfirmed ?? (quote.shippingFee != null || !information.some(isShippingInformation));
+  const informationNeeded = information.filter((field) =>
+    !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
+  );
+  const unresolved = informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed;
+  const status = quote.status === "draft" || quote.status === "needs_info"
+    ? unresolved ? "needs_info" : "draft"
+    : quote.status;
+  return {
+    ...quote,
+    informationNeeded,
+    taxRateConfirmed,
+    shippingFee: quote.shippingFee ?? (shippingFeeConfirmed ? 0 : null),
+    shippingFeeConfirmed,
+    status,
+  };
+}
+
+function quoteHasUnresolvedInformation(quote: Quote) {
+  const normalized = quoteForResponse(quote);
+  return normalized.informationNeeded.length > 0 || !normalized.taxRateConfirmed || !normalized.shippingFeeConfirmed;
+}
 
 interface CatalogImportRow {
   sku: string;
@@ -52,6 +80,27 @@ interface CatalogImportSettingsDocument extends Document {
 }
 
 app.disable("x-powered-by");
+app.use((request, response, next) => {
+  const requestId = randomUUID();
+  const startedAt = process.hrtime.bigint();
+  response.locals.requestId = requestId;
+  response.setHeader("X-Request-Id", requestId);
+  response.on("finish", () => {
+    const matchedRoute = request.route?.path;
+    const routePath = Array.isArray(matchedRoute) ? matchedRoute[0] : matchedRoute;
+    const route = typeof routePath === "string" ? `${request.baseUrl}${routePath}` : "unmatched";
+    const statusCode = response.statusCode;
+    const level = statusCode >= 500 ? "error" : statusCode >= 400 ? "warn" : "info";
+    logger[level]("http.request", {
+      requestId,
+      method: request.method,
+      route,
+      statusCode,
+      durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1_000_000).toFixed(1)),
+    });
+  });
+  next();
+});
 app.use(express.json({ limit: "2mb" }));
 app.use((_request, response, next) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
@@ -1365,7 +1414,7 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const filter: Document = { companyId: user.companyId };
   if (typeof status === "string" && ["draft", "needs_info", "pending_review", "approved", "rejected"].includes(status)) filter.status = status;
   const quotes = await db.collection<Quote>("quotes").find(filter).sort({ createdAt: -1 }).limit(100).toArray();
-  response.json({ quotes });
+  response.json({ quotes: quotes.map(quoteForResponse) });
 });
 
 app.post("/api/quotes", requireRole("user"), async (request, response) => {
@@ -1423,6 +1472,11 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
   const customerPhone = request.body?.customerPhone ?? source.customerPhone ?? "";
   if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail && !validEmail(customerEmail))) return fail(response, "Vui lòng xác nhận tên khách hàng và email hợp lệ (nếu có).");
+  const informationNeeded = cleanMissingInformation(source.missingFields, totals.lines.length > 0);
+  const taxRateConfirmed = !informationNeeded.some(isTaxInformation);
+  const shippingFeeConfirmed = !informationNeeded.some(isShippingInformation);
+  const shippingFee = shippingFeeConfirmed ? 0 : null;
+  const quoteTerms = extractQuoteTerms(source.requestText);
   const quote: Quote = {
     companyId: user.companyId,
     template: source.template,
@@ -1435,16 +1489,21 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
     customerEmail: customerEmail.trim(),
     customerPhone: customerPhone.trim(),
     ...totals,
-    informationNeeded: source.missingFields,
+    taxRateConfirmed,
+    shippingFee,
+    shippingFeeConfirmed,
+    ...quoteTerms,
+    total: totals.total + (shippingFeeConfirmed ? shippingFee ?? 0 : 0),
+    informationNeeded,
     informationConfirmed,
-    status: source.missingFields.length > 0 && !informationConfirmed ? "needs_info" : "draft",
+    status: informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed ? "needs_info" : "draft",
     createdBy: user.id,
     createdAt: now,
     updatedAt: now,
   };
   try {
     const result = await quotes.insertOne(quote);
-    const saved = { ...quote, _id: result.insertedId };
+    const saved = quoteForResponse({ ...quote, _id: result.insertedId });
     await writeAudit(db, user, "quote_created", "quote", result.insertedId.toHexString(), { quoteNumber, total: quote.total, informationConfirmed });
     response.status(201).json({ quote: saved });
   } catch (error) {
@@ -1468,7 +1527,7 @@ app.get("/api/quotes/:id", requireRole("user"), async (request, response) => {
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
   const sourceId = asId(quote.requestId);
   const source = sourceId ? await db.collection<QuoteRequest>("quoteRequests").findOne({ _id: sourceId, companyId: userOf(request).companyId }, { projection: { requestText: 1 } }) : null;
-  response.json({ quote: { ...quote, requestText: source?.requestText ?? "" } });
+  response.json({ quote: { ...quoteForResponse(quote), requestText: source?.requestText ?? "" } });
 });
 
 app.get("/api/quotes/:id/request-file/preview", requireRole("user"), async (request, response) => {
@@ -1507,29 +1566,61 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   if (updates.some((item: unknown) => !isRecord(item) || typeof item.catalogItemId !== "string" || !quote.lines.some((line) => line.catalogItemId === item.catalogItemId))) {
     return fail(response, "Không thể thêm mặt hàng ngoài danh sách đã phân tích.");
   }
+  const body = isRecord(request.body) ? request.body : {};
+  const currentQuote = quoteForResponse(quote);
+  const taxRate = Object.prototype.hasOwnProperty.call(body, "taxRate") ? Number(body.taxRate) : quote.taxRate;
+  if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 1) return fail(response, "Thuế suất VAT phải từ 0 đến 100%.");
+  if (Object.prototype.hasOwnProperty.call(body, "taxRateConfirmed") && typeof body.taxRateConfirmed !== "boolean") return fail(response, "Trạng thái xác nhận VAT không hợp lệ.");
+  const taxRateConfirmed = Object.prototype.hasOwnProperty.call(body, "taxRateConfirmed") ? body.taxRateConfirmed === true : currentQuote.taxRateConfirmed === true;
+  const rawShippingFee = Object.prototype.hasOwnProperty.call(body, "shippingFee") ? body.shippingFee : currentQuote.shippingFee;
+  if (rawShippingFee !== null && rawShippingFee !== undefined && (typeof rawShippingFee !== "number" || !Number.isFinite(rawShippingFee) || rawShippingFee < 0 || rawShippingFee > 1e12)) return fail(response, "Phí vận chuyển phải là số tiền không âm.");
+  if (Object.prototype.hasOwnProperty.call(body, "shippingFeeConfirmed") && typeof body.shippingFeeConfirmed !== "boolean") return fail(response, "Trạng thái xác nhận phí vận chuyển không hợp lệ.");
+  const shippingFee = typeof rawShippingFee === "number" ? rawShippingFee : null;
+  const shippingFeeConfirmed = Object.prototype.hasOwnProperty.call(body, "shippingFeeConfirmed")
+    ? body.shippingFeeConfirmed === true && shippingFee !== null
+    : currentQuote.shippingFeeConfirmed === true && shippingFee !== null;
+  const validityDays = Object.prototype.hasOwnProperty.call(body, "validityDays") ? body.validityDays : quote.validityDays ?? null;
+  if (validityDays !== null && (typeof validityDays !== "number" || !Number.isInteger(validityDays) || validityDays < 1 || validityDays > 3650)) return fail(response, "Thời hạn báo giá phải từ 1 đến 3.650 ngày.");
+  const completionDate = Object.prototype.hasOwnProperty.call(body, "completionDate") ? body.completionDate : quote.completionDate ?? null;
+  if (completionDate !== null && (typeof completionDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(completionDate) || Number.isNaN(Date.parse(`${completionDate}T00:00:00Z`)))) return fail(response, "Hạn hoàn thành không hợp lệ.");
   let totals;
   try {
-    totals = recalculateSnapshot(quote.lines, updates.map((item: Record<string, unknown>) => ({
+    const recalculated = recalculateSnapshot(quote.lines, updates.map((item: Record<string, unknown>) => ({
       catalogItemId: String(item.catalogItemId), quantity: Number(item.quantity),
-    })), quote.taxRate);
+    })), taxRate);
+    totals = {
+      ...recalculated,
+      taxRateConfirmed,
+      shippingFee,
+      shippingFeeConfirmed,
+      total: Math.round((recalculated.subtotal + recalculated.taxAmount + (shippingFeeConfirmed ? shippingFee ?? 0 : 0)) * 100) / 100,
+    };
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không thể tính lại báo giá.");
   }
   const informationConfirmed = request.body?.informationConfirmed === true || quote.informationConfirmed;
-  const nextStatus: QuoteStatus = quote.status === "rejected" || (quote.status === "needs_info" && informationConfirmed) ? "draft" : quote.status;
+  let informationNeeded = currentQuote.informationNeeded.filter((field) =>
+    !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
+  );
+  if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
+  if (!shippingFeeConfirmed && !informationNeeded.some(isShippingInformation)) informationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
+  const unresolved = informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed;
+  const nextStatus: QuoteStatus = unresolved ? "needs_info"
+    : quote.status === "rejected" || quote.status === "needs_info" ? "draft" : quote.status;
   const customerName = request.body?.customerName ?? quote.customerName;
   const customerEmail = request.body?.customerEmail ?? quote.customerEmail;
   const customerPhone = request.body?.customerPhone ?? quote.customerPhone ?? "";
   if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail.trim() && !validEmail(customerEmail.trim()))) return fail(response, "Vui lòng nhập tên khách hàng và email hợp lệ (nếu có).");
   const customer = { customerName: customerName.trim(), customerEmail: customerEmail.trim(), customerPhone: customerPhone.trim() };
-  const updatedQuote = { ...quote, ...totals, ...customer };
+  const updatedQuote = { ...quote, ...totals, ...customer, informationNeeded, validityDays, completionDate };
   await quotes.updateOne({ _id: id, companyId: user.companyId }, {
-    $set: { ...totals, ...customer, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() },
+    $set: { ...totals, ...customer, informationNeeded, validityDays, completionDate, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() },
     ...(updatedQuote.templateFillPlan ? {} : { $unset: { templateFillPlan: "" } }),
   });
   await writeAudit(db, user, "quote_recalculated", "quote", id.toHexString(), { total: totals.total });
-  response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
+  const updated = await quotes.findOne({ _id: id, companyId: user.companyId });
+  response.json({ quote: updated ? quoteForResponse(updated) : null });
 });
 
 app.post("/api/quotes/:id/submit-review", requireRole("user"), async (request, response) => {
@@ -1540,7 +1631,7 @@ app.post("/api/quotes/:id/submit-review", requireRole("user"), async (request, r
   const quotes = db.collection<Quote>("quotes");
   const quote = await quotes.findOne({ _id: id, companyId: user.companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
-  if (quote.status !== "draft" || (quote.informationNeeded.length > 0 && !quote.informationConfirmed)) return fail(response, "Hãy xác nhận đầy đủ thông tin trước khi gửi duyệt.", 409);
+  if (quote.status !== "draft" || quoteHasUnresolvedInformation(quote)) return fail(response, "Hãy xử lý các khoản chưa có giá hoặc điều khoản còn thiếu trước khi gửi duyệt.", 409);
   await quotes.updateOne({ _id: id, companyId: user.companyId }, { $set: { status: "pending_review", updatedAt: new Date() } });
   await writeAudit(db, user, "quote_submitted", "quote", id.toHexString());
   response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
@@ -1552,6 +1643,9 @@ app.post("/api/quotes/:id/approve", requireRole("user"), async (request, respons
   const db = await connectDatabase();
   const user = userOf(request);
   const quotes = db.collection<Quote>("quotes");
+  const pendingQuote = await quotes.findOne({ _id: id, companyId: user.companyId, status: "pending_review" });
+  if (!pendingQuote) return fail(response, "Chỉ có thể duyệt báo giá đang chờ duyệt.", 409);
+  if (quoteHasUnresolvedInformation(pendingQuote)) return fail(response, "Báo giá còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   const result = await quotes.findOneAndUpdate(
     { _id: id, companyId: user.companyId, status: "pending_review" },
     { $set: { status: "approved", approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date() } },
@@ -1687,7 +1781,12 @@ let closeWeb: () => Promise<void> = async () => {};
 closeWeb = await attachWeb(app, server);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  console.error("Request failed:", error instanceof Error ? error.message : "unknown error");
+  if (!(isRecord(error) && error.type === "entity.too.large")) {
+    logger.error("http.unhandled_error", {
+      requestId: typeof response.locals.requestId === "string" ? response.locals.requestId : undefined,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
   if (response.headersSent) return;
   if (isRecord(error) && error.type === "entity.too.large") {
     response.status(413).json({ error: "Tệp hoặc nội dung vượt dung lượng cho phép. Mẫu báo giá tối đa 10 MB." });
@@ -1699,19 +1798,22 @@ app.use((error: unknown, _request: express.Request, response: express.Response, 
 
 connectDatabase()
   .then(() => {
+    logger.info("database.connected", { database: config.mongoDatabase });
     server.listen(config.port, "0.0.0.0", () => {
-      console.log(`AI Bao Gia listening on http://0.0.0.0:${config.port}`);
+      logger.info("server.started", { host: "0.0.0.0", port: config.port, environment: config.nodeEnv });
     });
   })
   .catch((error: unknown) => {
-    console.error("Unable to connect to MongoDB:", error instanceof Error ? error.message : error);
+    logger.error("database.connection_failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
     void shutdown().finally(() => process.exit(1));
   });
 
 async function shutdown() {
+  logger.info("server.shutdown_started");
   await closeWeb();
   if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeDatabase();
+  logger.info("server.shutdown_completed");
 }
 
 process.on("SIGINT", () => void shutdown().finally(() => process.exit(0)));

@@ -17,11 +17,11 @@ const statusLabels: Record<QuoteStatus, string> = { draft: "Bản nháp", needs_
 const statusStyles: Record<QuoteStatus, string> = { draft: "neutral", needs_info: "amber", pending_review: "blue", approved: "green", rejected: "rose" };
 const roleLabels = { user: "Tài khoản doanh nghiệp", admin: "Quản trị hệ thống" };
 
-type RegistrationField = "companyName" | "taxId" | "address" | "phone" | "businessEmail" | "representativeName" | "name" | "email" | "password" | "confirmPassword";
+type RegistrationField = "companyName" | "taxId" | "address" | "phone" | "businessEmail" | "representativeName" | "password";
 type RegistrationDraft = Record<RegistrationField, string>;
 const emptyRegistration: RegistrationDraft = {
   companyName: "", taxId: "", address: "", phone: "", businessEmail: "", representativeName: "",
-  name: "", email: "", password: "", confirmPassword: "",
+  password: "",
 };
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
@@ -121,6 +121,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
   const [password, setPassword] = useState("");
   const [registration, setRegistration] = useState<RegistrationDraft>(emptyRegistration);
   const [showPassword, setShowPassword] = useState(false);
+  const [showRegistrationPasswords, setShowRegistrationPasswords] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -151,8 +152,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
     setBusy(true);
     setError("");
     try {
-      if (registration.password !== registration.confirmPassword) throw new Error("Mật khẩu xác nhận chưa khớp.");
-      const { confirmPassword: _confirmPassword, ...details } = registration;
+      const details = { ...registration, email: registration.businessEmail, name: registration.representativeName };
       const { user } = await api<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(details) });
       onLogin(user);
       onNotify("Tài khoản doanh nghiệp đã được tạo và đăng nhập.");
@@ -163,21 +163,19 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
     }
   };
 
-  const registrationFields: Array<{ key: RegistrationField; label: string; type?: string; autoComplete?: string; wide?: boolean }> = [
-    { key: "companyName", label: "Tên doanh nghiệp", autoComplete: "organization" },
-    { key: "taxId", label: "Mã số thuế" },
-    { key: "address", label: "Địa chỉ doanh nghiệp", autoComplete: "street-address", wide: true },
-    { key: "phone", label: "Điện thoại doanh nghiệp", type: "tel", autoComplete: "tel" },
-    { key: "businessEmail", label: "Email doanh nghiệp", type: "email", autoComplete: "email" },
-    { key: "representativeName", label: "Người đại diện", autoComplete: "name" },
-    { key: "name", label: "Họ và tên người dùng", autoComplete: "name" },
-    { key: "email", label: "Email đăng nhập", type: "email", autoComplete: "username" },
-    { key: "password", label: "Mật khẩu", type: "password", autoComplete: "new-password" },
-    { key: "confirmPassword", label: "Xác nhận mật khẩu", type: "password", autoComplete: "new-password" },
+  const registrationFields: Array<{ key: RegistrationField; label: string; type?: string; autoComplete?: string; maxLength: number; wide?: boolean }> = [
+    { key: "companyName", label: "Tên doanh nghiệp", autoComplete: "organization", maxLength: 200 },
+    { key: "taxId", label: "Mã số thuế", maxLength: 30 },
+    { key: "address", label: "Địa chỉ doanh nghiệp", autoComplete: "street-address", maxLength: 500, wide: true },
+    { key: "phone", label: "Điện thoại doanh nghiệp", type: "tel", autoComplete: "tel", maxLength: 30 },
+    { key: "businessEmail", label: "Email doanh nghiệp và đăng nhập", type: "email", autoComplete: "email", maxLength: 250 },
+    { key: "representativeName", label: "Người đại diện và người dùng", autoComplete: "name", maxLength: 200 },
+    { key: "password", label: "Mật khẩu", type: "password", autoComplete: "new-password", maxLength: 200 },
   ];
 
   const switchMode = (nextMode: "login" | "register") => {
     setMode(nextMode);
+    setShowRegistrationPasswords(false);
     setError("");
   };
 
@@ -271,10 +269,16 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
               {!busy && <Icon name="arrow" size={17} />}
             </button>
           </form> : <form onSubmit={(event) => void submitRegistration(event)} className="login-form business-register-form">
-            {registrationFields.map(({ key, label, type = "text", autoComplete = "off", wide }) => <div className={`input-group register-field ${wide ? "register-field-wide" : ""}`} key={key}>
-              <label htmlFor={`register-${key}`}>{label}</label>
-              <div className="input-wrapper"><input id={`register-${key}`} type={type} autoComplete={autoComplete} maxLength={key === "address" ? 500 : key === "password" || key === "confirmPassword" ? 200 : 250} minLength={key === "password" || key === "confirmPassword" ? 7 : undefined} value={registration[key]} onChange={(event) => setRegistration((current) => ({ ...current, [key]: event.target.value }))} placeholder={key === "taxId" ? "Mã số thuế doanh nghiệp" : undefined} required /></div>
-            </div>)}
+            {registrationFields.map(({ key, label, type = "text", autoComplete = "off", maxLength, wide }) => {
+              const isPassword = key === "password";
+              return <div className={`input-group register-field ${wide ? "register-field-wide" : ""}`} key={key}>
+                <label htmlFor={`register-${key}`}>{label}</label>
+                <div className="input-wrapper">
+                  <input id={`register-${key}`} type={isPassword && showRegistrationPasswords ? "text" : type} autoComplete={autoComplete} maxLength={maxLength} minLength={isPassword ? 7 : undefined} value={registration[key]} onChange={(event) => setRegistration((current) => ({ ...current, [key]: event.target.value }))} placeholder={key === "taxId" ? "0123456789" : undefined} required />
+                  {isPassword && <button type="button" className="password-toggle" onClick={() => setShowRegistrationPasswords((shown) => !shown)} title={showRegistrationPasswords ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-label={showRegistrationPasswords ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-pressed={showRegistrationPasswords}><Icon name={showRegistrationPasswords ? "eyeOff" : "eye"} size={17} /></button>}
+                </div>
+              </div>;
+            })}
             {error && <div className="login-error-alert register-field-wide" role="alert"><span className="error-icon"><Icon name="close" size={14} /></span><span>{error}</span></div>}
             <button className="login-submit-btn register-field-wide" type="submit" disabled={busy}>{busy ? <span className="login-spinner" /> : null}<span>{busy ? "Đang tạo tài khoản…" : "Tạo tài khoản doanh nghiệp"}</span>{!busy && <Icon name="arrow" size={17} />}</button>
           </form>}
@@ -394,7 +398,6 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [selected, setSelected] = useState<AnalysisItem[]>([]);
   const [query, setQuery] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
@@ -429,7 +432,6 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
       setCustomerEmail((current) => current.trim() ? current : result.customerEmail ?? "");
       setAnalysis(result);
       setSelected(result.items);
-      setConfirmed(result.missingFields.length === 0);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể phân tích yêu cầu.");
     } finally {
@@ -456,7 +458,6 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           customerPhone,
           idempotencyKey: quoteIdempotencyKey,
           items: selected.map(({ catalogItemId, quantity, unit, attributes }) => ({ catalogItemId, quantity, unit, attributes })),
-          informationConfirmed: confirmed,
         }),
       });
       onCreated(quote._id);
@@ -468,7 +469,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   };
 
   const editRequest = () => {
-    setRequestId(""); setAnalysis(null); setSelected([]); setCatalog([]); setConfirmed(false); setError("");
+    setRequestId(""); setAnalysis(null); setSelected([]); setCatalog([]); setError("");
     setRequestIdempotencyKey(crypto.randomUUID()); setQuoteIdempotencyKey(crypto.randomUUID());
   };
   const locked = busy || Boolean(requestId);
@@ -528,8 +529,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
             <label className="search-field"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm thêm sản phẩm trong danh mục…" /></label>
             {query && <div className="search-results">{results.length ? results.map((item) => <button key={item._id} onClick={() => addCatalogItem(item)}><span><strong>{item.name}</strong><small>{item.sku} · {item.unit}</small>{Object.keys(item.attributes ?? {}).length > 0 && <small className="catalog-result-attributes">{Object.entries(item.attributes ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ")}</small>}</span><span className="result-price">{formatMoney(item.price, item.currency)}<Icon name="plus" size={15} /></span></button>) : <div className="search-empty">Không tìm thấy sản phẩm đang hoạt động.</div>}</div>}
           </div>
-          {analysis.missingFields.length > 0 && <label className="confirm-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span><strong>Tôi đã xác nhận thông tin cần thiết</strong><small>Đã bổ sung hoặc xác nhận với khách.</small></span></label>}
-          <div className="analysis-footer"><span>{selected.length} mặt hàng đã chọn</span><button className="button button-primary" disabled={busy || !customerName.trim() || selected.length === 0 || (analysis.missingFields.length > 0 && !confirmed)} onClick={() => void createQuote()}>{busy ? "Đang tạo bản nháp…" : "Tạo bản nháp"}<Icon name="arrow" size={16} /></button></div>
+          <div className="analysis-footer"><span>{selected.length} mặt hàng đã chọn</span><button className="button button-primary" disabled={busy || !customerName.trim() || selected.length === 0} onClick={() => void createQuote()}>{busy ? "Đang tạo bản nháp…" : "Tạo bản nháp"}<Icon name="arrow" size={16} /></button></div>
         </section>}
       </div>
       <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
@@ -540,7 +540,11 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
 function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: string; user: User; onBack: () => void; onChanged: () => void; onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [confirmed, setConfirmed] = useState(false);
+  const [taxRateText, setTaxRateText] = useState("0");
+  const [taxRateConfirmed, setTaxRateConfirmed] = useState(false);
+  const [shippingFeeText, setShippingFeeText] = useState("");
+  const [validityDaysText, setValidityDaysText] = useState("");
+  const [completionDateText, setCompletionDateText] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -564,7 +568,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
       setCustomerEmail(value.customerEmail);
       setCustomerPhone(value.customerPhone ?? "");
       setQuantities(Object.fromEntries(value.lines.map((line) => [line.catalogItemId, line.quantity])));
-      setConfirmed(value.informationConfirmed);
+      setTaxRateText(String(value.taxRate * 100));
+      setTaxRateConfirmed(value.taxRateConfirmed ?? !value.informationNeeded.some((field) => /vat|thuế/i.test(field)));
+      setShippingFeeText(value.shippingFeeConfirmed === false ? "" : String(value.shippingFee ?? 0));
+      setValidityDaysText(value.validityDays == null ? "" : String(value.validityDays));
+      setCompletionDateText(value.completionDate ?? "");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể mở báo giá.");
     } finally {
@@ -574,12 +582,17 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
 
   useEffect(() => { void load(); }, [load]);
 
-  const editPayload = (informationConfirmed = confirmed) => ({
+  const editPayload = () => ({
     items: quote?.lines.map((line) => ({
       catalogItemId: line.catalogItemId,
       quantity: Number(quantities[line.catalogItemId]) || line.quantity,
     })) ?? [],
-    informationConfirmed,
+    taxRate: Number(taxRateText) / 100,
+    taxRateConfirmed,
+    shippingFee: shippingFeeText.trim() === "" ? null : Number(shippingFeeText),
+    shippingFeeConfirmed: shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)),
+    validityDays: validityDaysText.trim() === "" ? null : Number(validityDaysText),
+    completionDate: completionDateText || null,
     customerName,
     customerEmail,
     customerPhone,
@@ -588,7 +601,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   const hasUnsavedChanges = Boolean(
     quote && (
       quote.lines.some((line) => Number(quantities[line.catalogItemId]) !== line.quantity) ||
-      confirmed !== quote.informationConfirmed ||
+      Number(taxRateText) / 100 !== quote.taxRate ||
+      taxRateConfirmed !== (quote.taxRateConfirmed ?? !quote.informationNeeded.some((field) => /vat|thuế/i.test(field))) ||
+      (shippingFeeText.trim() === "" ? null : Number(shippingFeeText)) !== (quote.shippingFeeConfirmed === false ? null : quote.shippingFee ?? 0) ||
+      (validityDaysText.trim() === "" ? null : Number(validityDaysText)) !== (quote.validityDays ?? null) ||
+      (completionDateText || null) !== (quote.completionDate ?? null) ||
       customerName !== quote.customerName ||
       customerEmail !== quote.customerEmail ||
       customerPhone !== (quote.customerPhone ?? "")
@@ -604,13 +621,15 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   }, [quote, quantities]);
 
   const liveTaxAmount = useMemo(() => {
-    if (!quote) return 0;
-    return Math.round(liveSubtotal * quote.taxRate);
-  }, [quote, liveSubtotal]);
+    if (!quote || !taxRateConfirmed) return 0;
+    return Math.round(liveSubtotal * (Number(taxRateText) / 100));
+  }, [quote, liveSubtotal, taxRateConfirmed, taxRateText]);
+
+  const liveShippingFee = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) ? Number(shippingFeeText) : 0;
 
   const liveTotal = useMemo(() => {
-    return liveSubtotal + liveTaxAmount;
-  }, [liveSubtotal, liveTaxAmount]);
+    return liveSubtotal + liveTaxAmount + liveShippingFee;
+  }, [liveSubtotal, liveTaxAmount, liveShippingFee]);
 
   const copyText = (text: string, label: string) => {
     if (!text) return;
@@ -652,7 +671,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   if (loading) return <Loading />;
   if (!quote) return <div className="empty-state"><h2>Báo giá không khả dụng</h2><p>{error || "Không tìm thấy dữ liệu."}</p><button className="button button-soft" onClick={onBack}>Quay lại</button></div>;
 
-  const save = (informationConfirmed = confirmed) => perform(`/api/quotes/${quote._id}`, editPayload(informationConfirmed), "PATCH", "Đã lưu thay đổi và tính lại giá.");
+  const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
   const downloadQuote = async () => {
     setBusy(true); setError("");
@@ -862,16 +881,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
           <div className="banner-info-wrap">
             <span className="banner-icon"><Icon name="spark" size={20} /></span>
             <div className="banner-text-box">
-              <h3>Cần kiểm tra và xác nhận lại thông tin</h3>
+              <h3>Còn thông tin cần bổ sung</h3>
               <p>{quote.informationNeeded.join(" · ")}</p>
             </div>
           </div>
-          {editable && (
-            <label className="confirm-check compact-check">
-              <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
-              <span><strong>Tôi đã xác nhận đầy đủ</strong></span>
-            </label>
-          )}
+          <p className="field-hint">Báo giá chưa thể gửi duyệt khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.</p>
         </div>
       )}
 
@@ -925,6 +939,30 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <p className="quote-request-bubble">
               {quote.requestText?.trim() || (quote.requestFile ? `Yêu cầu được gửi đính kèm trong file: ${quote.requestFile.originalFilename}` : "Không có văn bản yêu cầu cụ thể.")}
             </p>
+          </section>
+
+          <section className="content-card quote-terms-panel">
+            <div className="section-title quote-terms-heading"><div><h2>Chi phí và điều khoản</h2><p>Khoản chưa xác nhận sẽ chưa được cộng vào tổng tiền.</p></div></div>
+            <div className="quote-terms-grid">
+              <label>Phí vận chuyển ({quote.currency})
+                <input type="number" min="0" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder="Nhập số tiền, hoặc 0 nếu miễn phí" onChange={(event) => setShippingFeeText(event.target.value)} />
+                <small>{shippingFeeText.trim() === "" ? "Chưa xác nhận phí vận chuyển." : "Sẽ được cộng vào tổng tiền sau khi lưu."}</small>
+              </label>
+              <label>Thuế VAT (%)
+                <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} onChange={(event) => setTaxRateText(event.target.value)} />
+                <small>{taxRateConfirmed ? "Thuế suất đã được xác nhận." : "Cần xác nhận thuế suất trước khi gửi duyệt."}</small>
+              </label>
+              <label className="quote-term-confirm">
+                <span>Xác nhận thuế suất VAT</span>
+                <input type="checkbox" checked={taxRateConfirmed} disabled={!editable || busy || taxRateText.trim() === ""} onChange={(event) => setTaxRateConfirmed(event.target.checked)} />
+              </label>
+              <label>Hiệu lực báo giá (ngày)
+                <input type="number" min="1" max="3650" step="1" value={validityDaysText} disabled={!editable || busy} placeholder="Ví dụ: 30" onChange={(event) => setValidityDaysText(event.target.value)} />
+              </label>
+              <label>Hạn hoàn thành
+                <input type="date" value={completionDateText} disabled={!editable || busy} onChange={(event) => setCompletionDateText(event.target.value)} />
+              </label>
+            </div>
           </section>
 
           {/* Products & Pricing Table Card */}

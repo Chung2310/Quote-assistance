@@ -1,6 +1,7 @@
 import { Binary, ObjectId } from "mongodb";
 import * as XLSX from "xlsx";
 import { config } from "./config.js";
+import { cleanMissingInformation } from "./quote-terms.js";
 import type { CatalogItem, AnalyzedItem, MatchStatus } from "./types.js";
 
 export interface PriceList {
@@ -184,7 +185,7 @@ export function validatePriceAnalysis(raw: unknown, companyId: string, visibleSo
     candidates.push({ _id: id, companyId, sku: row.sku, name: row.name, description: evidence, unit: row.unit, price: row.price, currency: row.currency, active: true, createdAt: new Date(), updatedAt: new Date() });
     items.push({ catalogItemId: id.toHexString(), quantity: row.quantity, unit: row.unit, attributes: {}, evidence });
   }
-  const missingFields = value.missingFields.filter((field): field is string => typeof field === "string").slice(0, 30);
+  const missingFields = cleanMissingInformation(value.missingFields.filter((field): field is string => typeof field === "string"), items.length > 0);
   if (value.status === "matched" && !items.length) throw new Error("AI chưa chọn được sản phẩm trong bảng giá.");
   if (value.status !== "matched" && !missingFields.length) missingFields.push("Xác nhận sản phẩm và đơn giá trong bảng giá");
   const customerName = typeof value.customerName === "string" ? value.customerName.trim().slice(0, 250) : "";

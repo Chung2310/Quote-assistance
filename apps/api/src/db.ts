@@ -1,6 +1,7 @@
 import { MongoClient, ObjectId, type Db } from "mongodb";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { logger } from "./logger.js";
 import type { Company, UserAccount } from "./types.js";
 
 const client = new MongoClient(config.mongoUri, {
@@ -126,9 +127,9 @@ async function seedAdmin(db: Db) {
         email = `${localPart}+system-admin${suffix === 1 ? "" : `-${suffix}`}${domain}`;
         suffix += 1;
       } while (await users.findOne({ email }));
-      console.warn(`SEED_ADMIN_EMAIL belongs to a business account; keeping that account and using ${email} for the system admin.`);
+      logger.warn("admin.seed_email_conflict", { resolution: "generated_fallback_email" });
     } else if (admin && existingEmail && String(admin._id) !== String(existingEmail._id)) {
-      console.warn(`SEED_ADMIN_EMAIL belongs to a business account; keeping that account and retaining ${admin.email} for the system admin.`);
+      logger.warn("admin.seed_email_conflict", { resolution: "retained_existing_admin_email" });
     }
     if (admin) {
       await users.updateMany(
