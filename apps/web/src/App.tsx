@@ -57,6 +57,19 @@ function StatusPill({ status }: { status: QuoteStatus }) {
   return <span className={`status-pill ${statusStyles[status]}`}><span className="status-dot" />{statusLabels[status]}</span>;
 }
 
+async function confirmSession(expectedUser: User) {
+  let sessionUser: User;
+  try {
+    ({ user: sessionUser } = await api<{ user: User }>("/api/auth/me"));
+  } catch {
+    throw new Error("Đăng nhập thành công nhưng phiên chưa được lưu. Hãy kiểm tra cookie và cấu hình HTTPS trên máy chủ.");
+  }
+  if (sessionUser.id !== expectedUser.id || sessionUser.role !== expectedUser.role) {
+    throw new Error("Máy chủ chưa xác nhận đúng phiên đăng nhập. Vui lòng thử lại.");
+  }
+  return sessionUser;
+}
+
 function UserApp() {
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -83,7 +96,6 @@ function UserApp() {
   if (checkingSession) return <div className="splash"><div className="brand-mark">G</div><span>Đang mở không gian làm việc…</span></div>;
   if (!user) return <Login onLogin={setUser} onNotify={notify} />;
   const openQuote = (id: string) => setQuoteId(id);
-  const showTopbarAction = Boolean(quoteId);
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -100,9 +112,6 @@ function UserApp() {
       </div>
     </aside>
     <div className="main-column">
-      {showTopbarAction && <header className="topbar">
-        <div className="topbar-actions"><button className="button button-primary button-compact" onClick={() => setCreatingQuote(true)}><Icon name="plus" size={16} />Tạo báo giá</button></div>
-      </header>}
       <main className="main-content">{quoteId ? <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={() => setQuoteId(null)} onChanged={refresh} onToast={notify} confirm={confirm} /> : section === "home" ? <Dashboard key={refreshKey} canCreate canReview onOpen={openQuote} onCreate={() => setCreatingQuote(true)} onNavigate={setSection} /> : section === "quotes" ? <QuoteWorkspace key={refreshKey} canCreate onOpen={openQuote} onCreate={() => setCreatingQuote(true)} /> : section === "templates" ? <div className="page-stack templates-page"><section className="page-heading-row"><div><h1>Mẫu báo giá</h1><p className="muted">Khai báo và cập nhật mẫu mặc định của doanh nghiệp.</p></div></section><QuoteTemplatePanel canManage /></div> : section === "catalog" ? <PriceListPanel key={refreshKey} onToast={notify} /> : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} />}</main>
     </div>
     {creatingQuote && <NewQuoteDialog canManageTemplate onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); setQuoteId(null); setSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); setSection("quotes"); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
@@ -134,11 +143,12 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
-      if (result.user.role === "admin") {
+      const sessionUser = await confirmSession(result.user);
+      if (sessionUser.role === "admin") {
         window.location.assign("/admin");
         return;
       }
-      onLogin(result.user);
+      onLogin(sessionUser);
       onNotify("Đăng nhập thành công.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể đăng nhập. Vui lòng thử lại.");
@@ -154,7 +164,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
     try {
       const details = { ...registration, email: registration.businessEmail, name: registration.representativeName };
       const { user } = await api<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(details) });
-      onLogin(user);
+      onLogin(await confirmSession(user));
       onNotify("Tài khoản doanh nghiệp đã được tạo và đăng nhập.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể tạo tài khoản doanh nghiệp.");
