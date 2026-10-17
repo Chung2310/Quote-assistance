@@ -1,6 +1,7 @@
 import { Binary, ObjectId } from "mongodb";
 import * as XLSX from "xlsx";
 import { config } from "./config.js";
+import { logAiProviderFailure } from "./logger.js";
 import { cleanMissingInformation } from "./quote-terms.js";
 import type { CatalogItem, AnalyzedItem, MatchStatus, SuggestedProduct } from "./types.js";
 
@@ -98,7 +99,7 @@ export function relevantPriceListContent(file: PriceList, requestText: string, r
   return selectRelevantPriceListContent(file, requestText, requestContent).content;
 }
 
-export async function extractAttachedRequest(requestText: string, fileParts: Record<string, unknown>[]) {
+export async function extractAttachedRequest(requestText: string, fileParts: Record<string, unknown>[], requestId?: string) {
   const schema = {
     type: "object", additionalProperties: false, required: ["summary", "searchTerms", "customerName", "customerEmail"],
     properties: {
@@ -121,7 +122,10 @@ export async function extractAttachedRequest(requestText: string, fileParts: Rec
     }),
     signal: AbortSignal.timeout(60_000),
   });
-  if (!response.ok) throw new Error(`AI chưa đọc được file yêu cầu (HTTP ${response.status}). Hãy thử lại.`);
+  if (!response.ok) {
+    await logAiProviderFailure(response, { requestId, stage: "request_file_extraction", model: config.openRouterFileModel, contentTypes: ["text", "file"] });
+    throw new Error(`AI chưa đọc được file yêu cầu (HTTP ${response.status}). Hãy thử lại.`);
+  }
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const value = JSON.parse(payload.choices?.[0]?.message?.content ?? "null") as { summary?: unknown; searchTerms?: unknown; customerName?: unknown; customerEmail?: unknown } | null;
   if (!value || typeof value.summary !== "string" || !Array.isArray(value.searchTerms) || typeof value.customerName !== "string" || typeof value.customerEmail !== "string") throw new Error("AI trả về nội dung file yêu cầu không hợp lệ.");
@@ -210,7 +214,7 @@ export function validatePriceAnalysis(raw: unknown, companyId: string, visibleSo
   return { status: value.status as MatchStatus, items, missingFields, suggestedProducts, candidates, customerName, customerEmail };
 }
 
-export async function analyzePriceList(requestText: string, input: PriceList | PriceList[], _templateContent: Record<string, unknown>[], requestContent: Record<string, unknown>[] = []) {
+export async function analyzePriceList(requestText: string, input: PriceList | PriceList[], _templateContent: Record<string, unknown>[], requestContent: Record<string, unknown>[] = [], requestId?: string) {
   const files = Array.isArray(input) ? input : [input];
   const companyId = files[0]?.companyId;
   if (!companyId || files.some((file) => file.companyId !== companyId)) throw new Error("Các bảng giá phải thuộc cùng một doanh nghiệp.");
@@ -220,7 +224,7 @@ export async function analyzePriceList(requestText: string, input: PriceList | P
   let attachedCustomer: { customerName: string; customerEmail: string } | undefined;
   const fileParts = requestContent.filter((part) => part && typeof part === "object" && part.type === "file");
   if (fileParts.length) {
-    const extracted = await extractAttachedRequest(requestText, fileParts);
+    const extracted = await extractAttachedRequest(requestText, fileParts, requestId);
     const summary = JSON.stringify(extracted);
     attachedCustomer = { customerName: extracted.customerName, customerEmail: extracted.customerEmail };
     queryText = `${requestText}\n${summary}`;
@@ -264,7 +268,10 @@ export async function analyzePriceList(requestText: string, input: PriceList | P
     }),
     signal: AbortSignal.timeout(90_000),
   });
-  if (!response.ok) throw new Error(`AI chưa đọc được bảng giá (HTTP ${response.status}). Hãy thử lại.`);
+  if (!response.ok) {
+    await logAiProviderFailure(response, { requestId, stage: "price_list_analysis", model: config.openRouterModel, contentTypes: ["text", ...aiRequestContent.map((part) => typeof part.type === "string" ? part.type : "unknown")] });
+    throw new Error(`AI chưa đọc được bảng giá (HTTP ${response.status}). Hãy thử lại.`);
+  }
   const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
   const result = validatePriceAnalysis(JSON.parse(payload.choices?.[0]?.message?.content ?? "null"), companyId, visibleSources);
   if (!result.customerName && attachedCustomer?.customerName) result.customerName = attachedCustomer.customerName;
