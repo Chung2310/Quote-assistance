@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { Binary, ObjectId, type Db, type Document, type Filter } from "mongodb";
 import PdfPrinter from "pdfmake";
 import { config } from "./config.js";
+import { logger } from "./logger.js";
 import { connectDatabase, closeDatabase } from "./db.js";
 import { login, logout, requireAuth, requireSystemAdmin, requireRole } from "./auth.js";
 import { hashPassword } from "./password.js";
@@ -15,6 +16,7 @@ import { createCompanySmtpTransport, encryptSmtpPassword } from "./mail.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot } from "./pricing.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
+import { cleanMissingInformation, extractQuoteTerms, isShippingInformation, isTaxInformation } from "./quote-terms.js";
 import { attachWeb } from "./web.js";
 import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, CompanySmtpSettings, Quote, QuoteRequest, QuoteStatus, SessionUser, UserAccount } from "./types.js";
@@ -23,6 +25,32 @@ const app = express();
 const require = createRequire(import.meta.url);
 type PdfDocumentDefinition = Parameters<InstanceType<typeof PdfPrinter>["createPdfKitDocument"]>[0];
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+
+function quoteForResponse(quote: Quote): Quote {
+  const information = cleanMissingInformation(quote.informationNeeded ?? [], quote.lines?.length > 0);
+  const taxRateConfirmed = quote.taxRateConfirmed ?? !information.some(isTaxInformation);
+  const shippingFeeConfirmed = quote.shippingFeeConfirmed ?? (quote.shippingFee != null || !information.some(isShippingInformation));
+  const informationNeeded = information.filter((field) =>
+    !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
+  );
+  const unresolved = informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed;
+  const status = quote.status === "draft" || quote.status === "needs_info"
+    ? unresolved ? "needs_info" : "draft"
+    : quote.status;
+  return {
+    ...quote,
+    informationNeeded,
+    taxRateConfirmed,
+    shippingFee: quote.shippingFee ?? (shippingFeeConfirmed ? 0 : null),
+    shippingFeeConfirmed,
+    status,
+  };
+}
+
+function quoteHasUnresolvedInformation(quote: Quote) {
+  const normalized = quoteForResponse(quote);
+  return normalized.informationNeeded.length > 0 || !normalized.taxRateConfirmed || !normalized.shippingFeeConfirmed;
+}
 
 interface CatalogImportRow {
   sku: string;
@@ -52,6 +80,27 @@ interface CatalogImportSettingsDocument extends Document {
 }
 
 app.disable("x-powered-by");
+app.use((request, response, next) => {
+  const requestId = randomUUID();
+  const startedAt = process.hrtime.bigint();
+  response.locals.requestId = requestId;
+  response.setHeader("X-Request-Id", requestId);
+  response.on("finish", () => {
+    const matchedRoute = request.route?.path;
+    const routePath = Array.isArray(matchedRoute) ? matchedRoute[0] : matchedRoute;
+    const route = typeof routePath === "string" ? `${request.baseUrl}${routePath}` : "unmatched";
+    const statusCode = response.statusCode;
+    const level = statusCode >= 500 ? "error" : statusCode >= 400 ? "warn" : "info";
+    logger[level]("http.request", {
+      requestId,
+      method: request.method,
+      route,
+      statusCode,
+      durationMs: Number((Number(process.hrtime.bigint() - startedAt) / 1_000_000).toFixed(1)),
+    });
+  });
+  next();
+});
 app.use(express.json({ limit: "2mb" }));
 app.use((_request, response, next) => {
   response.setHeader("X-Content-Type-Options", "nosniff");
@@ -1365,7 +1414,7 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const filter: Document = { companyId: user.companyId };
   if (typeof status === "string" && ["draft", "needs_info", "pending_review", "approved", "rejected"].includes(status)) filter.status = status;
   const quotes = await db.collection<Quote>("quotes").find(filter).sort({ createdAt: -1 }).limit(100).toArray();
-  response.json({ quotes });
+  response.json({ quotes: quotes.map(quoteForResponse) });
 });
 
 app.post("/api/quotes", requireRole("user"), async (request, response) => {
@@ -1423,6 +1472,11 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
   const customerPhone = request.body?.customerPhone ?? source.customerPhone ?? "";
   if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail && !validEmail(customerEmail))) return fail(response, "Vui lòng xác nhận tên khách hàng và email hợp lệ (nếu có).");
+  const informationNeeded = cleanMissingInformation(source.missingFields, totals.lines.length > 0);
+  const taxRateConfirmed = !informationNeeded.some(isTaxInformation);
+  const shippingFeeConfirmed = !informationNeeded.some(isShippingInformation);
+  const shippingFee = shippingFeeConfirmed ? 0 : null;
+  const quoteTerms = extractQuoteTerms(source.requestText);
   const quote: Quote = {
     companyId: user.companyId,
     template: source.template,
@@ -1435,16 +1489,21 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
     customerEmail: customerEmail.trim(),
     customerPhone: customerPhone.trim(),
     ...totals,
-    informationNeeded: source.missingFields,
+    taxRateConfirmed,
+    shippingFee,
+    shippingFeeConfirmed,
+    ...quoteTerms,
+    total: totals.total + (shippingFeeConfirmed ? shippingFee ?? 0 : 0),
+    informationNeeded,
     informationConfirmed,
-    status: source.missingFields.length > 0 && !informationConfirmed ? "needs_info" : "draft",
+    status: informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed ? "needs_info" : "draft",
     createdBy: user.id,
     createdAt: now,
     updatedAt: now,
   };
   try {
     const result = await quotes.insertOne(quote);
-    const saved = { ...quote, _id: result.insertedId };
+    const saved = quoteForResponse({ ...quote, _id: result.insertedId });
     await writeAudit(db, user, "quote_created", "quote", result.insertedId.toHexString(), { quoteNumber, total: quote.total, informationConfirmed });
     response.status(201).json({ quote: saved });
   } catch (error) {
@@ -1468,7 +1527,7 @@ app.get("/api/quotes/:id", requireRole("user"), async (request, response) => {
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
   const sourceId = asId(quote.requestId);
   const source = sourceId ? await db.collection<QuoteRequest>("quoteRequests").findOne({ _id: sourceId, companyId: userOf(request).companyId }, { projection: { requestText: 1 } }) : null;
-  response.json({ quote: { ...quote, requestText: source?.requestText ?? "" } });
+  response.json({ quote: { ...quoteForResponse(quote), requestText: source?.requestText ?? "" } });
 });
 
 app.get("/api/quotes/:id/request-file/preview", requireRole("user"), async (request, response) => {
@@ -1687,7 +1746,12 @@ let closeWeb: () => Promise<void> = async () => {};
 closeWeb = await attachWeb(app, server);
 
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  console.error("Request failed:", error instanceof Error ? error.message : "unknown error");
+  if (!(isRecord(error) && error.type === "entity.too.large")) {
+    logger.error("http.unhandled_error", {
+      requestId: typeof response.locals.requestId === "string" ? response.locals.requestId : undefined,
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+  }
   if (response.headersSent) return;
   if (isRecord(error) && error.type === "entity.too.large") {
     response.status(413).json({ error: "Tệp hoặc nội dung vượt dung lượng cho phép. Mẫu báo giá tối đa 10 MB." });
@@ -1699,19 +1763,22 @@ app.use((error: unknown, _request: express.Request, response: express.Response, 
 
 connectDatabase()
   .then(() => {
+    logger.info("database.connected", { database: config.mongoDatabase });
     server.listen(config.port, "0.0.0.0", () => {
-      console.log(`AI Bao Gia listening on http://0.0.0.0:${config.port}`);
+      logger.info("server.started", { host: "0.0.0.0", port: config.port, environment: config.nodeEnv });
     });
   })
   .catch((error: unknown) => {
-    console.error("Unable to connect to MongoDB:", error instanceof Error ? error.message : error);
+    logger.error("database.connection_failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
     void shutdown().finally(() => process.exit(1));
   });
 
 async function shutdown() {
+  logger.info("server.shutdown_started");
   await closeWeb();
   if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeDatabase();
+  logger.info("server.shutdown_completed");
 }
 
 process.on("SIGINT", () => void shutdown().finally(() => process.exit(0)));

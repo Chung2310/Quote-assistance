@@ -17,11 +17,11 @@ const statusLabels: Record<QuoteStatus, string> = { draft: "Bản nháp", needs_
 const statusStyles: Record<QuoteStatus, string> = { draft: "neutral", needs_info: "amber", pending_review: "blue", approved: "green", rejected: "rose" };
 const roleLabels = { user: "Tài khoản doanh nghiệp", admin: "Quản trị hệ thống" };
 
-type RegistrationField = "companyName" | "taxId" | "address" | "phone" | "businessEmail" | "representativeName" | "name" | "email" | "password" | "confirmPassword";
+type RegistrationField = "companyName" | "taxId" | "address" | "phone" | "businessEmail" | "representativeName" | "password";
 type RegistrationDraft = Record<RegistrationField, string>;
 const emptyRegistration: RegistrationDraft = {
   companyName: "", taxId: "", address: "", phone: "", businessEmail: "", representativeName: "",
-  name: "", email: "", password: "", confirmPassword: "",
+  password: "",
 };
 
 function Icon({ name, size = 18 }: { name: string; size?: number }) {
@@ -121,6 +121,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
   const [password, setPassword] = useState("");
   const [registration, setRegistration] = useState<RegistrationDraft>(emptyRegistration);
   const [showPassword, setShowPassword] = useState(false);
+  const [showRegistrationPasswords, setShowRegistrationPasswords] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -151,8 +152,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
     setBusy(true);
     setError("");
     try {
-      if (registration.password !== registration.confirmPassword) throw new Error("Mật khẩu xác nhận chưa khớp.");
-      const { confirmPassword: _confirmPassword, ...details } = registration;
+      const details = { ...registration, email: registration.businessEmail, name: registration.representativeName };
       const { user } = await api<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(details) });
       onLogin(user);
       onNotify("Tài khoản doanh nghiệp đã được tạo và đăng nhập.");
@@ -163,21 +163,19 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
     }
   };
 
-  const registrationFields: Array<{ key: RegistrationField; label: string; type?: string; autoComplete?: string; wide?: boolean }> = [
-    { key: "companyName", label: "Tên doanh nghiệp", autoComplete: "organization" },
-    { key: "taxId", label: "Mã số thuế" },
-    { key: "address", label: "Địa chỉ doanh nghiệp", autoComplete: "street-address", wide: true },
-    { key: "phone", label: "Điện thoại doanh nghiệp", type: "tel", autoComplete: "tel" },
-    { key: "businessEmail", label: "Email doanh nghiệp", type: "email", autoComplete: "email" },
-    { key: "representativeName", label: "Người đại diện", autoComplete: "name" },
-    { key: "name", label: "Họ và tên người dùng", autoComplete: "name" },
-    { key: "email", label: "Email đăng nhập", type: "email", autoComplete: "username" },
-    { key: "password", label: "Mật khẩu", type: "password", autoComplete: "new-password" },
-    { key: "confirmPassword", label: "Xác nhận mật khẩu", type: "password", autoComplete: "new-password" },
+  const registrationFields: Array<{ key: RegistrationField; label: string; type?: string; autoComplete?: string; maxLength: number; wide?: boolean }> = [
+    { key: "companyName", label: "Tên doanh nghiệp", autoComplete: "organization", maxLength: 200 },
+    { key: "taxId", label: "Mã số thuế", maxLength: 30 },
+    { key: "address", label: "Địa chỉ doanh nghiệp", autoComplete: "street-address", maxLength: 500, wide: true },
+    { key: "phone", label: "Điện thoại doanh nghiệp", type: "tel", autoComplete: "tel", maxLength: 30 },
+    { key: "businessEmail", label: "Email doanh nghiệp và đăng nhập", type: "email", autoComplete: "email", maxLength: 250 },
+    { key: "representativeName", label: "Người đại diện và người dùng", autoComplete: "name", maxLength: 200 },
+    { key: "password", label: "Mật khẩu", type: "password", autoComplete: "new-password", maxLength: 200 },
   ];
 
   const switchMode = (nextMode: "login" | "register") => {
     setMode(nextMode);
+    setShowRegistrationPasswords(false);
     setError("");
   };
 
@@ -271,10 +269,16 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
               {!busy && <Icon name="arrow" size={17} />}
             </button>
           </form> : <form onSubmit={(event) => void submitRegistration(event)} className="login-form business-register-form">
-            {registrationFields.map(({ key, label, type = "text", autoComplete = "off", wide }) => <div className={`input-group register-field ${wide ? "register-field-wide" : ""}`} key={key}>
-              <label htmlFor={`register-${key}`}>{label}</label>
-              <div className="input-wrapper"><input id={`register-${key}`} type={type} autoComplete={autoComplete} maxLength={key === "address" ? 500 : key === "password" || key === "confirmPassword" ? 200 : 250} minLength={key === "password" || key === "confirmPassword" ? 7 : undefined} value={registration[key]} onChange={(event) => setRegistration((current) => ({ ...current, [key]: event.target.value }))} placeholder={key === "taxId" ? "Mã số thuế doanh nghiệp" : undefined} required /></div>
-            </div>)}
+            {registrationFields.map(({ key, label, type = "text", autoComplete = "off", maxLength, wide }) => {
+              const isPassword = key === "password";
+              return <div className={`input-group register-field ${wide ? "register-field-wide" : ""}`} key={key}>
+                <label htmlFor={`register-${key}`}>{label}</label>
+                <div className="input-wrapper">
+                  <input id={`register-${key}`} type={isPassword && showRegistrationPasswords ? "text" : type} autoComplete={autoComplete} maxLength={maxLength} minLength={isPassword ? 7 : undefined} value={registration[key]} onChange={(event) => setRegistration((current) => ({ ...current, [key]: event.target.value }))} placeholder={key === "taxId" ? "0123456789" : undefined} required />
+                  {isPassword && <button type="button" className="password-toggle" onClick={() => setShowRegistrationPasswords((shown) => !shown)} title={showRegistrationPasswords ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-label={showRegistrationPasswords ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-pressed={showRegistrationPasswords}><Icon name={showRegistrationPasswords ? "eyeOff" : "eye"} size={17} /></button>}
+                </div>
+              </div>;
+            })}
             {error && <div className="login-error-alert register-field-wide" role="alert"><span className="error-icon"><Icon name="close" size={14} /></span><span>{error}</span></div>}
             <button className="login-submit-btn register-field-wide" type="submit" disabled={busy}>{busy ? <span className="login-spinner" /> : null}<span>{busy ? "Đang tạo tài khoản…" : "Tạo tài khoản doanh nghiệp"}</span>{!busy && <Icon name="arrow" size={17} />}</button>
           </form>}
