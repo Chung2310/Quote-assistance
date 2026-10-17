@@ -147,7 +147,7 @@ const fillSchema = {
 
 export async function createTemplateFillPlan(template: QuoteTemplate, quote: Quote): Promise<TemplateFillPlan> {
   const lineDetails = quote.lines.map((line, index) => ({ line: index + 1, value: quoteLineDetails(line) }));
-  const raw = await requestTemplatePlan([
+  const plan = await requestTemplatePlan<TemplateFillPlan>([
     { type: "text", text: JSON.stringify({
        instruction: "Create a reusable fill plan for this actual company template. Never require the user to add placeholders. Office: edits are exact unique XML find/replace operations applied in order to the supplied parts; preserve namespaces, styles, drawings, page settings. Use only [[key]] bindings inside XML text nodes, never literal quote data. For XLSX use inlineStr cells when replacing shared-string references, preserve cell style attributes; never put localized amounts in numeric <v> cells. Duplicate existing styled table rows as needed for the specified lineCount; adjust row/cell references and merges consistently. Replace old example line items, clear unused example rows. PDF: pdfEdits places text within boxes in PDF points (bottom-left origin); erase=true covers old example text only, never labels or logo. Do not overlap boxes. Use existing pages; if layout cannot fit, return empty arrays. Include customerName, total and every available line's name, quantity, unit price and line total. When line_n_details is non-empty and the template has a suitable product specification or description area, include it with that line while keeping quantity and prices in their own fields. If additionalInformation is available and the template has a clear notes or supplementary-information area, include it there. Other template-specific sections can remain unchanged when no new data is supplied. Return edits=[] for PDF or pdfEdits=[] for Office.",
       lineCount: quote.lines.length,
@@ -156,8 +156,7 @@ export async function createTemplateFillPlan(template: QuoteTemplate, quote: Quo
       ...(template.extension === "pdf" ? { exampleValues: quoteValues(quote) } : {}),
     }) },
     ...await templateAiContent(template),
-  ], fillSchema);
-  const plan = validateFillPlan(raw, quote);
+  ], fillSchema, (raw) => validateFillPlan(raw, quote));
   await renderAiTemplate(template, quote, plan);
   return plan;
 }
@@ -517,13 +516,12 @@ export async function createXlsxTemplateFillPlan(template: QuoteTemplate, quote:
     return inferred;
   }
   const info = workbookInfo(template);
-  const raw = await requestTemplatePlan([{ type: "text", text: JSON.stringify({
+  const plan = await requestTemplatePlan<XlsxTemplateFillPlan>([{ type: "text", text: JSON.stringify({
     instruction: "Map the supplied quote fields to existing cells in this Excel quote template. Return cell coordinates only; never return XML edits. `cells` maps scalar keys to cells. `lineRows` must contain exactly one row per quote product, in order, and all its cells must be in that same existing row. Include name, quantity, unitPrice and lineTotal for every line. Also include sku and unit when the template has columns for them, and details when it has a description/specification column. When a requested product has width, height or length in its request attributes, map each available value to a matching dimension column in that product's row, preserving the supplied value and unit. Never invent a missing dimension. Map quoteNumber, customerName and total when those fields have a suitable location. Map additionalInformation only when supplied and when the template has a clear notes or supplementary-information cell. Map other scalar keys only when the template has a matching field. Use only listed cell coordinates and row numbers; never use formulas as text cells. Formula cells may be mapped only to numeric amount/quantity fields: the server will preserve each formula and update its cached result. Do not map labels, headers, terms, seller details, logos, or decorative cells. If the template does not have enough existing product rows or a suitable place for required values, return empty arrays.",
     requiredScalars: ["customerName", "total"], availableScalars: xlsxScalarKeys.filter((key) => key !== "additionalInformation" || Boolean(quoteAdditionalInformation(quote))), lineCount: quote.lines.length,
     lines: quote.lines.map((line, index) => ({ index: index + 1, detailsAvailable: Boolean(quoteLineDetails(line)), hasDescription: Boolean(line.description?.trim()), dimensionsAvailable: Object.fromEntries(dimensionKeys.map((key) => [key, Boolean(lineDimension(line, key))])) })),
     workbook: JSON.parse(xlsxWorkbookSummary(template, info)),
-  }) }], xlsxMapSchema);
-  const plan = validateXlsxTemplateFillPlan(raw, template, quote);
+  }) }], xlsxMapSchema, (raw) => validateXlsxTemplateFillPlan(raw, template, quote));
   renderXlsxTemplate(template, quote, plan, inputContext);
   return plan;
 }
