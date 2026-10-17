@@ -588,7 +588,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
       quantity: Number(quantities[line.catalogItemId]) || line.quantity,
     })) ?? [],
     taxRate: Number(taxRateText) / 100,
-    taxRateConfirmed,
+    taxRateConfirmed: taxRateConfirmed && taxRateText.trim() !== "",
     shippingFee: shippingFeeText.trim() === "" ? null : Number(shippingFeeText),
     shippingFeeConfirmed: shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)),
     validityDays: validityDaysText.trim() === "" ? null : Number(validityDaysText),
@@ -621,11 +621,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   }, [quote, quantities]);
 
   const liveTaxAmount = useMemo(() => {
-    if (!quote || !taxRateConfirmed) return 0;
+    if (!quote || !taxRateConfirmed || taxRateText.trim() === "") return 0;
     return Math.round(liveSubtotal * (Number(taxRateText) / 100));
   }, [quote, liveSubtotal, taxRateConfirmed, taxRateText]);
 
-  const liveShippingFee = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) ? Number(shippingFeeText) : 0;
+  const liveShippingFee = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) && Number(shippingFeeText) >= 0 ? Number(shippingFeeText) : 0;
 
   const liveTotal = useMemo(() => {
     return liveSubtotal + liveTaxAmount + liveShippingFee;
@@ -671,6 +671,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   if (loading) return <Loading />;
   if (!quote) return <div className="empty-state"><h2>Báo giá không khả dụng</h2><p>{error || "Không tìm thấy dữ liệu."}</p><button className="button button-soft" onClick={onBack}>Quay lại</button></div>;
 
+  const shippingFeeIsConfirmed = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) && Number(shippingFeeText) >= 0;
+  const hasUnresolvedInformation = quote.informationNeeded.length > 0 || !taxRateConfirmed || taxRateText.trim() === "" || !shippingFeeIsConfirmed;
+  const hasUnpricedCatalogItem = quote.informationNeeded.some((field) =>
+    !/vat|tax|thuế|vận chuyển|shipping|giao hàng/i.test(field) && /mosaic|ốp lát|gạch|sản phẩm|mặt hàng|nhân công|vật tư|đơn giá|giá/i.test(field),
+  );
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
   const downloadQuote = async () => {
@@ -738,7 +743,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <button
               type="button"
               className="button button-primary"
-              disabled={busy || (quote.informationNeeded.length > 0 && !quote.informationConfirmed)}
+              disabled={busy || hasUnresolvedInformation}
               onClick={() => void perform(`/api/quotes/${quote._id}/submit-review`, {}, "POST", "Đã gửi báo giá vào hàng chờ duyệt.")}
             >
               <Icon name="arrow" size={16} /> Gửi duyệt báo giá
@@ -758,7 +763,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
               <button
                 type="button"
                 className="button button-primary"
-                disabled={busy}
+                disabled={busy || hasUnresolvedInformation}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Báo giá đã được phê duyệt thành công.")}
               >
                 <Icon name="check" size={16} /> Duyệt báo giá
@@ -770,8 +775,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <button
               type="button"
               className="button button-soft"
-              disabled={busy || !quote.customerEmail}
-              title={!quote.customerEmail ? "Chưa có email khách hàng" : "Gửi báo giá qua email"}
+              disabled={busy || !quote.customerEmail || hasUnresolvedInformation}
+              title={hasUnresolvedInformation ? "Cần xử lý thông tin còn thiếu trước khi gửi email" : !quote.customerEmail ? "Chưa có email khách hàng" : "Gửi báo giá qua email"}
               onClick={() => void perform("/api/quotes/" + quote._id + "/email", undefined, "POST", "Đã gửi báo giá qua email thành công.")}
             >
               <Icon name="mail" size={16} /> Gửi email
@@ -781,8 +786,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
           <button
             type="button"
             className="button button-primary"
-            disabled={busy || quote.status !== "approved"}
-            title={quote.status === "approved" ? "Tải file báo giá chính thức" : "Báo giá cần được duyệt trước khi xuất file"}
+            disabled={busy || quote.status !== "approved" || hasUnresolvedInformation}
+            title={hasUnresolvedInformation ? "Cần xử lý thông tin còn thiếu trước khi xuất file" : quote.status === "approved" ? "Tải file báo giá chính thức" : "Báo giá cần được duyệt trước khi xuất file"}
             onClick={() => void downloadQuote()}
           >
             <Icon name="download" size={16} />
@@ -851,7 +856,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
               <button
                 type="button"
                 className="button button-primary"
-                disabled={busy}
+                disabled={busy || hasUnresolvedInformation}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Báo giá đã được phê duyệt thành công.")}
               >
                 <Icon name="check" size={16} /> Phê duyệt ngay
@@ -876,16 +881,17 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
       )}
 
       {/* Needs Info Banner */}
-      {quote.informationNeeded.length > 0 && (
+      {hasUnresolvedInformation && (
         <div className="quote-status-banner banner-needs-info">
           <div className="banner-info-wrap">
             <span className="banner-icon"><Icon name="spark" size={20} /></span>
             <div className="banner-text-box">
               <h3>Còn thông tin cần bổ sung</h3>
-              <p>{quote.informationNeeded.join(" · ")}</p>
+              <p>{quote.informationNeeded.length ? quote.informationNeeded.join(" · ") : "Hãy xác nhận VAT và phí vận chuyển trong mục Chi phí và điều khoản."}</p>
             </div>
           </div>
           <p className="field-hint">Báo giá chưa thể gửi duyệt khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.</p>
+          {hasUnpricedCatalogItem && <p className="field-hint">Nếu thiếu sản phẩm hoặc nhân công như hạng mục ốp lát mosaic, hãy thêm tên và đơn giá vào Bảng giá doanh nghiệp, sau đó phân tích lại yêu cầu để đưa hạng mục vào báo giá.</p>}
         </div>
       )}
 
@@ -949,7 +955,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                 <small>{shippingFeeText.trim() === "" ? "Chưa xác nhận phí vận chuyển." : "Sẽ được cộng vào tổng tiền sau khi lưu."}</small>
               </label>
               <label>Thuế VAT (%)
-                <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} onChange={(event) => setTaxRateText(event.target.value)} />
+                <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} onChange={(event) => { setTaxRateText(event.target.value); if (!event.target.value.trim()) setTaxRateConfirmed(false); }} />
                 <small>{taxRateConfirmed ? "Thuế suất đã được xác nhận." : "Cần xác nhận thuế suất trước khi gửi duyệt."}</small>
               </label>
               <label className="quote-term-confirm">
@@ -973,7 +979,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                 <span className="quote-badge-count">{quote.lines.length} sản phẩm</span>
                 {hasUnsavedChanges && (
                   <span className="quote-unsaved-badge">
-                    ● Có thay đổi số lượng chưa lưu
+                    ● Có thay đổi chưa lưu
                   </span>
                 )}
               </div>
@@ -1075,17 +1081,22 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <div className="quote-totals-container">
               <div className="quote-totals-card">
                 <div className="quote-total-row">
-                  <span>Tạm tính ({quote.lines.length} sản phẩm):</span>
+                  <span>Tạm tính hàng hóa ({quote.lines.length} sản phẩm):</span>
                   <strong>{formatMoney(liveSubtotal, quote.currency)}</strong>
                 </div>
                 <div className="quote-total-row">
-                  <span>Thuế VAT ({(quote.taxRate * 100).toLocaleString("vi-VN")}%):</span>
-                  <strong>{formatMoney(liveTaxAmount, quote.currency)}</strong>
+                  <span>{taxRateConfirmed ? `Thuế VAT (${(Number(taxRateText) || 0).toLocaleString("vi-VN")}%):` : "Thuế VAT (chưa xác nhận):"}</span>
+                  <strong>{taxRateConfirmed && taxRateText.trim() !== "" ? formatMoney(liveTaxAmount, quote.currency) : "Chưa xác nhận"}</strong>
+                </div>
+                <div className="quote-total-row">
+                  <span>Phí vận chuyển:</span>
+                  <strong>{shippingFeeText.trim() === "" ? "Chưa xác nhận" : formatMoney(liveShippingFee, quote.currency)}</strong>
                 </div>
                 <div className="quote-grand-total-row">
                   <span>Tổng tiền thanh toán:</span>
                   <strong>{formatMoney(liveTotal, quote.currency)}</strong>
                 </div>
+                {hasUnresolvedInformation && <small className="quote-total-pending-note">Tạm tính chưa bao gồm các khoản còn thiếu trong danh sách xác nhận.</small>}
               </div>
             </div>
           </section>
@@ -1305,7 +1316,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                     <button
                       type="button"
                       className="button button-primary"
-                      disabled={busy}
+                      disabled={busy || hasUnresolvedInformation}
                       onClick={() => setPreviewFile({ name: `${quote.quoteNumber}.${quote.template?.originalFilename.split(".").pop()?.toLowerCase() || "pdf"}`, url: `/api/quotes/${quote._id}/export?preview=1` })}
                     >
                       Xem trước

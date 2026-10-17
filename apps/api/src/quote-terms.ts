@@ -4,8 +4,8 @@ function normalizedText(value: string) {
 
 export function isGenericMissingPriceWarning(value: string) {
   const text = normalizedText(value);
-  const saysPriceIsMissing = /\b(khong co|chua co|thieu|missing)\b/.test(text) && /\b(don gia|gia|price)\b/.test(text);
-  const refersToEveryLine = /\b(tung dong|moi dong|tat ca dong|each line|every line)\b/.test(text);
+  const saysPriceIsMissing = /\b(khong co|chua co|khong tim thay|khong xac dinh|thieu|missing|not found|no|without|unavailable)\b/.test(text) && /\b(don gia|gia|price|pricing)\b/.test(text);
+  const refersToEveryLine = /\b(tung dong|moi dong|tat ca dong|each line|every line|any line|all lines|each item|every item|any item|all items)\b/.test(text);
   return saysPriceIsMissing && refersToEveryLine;
 }
 
