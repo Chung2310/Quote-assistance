@@ -282,8 +282,7 @@ async function seedCompany(db: Db, companyData: DemoCompany, now: Date, effectiv
     id: accountId,
     email,
     name: companyData.adminName,
-    role: "admin",
-    platformAdmin: false,
+    role: "user",
     passwordHash: previousUser?.passwordHash ?? hashPassword(password!),
     companyId,
     active: true,
@@ -322,6 +321,8 @@ async function seedCompany(db: Db, companyData: DemoCompany, now: Date, effectiv
     data: new Binary(priceListBytes),
     uploadedBy: account.id,
     updatedAt: now,
+    productCount: catalogItems.length,
+    skippedRows: 0,
   };
   await db.collection<PriceList>("priceLists").replaceOne({ _id: priceListId }, priceList, { upsert: true });
 

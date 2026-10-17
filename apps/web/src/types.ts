@@ -1,4 +1,4 @@
-export type UserRole = "sales" | "admin";
+export type UserRole = "user" | "admin";
 export type QuoteStatus = "draft" | "needs_info" | "pending_review" | "approved" | "rejected";
 export type MatchStatus = "matched" | "ambiguous" | "not_found";
 
@@ -7,8 +7,7 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
-  companyId: string;
-  platformAdmin?: boolean;
+  companyId?: string;
 }
 
 export interface CatalogItem {
@@ -16,6 +15,7 @@ export interface CatalogItem {
   sku: string;
   name: string;
   description: string;
+  attributes?: Record<string, string>;
   unit: string;
   price: number;
   currency: string;
@@ -36,10 +36,12 @@ export interface QuoteLine {
   catalogItemId: string;
   sku: string;
   name: string;
+  description?: string;
   quantity: number;
   unit: string;
   unitPrice: number;
   currency: string;
+  catalogAttributes?: Record<string, string>;
   attributes: Record<string, string>;
   lineTotal: number;
 }
@@ -51,6 +53,7 @@ export interface Quote {
   requestFile?: { id: string; originalFilename: string };
   quoteNumber: string;
   requestId: string;
+  requestText?: string;
   customerName: string;
   customerEmail: string;
   customerPhone?: string;

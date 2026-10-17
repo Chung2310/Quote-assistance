@@ -6,7 +6,7 @@ Trạng thái: Đề xuất phạm vi khám phá và pilot
 
 ## Đề xuất điều hành
 
-Xây dựng nền tảng giúp doanh nghiệp chuyển yêu cầu tự do của khách hàng thành báo giá nháp dựa trên danh mục và bảng giá đã được xác nhận. AI trích xuất nhu cầu và gợi ý mặt hàng phù hợp; backend lấy giá, áp dụng quy tắc thương mại và tính tổng. Nhân viên kiểm tra, duyệt rồi xuất báo giá.
+Xây dựng nền tảng giúp doanh nghiệp chuyển yêu cầu tự do của khách hàng thành báo giá nháp dựa trên danh mục và bảng giá đã được xác nhận. AI trích xuất nhu cầu và gợi ý mặt hàng phù hợp; backend lấy giá, áp dụng quy tắc thương mại và tính tổng. Tài khoản user của doanh nghiệp kiểm tra, duyệt rồi xuất báo giá.
 
 Đề xuất bắt đầu với một nhóm doanh nghiệp hẹp, kiểm chứng quy trình với doanh nghiệp pilot, sau đó mới mở rộng. Cách làm này kiểm tra được nhu cầu thực tế và độ linh hoạt của mẫu báo giá trước khi đầu tư quy mô lớn.
 
@@ -16,31 +16,31 @@ Giả thuyết cần kiểm chứng là một số quy trình báo giá còn ph�
 
 Điểm khác biệt cần kiểm chứng là mẫu báo giá theo loại hình doanh nghiệp kết hợp với danh mục và bảng giá riêng của từng công ty.
 
-## Trải nghiệm khách hàng và nhân viên
+## Trải nghiệm khách hàng và tài khoản doanh nghiệp
 
 1. Quản trị nền tảng tạo mẫu theo loại hình doanh nghiệp.
 
 2. Doanh nghiệp nhập danh mục, bảng giá và quy tắc thương mại.
 
-3. Nhân viên nhập yêu cầu khách bằng văn bản.
+3. User của doanh nghiệp nhập yêu cầu khách bằng văn bản.
 
 4. AI trích xuất sản phẩm, số lượng, thuộc tính và thông tin còn thiếu; khi cần, AI đối chiếu cách diễn đạt với bảng giá.
 
 5. Backend xác thực mặt hàng, lấy đơn giá và tính tổng theo quy tắc.
 
-6. Nhân viên duyệt báo giá nháp và xuất PDF.
+6. User của doanh nghiệp duyệt báo giá nháp và xuất file.
 
-Khi yêu cầu không khớp mặt hàng nào, AI có thể đối chiếu bảng giá đã chuẩn hóa. Kết quả phải trỏ tới mã hàng có thật; nhân viên xác nhận nếu chưa rõ. Giá được lấy từ bảng giá và tính theo quy tắc của doanh nghiệp.
+Khi yêu cầu không khớp mặt hàng nào, AI có thể đối chiếu bảng giá đã chuẩn hóa. Kết quả phải trỏ tới mã hàng có thật; user xác nhận nếu chưa rõ. Giá được lấy từ bảng giá và tính theo quy tắc của doanh nghiệp.
 
 ## Phạm vi pilot
 
-Bắt đầu với một doanh nghiệp pilot, một loại hình và một luồng báo giá phổ biến. Trong sprint agent tối đa 5 ngày làm việc, bản pilot staging tập trung vào nhập yêu cầu bằng văn bản, nhập một bảng giá CSV/XLSX đã chuẩn hóa, AI gợi ý mã hàng, backend tính giá theo quy tắc đơn giản đã chốt, quản trị viên doanh nghiệp tự duyệt và xuất một mẫu PDF. Có thể cấu hình vai trò nhân viên và quản trị doanh nghiệp; chưa bao gồm bộ dựng mẫu tổng quát hay kiểm chứng vận hành SaaS nhiều doanh nghiệp.
+Bắt đầu với một doanh nghiệp pilot, một loại hình và một luồng báo giá phổ biến. Trong sprint agent tối đa 5 ngày làm việc, bản pilot staging tập trung vào đăng ký tài khoản doanh nghiệp, nhập yêu cầu bằng văn bản, nhập một bảng giá CSV/XLSX đã chuẩn hóa, AI gợi ý mã hàng, backend tính giá theo quy tắc đơn giản đã chốt, user doanh nghiệp tự duyệt và xuất một mẫu PDF. Admin hệ thống quản lý các tài khoản doanh nghiệp; không phân vai nhân viên bên trong doanh nghiệp. Chưa bao gồm bộ dựng mẫu tổng quát hay kiểm chứng vận hành SaaS production.
 
 Đọc mọi định dạng PDF/ảnh, bảng giá phức tạp nhiều bậc, nhiều cấp duyệt, tự động gửi báo giá, CRM/ERP, quản trị nhiều doanh nghiệp, bảo mật production và dự báo doanh thu nằm ngoài sprint một tuần; xem xét sau khi đánh giá pilot.
 
 ## Đo lường kết quả
 
-Ghi nhận quy trình hiện tại trước pilot để làm mốc so sánh. Theo dõi thời gian tạo báo giá nháp, tỷ lệ ghép đúng sản phẩm, tỷ lệ nhân viên sửa bản nháp, tỷ lệ phải hỏi thêm khách và mức độ sẵn sàng tiếp tục sử dụng/trả phí. Chốt ngưỡng thành công trước khi bắt đầu; hiện chưa có dữ liệu để đặt mục tiêu số.
+Ghi nhận quy trình hiện tại trước pilot để làm mốc so sánh. Theo dõi thời gian tạo báo giá nháp, tỷ lệ ghép đúng sản phẩm, tỷ lệ user sửa bản nháp, tỷ lệ phải hỏi thêm khách và mức độ sẵn sàng tiếp tục sử dụng/trả phí. Chốt ngưỡng thành công trước khi bắt đầu; hiện chưa có dữ liệu để đặt mục tiêu số.
 
 ## Mô hình kinh doanh cần kiểm chứng
 
@@ -70,7 +70,7 @@ Ví dụ một lần phân tích báo giá gửi 5.000 token đầu vào (yêu c
 
 ## Đầu vào cần có để bắt đầu sprint một tuần
 
-1. **Chủ sở hữu nghiệp vụ:** một người chốt nhanh các câu hỏi về báo giá; ngành/doanh nghiệp pilot; một luồng báo giá và người quản trị doanh nghiệp tự duyệt; tiêu chí demo/đạt yêu cầu.
+1. **Chủ sở hữu nghiệp vụ:** một người chốt nhanh các câu hỏi về báo giá; ngành/doanh nghiệp pilot; một luồng báo giá và user doanh nghiệp tự duyệt; tiêu chí demo/đạt yêu cầu.
 
 2. **Dữ liệu sẵn dùng:** một tệp CSV/XLSX sạch với mã hàng, tên, đơn vị, giá, tiền tệ và các biến thể cần thiết; một số yêu cầu thật đã ẩn thông tin nhạy cảm cùng báo giá đúng tương ứng. Báo trước số dòng/SKU và các lỗi dữ liệu đã biết.
 
@@ -86,7 +86,7 @@ Các mục mở rộng để hoàn thiện SaaS sau pilot gồm mô hình nhiề
 
 - Giá không chính xác: lấy đơn giá và quy tắc từ dữ liệu doanh nghiệp đã xác nhận; lưu phiên bản áp dụng trong báo giá.
 
-- Ghép nhầm sản phẩm: cho nhân viên xem mã hàng và căn cứ đối chiếu trước khi duyệt.
+- Ghép nhầm sản phẩm: cho user xem mã hàng và căn cứ đối chiếu trước khi duyệt.
 
 - Rò rỉ dữ liệu: phân tách theo doanh nghiệp, gửi tối thiểu dữ liệu cần thiết và rà soát chính sách của nhà cung cấp mô hình.
 

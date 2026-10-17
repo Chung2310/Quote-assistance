@@ -6,7 +6,7 @@ Trạng thái: Đề xuất yêu cầu ban đầu
 
 ## Mục tiêu
 
-Xây dựng ứng dụng nhiều doanh nghiệp. Quản trị nền tảng tạo mẫu theo loại hình doanh nghiệp; mỗi doanh nghiệp quản lý danh mục và bảng giá riêng. Nhân viên nhập yêu cầu khách; AI trích xuất thông tin và hỗ trợ ghép sản phẩm; backend xác thực dữ liệu, áp dụng bảng giá và quy tắc tính để tạo báo giá nháp. Người có quyền duyệt trước khi gửi.
+Xây dựng ứng dụng nhiều doanh nghiệp. Một tài khoản admin hệ thống quản lý tài khoản doanh nghiệp; doanh nghiệp tự đăng ký một tài khoản user và quản lý danh mục, bảng giá, mẫu báo giá riêng. User nhập yêu cầu khách; AI trích xuất thông tin và hỗ trợ ghép sản phẩm; backend xác thực dữ liệu, áp dụng bảng giá và quy tắc tính để tạo báo giá nháp. Cùng tài khoản user kiểm tra, duyệt và gửi báo giá.
 
 Giá, thuế, chiết khấu và tổng tiền được tính trong backend từ cấu hình đã xác nhận.
 
@@ -14,10 +14,8 @@ Giá, thuế, chiết khấu và tổng tiền được tính trong backend từ
 
 | Vai trò | Quyền |
 |---|---|
-| Quản trị nền tảng | Tạo loại hình doanh nghiệp và phiên bản mẫu dùng chung. |
-| Quản trị doanh nghiệp | Quản lý doanh nghiệp, người dùng, danh mục và bảng giá. |
-| Nhân viên báo giá | Tạo yêu cầu, xem gợi ý, sửa bản nháp và gửi duyệt. |
-| Quản trị doanh nghiệp | Tự duyệt hoặc trả lại báo giá để chỉnh sửa trong phạm vi doanh nghiệp. |
+| Admin hệ thống | Quản lý hồ sơ doanh nghiệp và tài khoản user; khóa tài khoản, đặt lại mật khẩu và gửi thông báo toàn hệ thống. |
+| User doanh nghiệp | Quản lý dữ liệu, cài đặt và toàn bộ quy trình báo giá trong doanh nghiệp của mình. |
 
 Backend giới hạn mọi truy vấn theo doanh nghiệp từ ngữ cảnh xác thực.
 
@@ -31,13 +29,15 @@ Mỗi thay đổi mẫu tạo phiên bản mới. Báo giá cũ giữ phiên b�
 
 ### Danh mục và bảng giá
 
-Tối thiểu mỗi mặt hàng có mã, tên, mô tả, đơn vị, đơn giá, tiền tệ, trạng thái và thời hạn hiệu lực nếu có. Khi nhập tệp, hệ thống kiểm tra định dạng, chỉ ra lỗi theo dòng và yêu cầu người dùng xác nhận dữ liệu.
+Tối thiểu mỗi mặt hàng có mã, tên, mô tả, đơn vị, đơn giá, tiền tệ, trạng thái và thời hạn hiệu lực nếu có. Khi user tải `.csv`, `.xlsx` hoặc `.xls` lên, hệ thống hiển thị bước xem trước để chọn sheet, dòng tiêu đề và ghép cột trước khi tạo/cập nhật sản phẩm cùng giá. Các cột thông dụng được nhận diện tự động; cột riêng được lưu dưới dạng thuộc tính theo từng sản phẩm, cho phép doanh nghiệp có trường dữ liệu khác nhau mà không cần thay đổi schema danh mục. Cấu hình ghép cột được lưu theo doanh nghiệp và gợi ý lại với file có cùng sheet và tiêu đề. Thuộc tính riêng hiển thị trong danh sách, được tìm kiếm, chỉnh sửa và gửi cùng dữ liệu ứng viên khi AI đối chiếu mặt hàng. File gốc được giữ để xem lại. Mã hàng trùng trong danh mục sẽ cập nhật; nếu file không có mã hàng, hệ thống tạo mã từ thông tin sản phẩm. User dùng danh mục đã nhập khi tạo báo giá, không cần chọn lại file nguồn.
 
-Nếu tìm kiếm thường không thấy mặt hàng, backend gửi yêu cầu cùng dữ liệu giá đã chuẩn hóa cho AI đối chiếu cách diễn đạt. Với bảng nhỏ có thể gửi toàn bộ; với bảng lớn chỉ gửi các dòng liên quan. Đầu ra phải trỏ đến mã hàng hiện hữu hoặc báo không tìm thấy.
+Nếu tìm kiếm thường không thấy mặt hàng trong danh mục, backend gửi yêu cầu cùng sản phẩm ứng viên cho AI đối chiếu cách diễn đạt. Đầu ra phải trỏ đến mã hàng hiện hữu hoặc báo không tìm thấy.
+
+Khi tạo báo giá, backend chụp mô tả và thuộc tính riêng của sản phẩm vào từng dòng, tách khỏi thuộc tính khách yêu cầu thêm. Màn hình xem trước và chi tiết báo giá hiển thị hai nhóm riêng; PDF và mẫu doanh nghiệp nhận các giá trị đã chụp qua binding `line_n_details` khi mẫu có vùng thông số phù hợp. Thay đổi danh mục sau đó chỉ áp dụng cho báo giá mới.
 
 ### Phân tích yêu cầu
 
-Nhân viên nhập nội dung yêu cầu và khách hàng. Backend gửi nội dung cần thiết cùng sản phẩm ứng viên cho OpenRouter. AI trả về cấu trúc tương đương:
+User nhập nội dung yêu cầu và khách hàng. Backend gửi nội dung cần thiết cùng sản phẩm ứng viên trong danh mục doanh nghiệp cho OpenRouter. AI trả về cấu trúc tương đương:
 
     {
       "status": "matched",
@@ -53,13 +53,13 @@ Nhân viên nhập nội dung yêu cầu và khách hàng. Backend gửi nội d
       "missingFields": ["kích thước", "địa điểm giao hàng"]
     }
 
-status nhận matched, ambiguous hoặc not_found. Backend xác thực cấu trúc, mã mặt hàng, phạm vi doanh nghiệp, số lượng và trường bắt buộc. Khi chưa rõ, yêu cầu bổ sung hoặc chuyển nhân viên xử lý.
+status nhận matched, ambiguous hoặc not_found. Backend xác thực cấu trúc, mã mặt hàng, phạm vi doanh nghiệp, số lượng và trường bắt buộc. Khi chưa rõ, yêu cầu bổ sung để user kiểm tra.
 
 ### Tính giá và trạng thái
 
-Backend tra giá có hiệu lực và tính các dòng theo quy tắc cấu hình. Mỗi báo giá lưu ảnh chụp tên/mã hàng, số lượng, đơn vị, đơn giá, tiền tệ, thuế, chiết khấu, điều khoản, phiên bản mẫu và bảng giá. Sửa giá thủ công cần ghi người sửa, giá trước/sau và lý do.
+Backend tra giá có hiệu lực trong danh mục và tính các dòng theo quy tắc cấu hình. Mỗi báo giá lưu ảnh chụp tên/mã hàng, số lượng, đơn vị, đơn giá, tiền tệ, thuế, chiết khấu, điều khoản và phiên bản mẫu. Sửa giá thủ công cần ghi người sửa, giá trước/sau và lý do.
 
-Trạng thái đề xuất: draft, needs_info, pending_review, approved, sent, accepted, rejected, expired. Trong MVP, nhân viên thực hiện thao tác gửi sau khi báo giá được duyệt.
+Trạng thái đề xuất: draft, needs_info, pending_review, approved, sent, accepted, rejected, expired. User doanh nghiệp kiểm tra, duyệt rồi gửi báo giá.
 
 ## Kiến trúc
 
@@ -99,21 +99,21 @@ Index ban đầu gồm index theo doanh nghiệp cho màn danh sách và unique 
 
 ## Luồng tìm sản phẩm khi không thấy
 
-1. Xác thực người dùng và doanh nghiệp.
+1. Xác thực user và doanh nghiệp.
 
 2. Giữ nội dung gốc, chuẩn hóa yêu cầu.
 
-3. Tìm mã hàng, từ khóa và thuộc tính trong danh mục của doanh nghiệp đó.
+3. Tìm mã hàng, từ khóa và thuộc tính trong danh mục đã tạo từ các file bảng giá của doanh nghiệp đó.
 
-4. Khi kết quả chưa đủ tốt, gửi bảng đã chuẩn hóa hoặc nhóm dòng liên quan cho AI.
+4. Khi kết quả chưa đủ tốt, gửi các sản phẩm ứng viên trong danh mục cho AI.
 
 5. AI trả về mã hàng hiện có, ambiguous hoặc not_found.
 
-6. Backend xác thực mã, lấy giá và tính toán; trường hợp chưa rõ chuyển nhân viên.
+6. Backend xác thực mã, lấy giá và tính toán; trường hợp chưa rõ yêu cầu user xác nhận.
 
 7. Lưu bản nháp, dữ liệu nguồn và phiên bản bảng giá/mẫu.
 
-Chỉ gửi dữ liệu thuộc doanh nghiệp hiện tại và các trường cần thiết cho việc ghép hàng. Không gửi giá vốn hoặc thông tin nhà cung cấp nếu không cần.
+Chỉ gửi dữ liệu thuộc doanh nghiệp hiện tại và các trường cần thiết cho việc ghép hàng. Khi cấu trúc tiêu đề của file bảng giá không nhận diện được, các dòng trích xuất gồm cả đơn giá được gửi tới OpenRouter để nhập danh mục; không gửi giá vốn hoặc thông tin nhà cung cấp nếu không cần.
 
 ## Bảo mật và quyền riêng tư
 
