@@ -64,8 +64,8 @@ export interface Quote {
   taxAmount: number;
   shippingFee?: number | null;
   shippingFeeConfirmed?: boolean;
-  validityDays?: number;
-  completionDate?: string;
+  validityDays?: number | null;
+  completionDate?: string | null;
   total: number;
   currency: string;
   informationNeeded: string[];

@@ -1566,29 +1566,61 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   if (updates.some((item: unknown) => !isRecord(item) || typeof item.catalogItemId !== "string" || !quote.lines.some((line) => line.catalogItemId === item.catalogItemId))) {
     return fail(response, "Không thể thêm mặt hàng ngoài danh sách đã phân tích.");
   }
+  const body = isRecord(request.body) ? request.body : {};
+  const currentQuote = quoteForResponse(quote);
+  const taxRate = Object.prototype.hasOwnProperty.call(body, "taxRate") ? Number(body.taxRate) : quote.taxRate;
+  if (!Number.isFinite(taxRate) || taxRate < 0 || taxRate > 1) return fail(response, "Thuế suất VAT phải từ 0 đến 100%.");
+  if (Object.prototype.hasOwnProperty.call(body, "taxRateConfirmed") && typeof body.taxRateConfirmed !== "boolean") return fail(response, "Trạng thái xác nhận VAT không hợp lệ.");
+  const taxRateConfirmed = Object.prototype.hasOwnProperty.call(body, "taxRateConfirmed") ? body.taxRateConfirmed === true : currentQuote.taxRateConfirmed === true;
+  const rawShippingFee = Object.prototype.hasOwnProperty.call(body, "shippingFee") ? body.shippingFee : currentQuote.shippingFee;
+  if (rawShippingFee !== null && rawShippingFee !== undefined && (typeof rawShippingFee !== "number" || !Number.isFinite(rawShippingFee) || rawShippingFee < 0 || rawShippingFee > 1e12)) return fail(response, "Phí vận chuyển phải là số tiền không âm.");
+  if (Object.prototype.hasOwnProperty.call(body, "shippingFeeConfirmed") && typeof body.shippingFeeConfirmed !== "boolean") return fail(response, "Trạng thái xác nhận phí vận chuyển không hợp lệ.");
+  const shippingFee = typeof rawShippingFee === "number" ? rawShippingFee : null;
+  const shippingFeeConfirmed = Object.prototype.hasOwnProperty.call(body, "shippingFeeConfirmed")
+    ? body.shippingFeeConfirmed === true && shippingFee !== null
+    : currentQuote.shippingFeeConfirmed === true && shippingFee !== null;
+  const validityDays = Object.prototype.hasOwnProperty.call(body, "validityDays") ? body.validityDays : quote.validityDays ?? null;
+  if (validityDays !== null && (typeof validityDays !== "number" || !Number.isInteger(validityDays) || validityDays < 1 || validityDays > 3650)) return fail(response, "Thời hạn báo giá phải từ 1 đến 3.650 ngày.");
+  const completionDate = Object.prototype.hasOwnProperty.call(body, "completionDate") ? body.completionDate : quote.completionDate ?? null;
+  if (completionDate !== null && (typeof completionDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(completionDate) || Number.isNaN(Date.parse(`${completionDate}T00:00:00Z`)))) return fail(response, "Hạn hoàn thành không hợp lệ.");
   let totals;
   try {
-    totals = recalculateSnapshot(quote.lines, updates.map((item: Record<string, unknown>) => ({
+    const recalculated = recalculateSnapshot(quote.lines, updates.map((item: Record<string, unknown>) => ({
       catalogItemId: String(item.catalogItemId), quantity: Number(item.quantity),
-    })), quote.taxRate);
+    })), taxRate);
+    totals = {
+      ...recalculated,
+      taxRateConfirmed,
+      shippingFee,
+      shippingFeeConfirmed,
+      total: Math.round((recalculated.subtotal + recalculated.taxAmount + (shippingFeeConfirmed ? shippingFee ?? 0 : 0)) * 100) / 100,
+    };
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không thể tính lại báo giá.");
   }
   const informationConfirmed = request.body?.informationConfirmed === true || quote.informationConfirmed;
-  const nextStatus: QuoteStatus = quote.status === "rejected" || (quote.status === "needs_info" && informationConfirmed) ? "draft" : quote.status;
+  let informationNeeded = currentQuote.informationNeeded.filter((field) =>
+    !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
+  );
+  if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
+  if (!shippingFeeConfirmed && !informationNeeded.some(isShippingInformation)) informationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
+  const unresolved = informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed;
+  const nextStatus: QuoteStatus = unresolved ? "needs_info"
+    : quote.status === "rejected" || quote.status === "needs_info" ? "draft" : quote.status;
   const customerName = request.body?.customerName ?? quote.customerName;
   const customerEmail = request.body?.customerEmail ?? quote.customerEmail;
   const customerPhone = request.body?.customerPhone ?? quote.customerPhone ?? "";
   if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail.trim() && !validEmail(customerEmail.trim()))) return fail(response, "Vui lòng nhập tên khách hàng và email hợp lệ (nếu có).");
   const customer = { customerName: customerName.trim(), customerEmail: customerEmail.trim(), customerPhone: customerPhone.trim() };
-  const updatedQuote = { ...quote, ...totals, ...customer };
+  const updatedQuote = { ...quote, ...totals, ...customer, informationNeeded, validityDays, completionDate };
   await quotes.updateOne({ _id: id, companyId: user.companyId }, {
-    $set: { ...totals, ...customer, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() },
+    $set: { ...totals, ...customer, informationNeeded, validityDays, completionDate, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() },
     ...(updatedQuote.templateFillPlan ? {} : { $unset: { templateFillPlan: "" } }),
   });
   await writeAudit(db, user, "quote_recalculated", "quote", id.toHexString(), { total: totals.total });
-  response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
+  const updated = await quotes.findOne({ _id: id, companyId: user.companyId });
+  response.json({ quote: updated ? quoteForResponse(updated) : null });
 });
 
 app.post("/api/quotes/:id/submit-review", requireRole("user"), async (request, response) => {
@@ -1599,7 +1631,7 @@ app.post("/api/quotes/:id/submit-review", requireRole("user"), async (request, r
   const quotes = db.collection<Quote>("quotes");
   const quote = await quotes.findOne({ _id: id, companyId: user.companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
-  if (quote.status !== "draft" || (quote.informationNeeded.length > 0 && !quote.informationConfirmed)) return fail(response, "Hãy xác nhận đầy đủ thông tin trước khi gửi duyệt.", 409);
+  if (quote.status !== "draft" || quoteHasUnresolvedInformation(quote)) return fail(response, "Hãy xử lý các khoản chưa có giá hoặc điều khoản còn thiếu trước khi gửi duyệt.", 409);
   await quotes.updateOne({ _id: id, companyId: user.companyId }, { $set: { status: "pending_review", updatedAt: new Date() } });
   await writeAudit(db, user, "quote_submitted", "quote", id.toHexString());
   response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
@@ -1611,6 +1643,9 @@ app.post("/api/quotes/:id/approve", requireRole("user"), async (request, respons
   const db = await connectDatabase();
   const user = userOf(request);
   const quotes = db.collection<Quote>("quotes");
+  const pendingQuote = await quotes.findOne({ _id: id, companyId: user.companyId, status: "pending_review" });
+  if (!pendingQuote) return fail(response, "Chỉ có thể duyệt báo giá đang chờ duyệt.", 409);
+  if (quoteHasUnresolvedInformation(pendingQuote)) return fail(response, "Báo giá còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   const result = await quotes.findOneAndUpdate(
     { _id: id, companyId: user.companyId, status: "pending_review" },
     { $set: { status: "approved", approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date() } },

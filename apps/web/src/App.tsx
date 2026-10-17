@@ -398,7 +398,6 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [selected, setSelected] = useState<AnalysisItem[]>([]);
   const [query, setQuery] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
@@ -433,7 +432,6 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
       setCustomerEmail((current) => current.trim() ? current : result.customerEmail ?? "");
       setAnalysis(result);
       setSelected(result.items);
-      setConfirmed(result.missingFields.length === 0);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể phân tích yêu cầu.");
     } finally {
@@ -460,7 +458,6 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           customerPhone,
           idempotencyKey: quoteIdempotencyKey,
           items: selected.map(({ catalogItemId, quantity, unit, attributes }) => ({ catalogItemId, quantity, unit, attributes })),
-          informationConfirmed: confirmed,
         }),
       });
       onCreated(quote._id);
@@ -472,7 +469,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   };
 
   const editRequest = () => {
-    setRequestId(""); setAnalysis(null); setSelected([]); setCatalog([]); setConfirmed(false); setError("");
+    setRequestId(""); setAnalysis(null); setSelected([]); setCatalog([]); setError("");
     setRequestIdempotencyKey(crypto.randomUUID()); setQuoteIdempotencyKey(crypto.randomUUID());
   };
   const locked = busy || Boolean(requestId);
@@ -532,8 +529,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
             <label className="search-field"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm thêm sản phẩm trong danh mục…" /></label>
             {query && <div className="search-results">{results.length ? results.map((item) => <button key={item._id} onClick={() => addCatalogItem(item)}><span><strong>{item.name}</strong><small>{item.sku} · {item.unit}</small>{Object.keys(item.attributes ?? {}).length > 0 && <small className="catalog-result-attributes">{Object.entries(item.attributes ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ")}</small>}</span><span className="result-price">{formatMoney(item.price, item.currency)}<Icon name="plus" size={15} /></span></button>) : <div className="search-empty">Không tìm thấy sản phẩm đang hoạt động.</div>}</div>}
           </div>
-          {analysis.missingFields.length > 0 && <label className="confirm-check"><input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} /><span><strong>Tôi đã xác nhận thông tin cần thiết</strong><small>Đã bổ sung hoặc xác nhận với khách.</small></span></label>}
-          <div className="analysis-footer"><span>{selected.length} mặt hàng đã chọn</span><button className="button button-primary" disabled={busy || !customerName.trim() || selected.length === 0 || (analysis.missingFields.length > 0 && !confirmed)} onClick={() => void createQuote()}>{busy ? "Đang tạo bản nháp…" : "Tạo bản nháp"}<Icon name="arrow" size={16} /></button></div>
+          <div className="analysis-footer"><span>{selected.length} mặt hàng đã chọn</span><button className="button button-primary" disabled={busy || !customerName.trim() || selected.length === 0} onClick={() => void createQuote()}>{busy ? "Đang tạo bản nháp…" : "Tạo bản nháp"}<Icon name="arrow" size={16} /></button></div>
         </section>}
       </div>
       <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
@@ -544,7 +540,11 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
 function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: string; user: User; onBack: () => void; onChanged: () => void; onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const [confirmed, setConfirmed] = useState(false);
+  const [taxRateText, setTaxRateText] = useState("0");
+  const [taxRateConfirmed, setTaxRateConfirmed] = useState(false);
+  const [shippingFeeText, setShippingFeeText] = useState("");
+  const [validityDaysText, setValidityDaysText] = useState("");
+  const [completionDateText, setCompletionDateText] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -568,7 +568,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
       setCustomerEmail(value.customerEmail);
       setCustomerPhone(value.customerPhone ?? "");
       setQuantities(Object.fromEntries(value.lines.map((line) => [line.catalogItemId, line.quantity])));
-      setConfirmed(value.informationConfirmed);
+      setTaxRateText(String(value.taxRate * 100));
+      setTaxRateConfirmed(value.taxRateConfirmed ?? !value.informationNeeded.some((field) => /vat|thuế/i.test(field)));
+      setShippingFeeText(value.shippingFeeConfirmed === false ? "" : String(value.shippingFee ?? 0));
+      setValidityDaysText(value.validityDays == null ? "" : String(value.validityDays));
+      setCompletionDateText(value.completionDate ?? "");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể mở báo giá.");
     } finally {
@@ -578,12 +582,17 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
 
   useEffect(() => { void load(); }, [load]);
 
-  const editPayload = (informationConfirmed = confirmed) => ({
+  const editPayload = () => ({
     items: quote?.lines.map((line) => ({
       catalogItemId: line.catalogItemId,
       quantity: Number(quantities[line.catalogItemId]) || line.quantity,
     })) ?? [],
-    informationConfirmed,
+    taxRate: Number(taxRateText) / 100,
+    taxRateConfirmed,
+    shippingFee: shippingFeeText.trim() === "" ? null : Number(shippingFeeText),
+    shippingFeeConfirmed: shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)),
+    validityDays: validityDaysText.trim() === "" ? null : Number(validityDaysText),
+    completionDate: completionDateText || null,
     customerName,
     customerEmail,
     customerPhone,
@@ -592,7 +601,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   const hasUnsavedChanges = Boolean(
     quote && (
       quote.lines.some((line) => Number(quantities[line.catalogItemId]) !== line.quantity) ||
-      confirmed !== quote.informationConfirmed ||
+      Number(taxRateText) / 100 !== quote.taxRate ||
+      taxRateConfirmed !== (quote.taxRateConfirmed ?? !quote.informationNeeded.some((field) => /vat|thuế/i.test(field))) ||
+      (shippingFeeText.trim() === "" ? null : Number(shippingFeeText)) !== (quote.shippingFeeConfirmed === false ? null : quote.shippingFee ?? 0) ||
+      (validityDaysText.trim() === "" ? null : Number(validityDaysText)) !== (quote.validityDays ?? null) ||
+      (completionDateText || null) !== (quote.completionDate ?? null) ||
       customerName !== quote.customerName ||
       customerEmail !== quote.customerEmail ||
       customerPhone !== (quote.customerPhone ?? "")
@@ -608,13 +621,15 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   }, [quote, quantities]);
 
   const liveTaxAmount = useMemo(() => {
-    if (!quote) return 0;
-    return Math.round(liveSubtotal * quote.taxRate);
-  }, [quote, liveSubtotal]);
+    if (!quote || !taxRateConfirmed) return 0;
+    return Math.round(liveSubtotal * (Number(taxRateText) / 100));
+  }, [quote, liveSubtotal, taxRateConfirmed, taxRateText]);
+
+  const liveShippingFee = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) ? Number(shippingFeeText) : 0;
 
   const liveTotal = useMemo(() => {
-    return liveSubtotal + liveTaxAmount;
-  }, [liveSubtotal, liveTaxAmount]);
+    return liveSubtotal + liveTaxAmount + liveShippingFee;
+  }, [liveSubtotal, liveTaxAmount, liveShippingFee]);
 
   const copyText = (text: string, label: string) => {
     if (!text) return;
@@ -656,7 +671,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   if (loading) return <Loading />;
   if (!quote) return <div className="empty-state"><h2>Báo giá không khả dụng</h2><p>{error || "Không tìm thấy dữ liệu."}</p><button className="button button-soft" onClick={onBack}>Quay lại</button></div>;
 
-  const save = (informationConfirmed = confirmed) => perform(`/api/quotes/${quote._id}`, editPayload(informationConfirmed), "PATCH", "Đã lưu thay đổi và tính lại giá.");
+  const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
   const downloadQuote = async () => {
     setBusy(true); setError("");
@@ -866,16 +881,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
           <div className="banner-info-wrap">
             <span className="banner-icon"><Icon name="spark" size={20} /></span>
             <div className="banner-text-box">
-              <h3>Cần kiểm tra và xác nhận lại thông tin</h3>
+              <h3>Còn thông tin cần bổ sung</h3>
               <p>{quote.informationNeeded.join(" · ")}</p>
             </div>
           </div>
-          {editable && (
-            <label className="confirm-check compact-check">
-              <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
-              <span><strong>Tôi đã xác nhận đầy đủ</strong></span>
-            </label>
-          )}
+          <p className="field-hint">Báo giá chưa thể gửi duyệt khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.</p>
         </div>
       )}
 
