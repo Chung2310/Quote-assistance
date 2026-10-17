@@ -64,6 +64,31 @@ function quoteHasUnresolvedInformation(quote: Quote) {
     || !normalized.taxRateConfirmed || !normalized.shippingFeeConfirmed;
 }
 
+async function quoteInputContext(db: Db, quote: Quote) {
+  const requestId = asId(quote.requestId);
+  const source = requestId
+    ? await db.collection<QuoteRequest>("quoteRequests").findOne({ _id: requestId, companyId: quote.companyId }, { projection: { requestText: 1, requestFile: 1, createdBy: 1, items: 1, suggestedProducts: 1 } })
+    : null;
+  let attachedText = "";
+  const requestFileId = source?.requestFile ? asId(source.requestFile.id) : null;
+  if (requestFileId && source?.requestFile && !/\.pdf$/i.test(source.requestFile.originalFilename)) {
+    const file = await db.collection<RequestFile>("requestFiles").findOne({ _id: requestFileId, companyId: quote.companyId, uploadedBy: source.createdBy });
+    if (file) {
+      try {
+        attachedText = (await requestFileContent(file))
+          .map((part) => typeof part.text === "string" ? part.text : "")
+          .filter(Boolean).join("\n");
+      } catch { /* Use the text and extracted product details already saved with the request. */ }
+    }
+  }
+  return [
+    source?.requestText ?? "",
+    attachedText,
+    ...(source?.items ?? []).flatMap((item) => Object.entries(item.attributes ?? {}).flat()),
+    ...(source?.suggestedProducts ?? []).flatMap((product) => [product.name, product.description]),
+  ].filter(Boolean).join("\n");
+}
+
 interface CatalogImportRow {
   sku: string;
   name: string;
@@ -1415,7 +1440,7 @@ app.post("/api/quote-requests/:id/analyze", requireRole("user"), async (request,
   if (quoteRequest.requestFile && !requestFile) return fail(response, "Không tìm thấy file yêu cầu.", 404);
   const result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string } = priceLists.length
     ? await analyzePriceList(quoteRequest.requestText, priceLists, [], requestFile ? await requestFileContent(requestFile) : [])
-    : await analyzeRequest(quoteRequest.requestText, catalog);
+    : await analyzeRequest(quoteRequest.requestText, catalog, [], requestFile ? await requestFileContent(requestFile) : []);
   const suggestedProducts = (result.suggestedProducts ?? []).slice(0, 30);
   if (suggestedProducts.length) {
     const boundProducts = suggestedProducts.map((product, index) => ({
@@ -1798,10 +1823,11 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
   const preview = request.query.preview === "1";
   if (quote.status !== "approved" && !preview) return fail(response, "Chỉ có thể tải file chính thức sau khi báo giá được duyệt.", 409);
   try {
+    const inputContext = await quoteInputContext(db, quote);
     const template = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
     let renderQuote = quote;
     if (template?.extension === "xlsx") {
-      const plan = await getOrCreateXlsxTemplateFillPlan(db, template, quote);
+      const plan = await getOrCreateXlsxTemplateFillPlan(db, template, quote, inputContext);
       renderQuote = { ...quote, xlsxTemplateFillPlan: plan };
       await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { xlsxTemplateFillPlan: plan } });
     } else if (template) {
@@ -1812,7 +1838,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
         await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
       }
     }
-    const bytes = template ? await renderTemplate(template, renderQuote) : await makePdfBuffer(quote);
+    const bytes = template ? await renderTemplate(template, renderQuote, inputContext) : await makePdfBuffer(quote);
     const extension = template?.extension ?? "pdf";
     if (preview && extension === "docx") {
       response.type("html").setHeader("Content-Disposition", "inline").send(previewDocxHtml(bytes, `${quote.quoteNumber}.docx`));
@@ -1862,10 +1888,11 @@ app.post("/api/quotes/:id/email", requireRole("user"), async (request, response)
   let transport: ReturnType<typeof createCompanySmtpTransport> | undefined;
   try {
     transport = createCompanySmtpTransport(company.smtpSettings);
+    const inputContext = await quoteInputContext(db, quote);
     const template = quote.template ? await savedTemplate(db, user.companyId, quote.template) : null;
     let renderQuote = quote;
     if (template?.extension === "xlsx") {
-      const plan = await getOrCreateXlsxTemplateFillPlan(db, template, quote);
+      const plan = await getOrCreateXlsxTemplateFillPlan(db, template, quote, inputContext);
       renderQuote = { ...quote, xlsxTemplateFillPlan: plan };
       await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { xlsxTemplateFillPlan: plan } });
     } else if (template) {
@@ -1876,7 +1903,7 @@ app.post("/api/quotes/:id/email", requireRole("user"), async (request, response)
         await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
       }
     }
-    const attachment = template ? await renderTemplate(template, renderQuote) : await makePdfBuffer(quote);
+    const attachment = template ? await renderTemplate(template, renderQuote, inputContext) : await makePdfBuffer(quote);
     const extension = template?.extension ?? "pdf";
     await transport.sendMail({
       from: company.smtpSettings.from,
