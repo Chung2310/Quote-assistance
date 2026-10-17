@@ -32,7 +32,7 @@ const schema = {
     },
     missingFields: { type: "array", items: { type: "string" } },
     suggestedProducts: {
-      type: "array", maxItems: 30, items: {
+      type: "array", items: {
         type: "object", additionalProperties: false, required: ["name", "description", "unit", "quantity"],
         properties: {
           name: { type: "string" },

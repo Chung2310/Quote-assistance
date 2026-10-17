@@ -1904,6 +1904,7 @@ app.use((error: unknown, _request: express.Request, response: express.Response, 
     logger.error("http.unhandled_error", {
       requestId: typeof response.locals.requestId === "string" ? response.locals.requestId : undefined,
       errorName: error instanceof Error ? error.name : "UnknownError",
+      errorMessage: error instanceof Error ? error.message.slice(0, 500) : "Unknown error",
     });
   }
   if (response.headersSent) return;
