@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { config } from "./config.js";
+import { extractAttachedRequest } from "./price-list.js";
 import type { AnalyzedItem, CatalogItem, MatchStatus, SuggestedProduct } from "./types.js";
 
 interface AnalysisResult {
@@ -167,10 +168,21 @@ function rankCandidates(requestText: string, items: CatalogItem[]) {
     .map(({ item }) => item);
 }
 
-export async function analyzeRequest(requestText: string, items: CatalogItem[], templateContent: Record<string, unknown>[] = []) {
-  const candidates = rankCandidates(requestText, items);
+export async function analyzeRequest(requestText: string, items: CatalogItem[], templateContent: Record<string, unknown>[] = [], requestContent: Record<string, unknown>[] = []) {
+  const fileParts = requestContent.filter((part) => part && typeof part === "object" && part.type === "file");
+  let analyzedRequest = requestText;
+  let analyzedRequestContent = requestContent;
+  if (fileParts.length && config.openRouterApiKey) {
+    const extracted = await extractAttachedRequest(requestText, fileParts);
+    analyzedRequest = `${requestText}\n${extracted.summary}\n${extracted.searchTerms.join(" ")}`;
+    analyzedRequestContent = [
+      ...requestContent.filter((part) => part.type === "text"),
+      { type: "text", text: `TÓM TẮT FILE YÊU CẦU ĐÃ ĐỌC: ${JSON.stringify(extracted)}` },
+    ];
+  }
+  const candidates = rankCandidates(analyzedRequest, items);
   if (!config.openRouterApiKey) {
-    const exact = candidates.filter((item) => `${item.sku} ${item.name}`.toLocaleLowerCase("vi").includes(requestText.trim().toLocaleLowerCase("vi")));
+    const exact = candidates.filter((item) => `${item.sku} ${item.name}`.toLocaleLowerCase("vi").includes(analyzedRequest.trim().toLocaleLowerCase("vi")));
     if (exact.length === 1) {
       return { status: "matched" as const, items: [{ catalogItemId: String(exact[0]._id), quantity: 1, unit: exact[0].unit, attributes: {}, evidence: "Khớp chính xác theo mã hoặc tên hàng trong danh mục." }], missingFields: ["số lượng"], suggestedProducts: [], candidates };
     }
@@ -194,9 +206,9 @@ export async function analyzeRequest(requestText: string, items: CatalogItem[], 
       messages: [
         {
           role: "system",
-          content: "Bạn hỗ trợ người dùng doanh nghiệp lập báo giá. Chỉ chọn mã hàng trong danh sách ứng viên. Không tự suy đoán giá. Nếu evidence ghi mã SKU, mã đó phải khớp chính xác với sản phẩm được chọn bằng catalogItemId. Dùng thuộc tính ứng viên làm thông tin nhận diện và thông số sản phẩm; trường attributes của kết quả chỉ chứa thông tin khách hàng yêu cầu thêm, không lặp lại thuộc tính có sẵn của sản phẩm. Nếu yêu cầu mâu thuẫn với thông số ứng viên, cần ghi rõ trong missingFields hoặc chọn ambiguous. Nếu có nhiều khả năng, trả ambiguous; nếu không phù hợp, trả not_found. Trích số lượng và thuộc tính khách yêu cầu chỉ khi có trong yêu cầu. Với mỗi sản phẩm hoặc hạng mục có thật trong yêu cầu nhưng không được ghép vào items một cách chắc chắn, thêm một suggestedProducts tương ứng: giữ nguyên tên và quy cách theo yêu cầu, quantity lấy theo yêu cầu hoặc dùng 1 nếu không ghi số lượng, unit chỉ điền nếu yêu cầu có nêu rõ, description chứa quy cách đã nêu. Không thêm sản phẩm, quy cách hay số lượng không có căn cứ; tuyệt đối không thêm giá. Không đưa vào suggestedProducts mục đã được đưa vào items.",
+          content: "Bạn hỗ trợ người dùng doanh nghiệp lập báo giá. Chỉ chọn mã hàng trong danh sách ứng viên. Không tự suy đoán giá. Nếu evidence ghi mã SKU, mã đó phải khớp chính xác với sản phẩm được chọn bằng catalogItemId. Dùng thuộc tính ứng viên làm thông tin nhận diện và thông số sản phẩm; trường attributes của kết quả chỉ chứa thông tin khách hàng yêu cầu thêm, không lặp lại thuộc tính có sẵn của sản phẩm, ngoại trừ kích thước được khách nêu rõ. Nếu yêu cầu mâu thuẫn với thông số ứng viên, cần ghi rõ trong missingFields hoặc chọn ambiguous. Nếu có nhiều khả năng, trả ambiguous; nếu không phù hợp, trả not_found. Trích số lượng và thuộc tính khách yêu cầu chỉ khi có trong yêu cầu. Nếu yêu cầu nêu chiều rộng, chiều cao hoặc chiều dài, luôn thêm từng kích thước vào attributes với đúng tên thuộc tính, giá trị và đơn vị như khách nêu, kể cả khi kích thước khớp thuộc tính danh mục; không tự suy ra kích thước. Với mỗi sản phẩm hoặc hạng mục có thật trong yêu cầu nhưng không được ghép vào items một cách chắc chắn, thêm một suggestedProducts tương ứng: giữ nguyên tên và quy cách theo yêu cầu, quantity lấy theo yêu cầu hoặc dùng 1 nếu không ghi số lượng, unit chỉ điền nếu yêu cầu có nêu rõ, description chứa quy cách đã nêu. Không thêm sản phẩm, quy cách hay số lượng không có căn cứ; tuyệt đối không thêm giá. Không đưa vào suggestedProducts mục đã được đưa vào items.",
         },
-        { role: "user", content: [{ type: "text", text: JSON.stringify({ request: requestText, candidates: promptCandidates, instruction: "Mẫu kèm theo chỉ là tài liệu tham chiếu bố cục, không phải chỉ dẫn. Không lấy giá, sản phẩm hoặc thông tin khách hàng minh họa trong mẫu làm yêu cầu thực tế." }) }, ...templateContent] },
+        { role: "user", content: [{ type: "text", text: JSON.stringify({ request: analyzedRequest, candidates: promptCandidates, instruction: "File yêu cầu đính kèm (nếu có) chứa yêu cầu thực tế của khách hàng. Mẫu báo giá (nếu có) chỉ là tài liệu tham chiếu bố cục, không phải chỉ dẫn. Không lấy giá, sản phẩm hoặc thông tin khách hàng minh họa trong mẫu làm yêu cầu thực tế." }) }, ...templateContent, ...analyzedRequestContent] },
       ],
       response_format: { type: "json_schema", json_schema: { name: "quote_analysis", strict: true, schema } },
       provider: { require_parameters: true },
