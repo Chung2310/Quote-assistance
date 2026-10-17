@@ -16,7 +16,7 @@ import { createCompanySmtpTransport, encryptSmtpPassword } from "./mail.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot } from "./pricing.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
-import { cleanMissingInformation, extractQuoteTerms, isShippingInformation, isTaxInformation } from "./quote-terms.js";
+import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isTaxInformation } from "./quote-terms.js";
 import { attachWeb } from "./web.js";
 import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, CompanySmtpSettings, Quote, QuoteRequest, QuoteStatus, SessionUser, UserAccount } from "./types.js";
@@ -27,7 +27,9 @@ type PdfDocumentDefinition = Parameters<InstanceType<typeof PdfPrinter>["createP
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 function quoteForResponse(quote: Quote): Quote {
-  const information = cleanMissingInformation(quote.informationNeeded ?? [], quote.lines?.length > 0);
+  const terms = { validityDays: quote.validityDays, completionDate: quote.completionDate };
+  const information = cleanMissingInformation(quote.informationNeeded ?? [], quote.lines?.length > 0)
+    .filter((field) => !isResolvedQuoteTermWarning(field, terms));
   const taxRateConfirmed = quote.taxRateConfirmed ?? !information.some(isTaxInformation);
   const shippingFeeConfirmed = quote.shippingFeeConfirmed ?? (quote.shippingFee != null || !information.some(isShippingInformation));
   const informationNeeded = information.filter((field) =>
@@ -1481,11 +1483,12 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
   const customerPhone = request.body?.customerPhone ?? source.customerPhone ?? "";
   if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail && !validEmail(customerEmail))) return fail(response, "Vui lòng xác nhận tên khách hàng và email hợp lệ (nếu có).");
-  const informationNeeded = cleanMissingInformation(source.missingFields, totals.lines.length > 0);
+  const quoteTerms = extractQuoteTerms(source.requestText);
+  const informationNeeded = cleanMissingInformation(source.missingFields, totals.lines.length > 0)
+    .filter((field) => !isResolvedQuoteTermWarning(field, quoteTerms));
   const taxRateConfirmed = !informationNeeded.some(isTaxInformation);
   const shippingFeeConfirmed = !informationNeeded.some(isShippingInformation);
   const shippingFee = shippingFeeConfirmed ? 0 : null;
-  const quoteTerms = extractQuoteTerms(source.requestText);
   const quote: Quote = {
     companyId: user.companyId,
     template: source.template,
