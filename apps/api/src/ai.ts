@@ -1,5 +1,6 @@
 import { ObjectId } from "mongodb";
 import { config } from "./config.js";
+import { logAiProviderFailure } from "./logger.js";
 import { extractAttachedRequest } from "./price-list.js";
 import type { AnalyzedItem, CatalogItem, MatchStatus, SuggestedProduct } from "./types.js";
 
@@ -168,12 +169,12 @@ function rankCandidates(requestText: string, items: CatalogItem[]) {
     .map(({ item }) => item);
 }
 
-export async function analyzeRequest(requestText: string, items: CatalogItem[], templateContent: Record<string, unknown>[] = [], requestContent: Record<string, unknown>[] = []) {
+export async function analyzeRequest(requestText: string, items: CatalogItem[], templateContent: Record<string, unknown>[] = [], requestContent: Record<string, unknown>[] = [], requestId?: string) {
   const fileParts = requestContent.filter((part) => part && typeof part === "object" && part.type === "file");
   let analyzedRequest = requestText;
   let analyzedRequestContent = requestContent;
   if (fileParts.length && config.openRouterApiKey) {
-    const extracted = await extractAttachedRequest(requestText, fileParts);
+    const extracted = await extractAttachedRequest(requestText, fileParts, requestId);
     analyzedRequest = `${requestText}\n${extracted.summary}\n${extracted.searchTerms.join(" ")}`;
     analyzedRequestContent = [
       ...requestContent.filter((part) => part.type === "text"),
@@ -217,6 +218,12 @@ export async function analyzeRequest(requestText: string, items: CatalogItem[], 
   });
   if (!response.ok) {
     const safeStatus = response.status;
+    await logAiProviderFailure(response, {
+      requestId,
+      stage: "catalog_request_analysis",
+      model: config.openRouterModel,
+      contentTypes: [...(fileParts.length ? ["request-file-extracted"] : []), ...templateContent, ...analyzedRequestContent].map((part) => typeof part === "string" ? part : typeof part.type === "string" ? part.type : "unknown"),
+    });
     throw new Error(`Dịch vụ AI tạm thời không khả dụng (HTTP ${safeStatus}).`);
   }
   const payload: unknown = await response.json();

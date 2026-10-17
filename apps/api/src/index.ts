@@ -1438,9 +1438,10 @@ app.post("/api/quote-requests/:id/analyze", requireRole("user"), async (request,
   }
   const requestFile = quoteRequest.requestFile ? await db.collection<RequestFile>("requestFiles").findOne({ _id: new ObjectId(quoteRequest.requestFile.id), companyId: user.companyId, uploadedBy: quoteRequest.createdBy }) : null;
   if (quoteRequest.requestFile && !requestFile) return fail(response, "Không tìm thấy file yêu cầu.", 404);
+  const analysisRequestId = typeof response.locals.requestId === "string" ? response.locals.requestId : undefined;
   const result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string } = priceLists.length
-    ? await analyzePriceList(quoteRequest.requestText, priceLists, [], requestFile ? await requestFileContent(requestFile) : [])
-    : await analyzeRequest(quoteRequest.requestText, catalog, [], requestFile ? await requestFileContent(requestFile) : []);
+    ? await analyzePriceList(quoteRequest.requestText, priceLists, [], requestFile ? await requestFileContent(requestFile) : [], analysisRequestId)
+    : await analyzeRequest(quoteRequest.requestText, catalog, [], requestFile ? await requestFileContent(requestFile) : [], analysisRequestId);
   const suggestedProducts = (result.suggestedProducts ?? []).slice(0, 30);
   if (suggestedProducts.length) {
     const boundProducts = suggestedProducts.map((product, index) => ({
