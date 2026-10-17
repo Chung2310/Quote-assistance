@@ -32,6 +32,11 @@ export function isShippingInformation(value: string) {
   return /\b(van chuyen|shipping|delivery fee|phi giao hang)\b/.test(text);
 }
 
+export function isSupplementalProductInformation(value: string) {
+  const text = normalizedText(value);
+  return /\b(san pham|mat hang|hang muc|nhan cong|vat tu|don gia|gia|ma hang|ma san pham|product|item|labor|material|sku|price|pricing|mosaic|op lat|gach|trang tri|decoration|finishing|installation|thi cong|lap dat)\b/.test(text);
+}
+
 export function extractQuoteTerms(requestText: string) {
   const validityMatch = /(?:hieu luc|thoi han)[^\d]{0,30}(\d{1,3})\s*ngay/i.exec(normalizedText(requestText));
   const dateMatch = /(?:truoc\s*(?:ngay)?|hoan thanh\s*(?:truoc\s*)?(?:ngay)?|ban giao\s*(?:truoc\s*)?(?:ngay)?)\s*(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})\b/i.exec(normalizedText(requestText));

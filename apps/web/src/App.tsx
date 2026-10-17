@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import { api, formatDate, formatMoney } from "./api";
-import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, User } from "./types";
+import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, User } from "./types";
 import AdminApp from "./AdminApp";
 import PriceListPanel from "./PriceListPanel";
 import FilePreview, { type PreviewFile } from "./FilePreview";
 import { QuoteTemplatePanel, type TemplateDetails } from "./QuoteTemplate";
 import { NotificationToast, useConfirmation, useNotification, type ConfirmOptions, type Notify } from "./Feedback";
 import "./settings.css";
+import "./quote-supplement.css";
 
 type Section = "home" | "quotes" | "catalog" | "templates" | "profile";
 interface CompanyEmailSettings { configured: boolean; host: string; port: number; secure: boolean; user: string; from: string; passwordSet: boolean }
 interface CompanyEmailForm { host: string; port: string; secure: boolean; user: string; password: string; from: string }
 interface CompanyStoredFile { _id?: string; originalFilename: string; mimeType: string; bytes: number; createdAt: string }
+interface SupplementalProductDraft { id: string; informationField?: string; name: string; description: string; unit: string; quantity: string; unitPrice: string }
 
 const statusLabels: Record<QuoteStatus, string> = { draft: "Bản nháp", needs_info: "Thiếu thông tin", pending_review: "Chờ duyệt", approved: "Đã duyệt", rejected: "Cần chỉnh sửa" };
 const statusStyles: Record<QuoteStatus, string> = { draft: "neutral", needs_info: "amber", pending_review: "blue", approved: "green", rejected: "rose" };
@@ -55,6 +57,75 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
 
 function StatusPill({ status }: { status: QuoteStatus }) {
   return <span className={`status-pill ${statusStyles[status]}`}><span className="status-dot" />{statusLabels[status]}</span>;
+}
+
+function normalizedMissingInformation(value: string) {
+  return value.toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+}
+
+function isTaxMissingInformation(value: string) {
+  return /\b(vat|thue|tax)\b/.test(normalizedMissingInformation(value));
+}
+
+function isShippingMissingInformation(value: string) {
+  return /\b(van chuyen|shipping|phi giao hang|delivery fee)\b/.test(normalizedMissingInformation(value));
+}
+
+function isSupplementalProductInformation(value: string) {
+  const text = normalizedMissingInformation(value);
+  return /\b(san pham|mat hang|hang muc|nhan cong|vat tu|don gia|gia|ma hang|ma san pham|product|item|labor|material|sku|price|pricing|mosaic|op lat|gach|trang tri|decoration|finishing|installation|thi cong|lap dat)\b/.test(text);
+}
+
+function canSupplementMissingInformation(value: string) {
+  if (isTaxMissingInformation(value) || isShippingMissingInformation(value)) return false;
+  return !isSupplementalProductInformation(value);
+}
+
+const supplementalUnitOptions = ["cái", "bộ", "m", "m²", "m³", "kg", "tấn", "bao", "viên", "tấm", "thùng", "lít", "gói", "hộp", "cuộn", "công", "ngày", "giờ", "lần"];
+
+function normalizedSupplementalUnit(value: string) {
+  const text = normalizedMissingInformation(value).replace(/\s+/g, " ").trim();
+  const aliases: Record<string, string> = {
+    "m2": "m²", "met vuong": "m²", "mét vuông": "m²", "m3": "m³", "met khoi": "m³", "mét khối": "m³",
+    "met": "m", "meter": "m", "cai": "cái", "bo": "bộ", "vien": "viên", "tam": "tấm", "thung": "thùng",
+    "lit": "lít", "goi": "gói", "hop": "hộp", "cuon": "cuộn", "cong": "công", "ngay": "ngày", "gio": "giờ", "lan": "lần",
+  };
+  return aliases[text] ?? value.trim();
+}
+
+function suggestedNameFromMissingField(field: string) {
+  const separator = field.indexOf(":");
+  if (separator >= 0 && field.slice(separator + 1).trim()) return field.slice(separator + 1).trim().slice(0, 250);
+  const name = field.replace(/^\s*(?:chua tim thay|khong tim thay|khong co|thieu|can bo sung|bo sung|chon)\s+/i, "").trim();
+  return /\b(san pham|mat hang|hang muc|ma hang)\b/i.test(normalizedMissingInformation(name)) && name.split(/\s+/).length <= 3 ? "" : name.slice(0, 250);
+}
+
+function createSupplementalProductDraft(informationField?: string, suggestion?: Partial<SuggestedProduct>): SupplementalProductDraft {
+  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return {
+    id: `new-${id}`,
+    ...(informationField ? { informationField } : {}),
+    name: suggestion?.name?.trim() ?? (informationField ? suggestedNameFromMissingField(informationField) : ""),
+    description: suggestion?.description?.trim() ?? "",
+    unit: normalizedSupplementalUnit(suggestion?.unit?.trim() || "cái"),
+    quantity: String(suggestion?.quantity && suggestion.quantity > 0 ? suggestion.quantity : 1),
+    unitPrice: "",
+  };
+}
+
+function hasSupplementalProductContent(product: SupplementalProductDraft) {
+  return Boolean(product.name.trim() || product.description.trim() || product.unit.trim() || product.quantity.trim() || product.unitPrice.trim());
+}
+
+function supplementalProductFields(product: SupplementalProductDraft) {
+  return {
+    informationField: product.informationField ?? "",
+    name: product.name.trim(),
+    description: product.description.trim(),
+    unit: product.unit.trim(),
+    quantity: product.quantity.trim(),
+    unitPrice: product.unitPrice.trim(),
+  };
 }
 
 async function confirmSession(expectedUser: User) {
@@ -489,6 +560,8 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
     .filter((item) => item.active && (!item.effectiveFrom || item.effectiveFrom <= today) && (!item.effectiveTo || item.effectiveTo >= today))
     .filter((item) => `${item.sku} ${item.name} ${item.description} ${Object.entries(item.attributes ?? {}).flat().join(" ")}`.toLocaleLowerCase("vi").includes(query.trim().toLocaleLowerCase("vi")))
     .slice(0, 8);
+  const suggestedProductFields = new Set((analysis?.suggestedProducts ?? []).map((product) => product.informationField).filter((field): field is string => Boolean(field)));
+  const otherMissingFields = analysis?.missingFields.filter((field) => !suggestedProductFields.has(field)) ?? [];
 
   return (
     <div className="page-stack">
@@ -519,9 +592,10 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           <div className="field-row quote-customer-review"><label>Tên khách hàng<input value={customerName} maxLength={250} disabled={busy} onChange={(event) => setCustomerName(event.target.value)} placeholder="Xác nhận tên khách hàng" required /></label><label>Email (không bắt buộc)<input type="email" value={customerEmail} maxLength={250} disabled={busy} onChange={(event) => setCustomerEmail(event.target.value)} placeholder="Email khách hàng" /></label><label>Số điện thoại (không bắt buộc)<input type="tel" autoComplete="tel" maxLength={50} value={customerPhone} disabled={busy} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Số điện thoại khách hàng" /></label></div>
           <div className={`analysis-banner ${analysis.status}`}>
             <span className="analysis-indicator" />
-            <div><strong>{analysis.status === "matched" ? "Đã tìm thấy sản phẩm phù hợp" : analysis.status === "ambiguous" ? "Có nhiều sản phẩm cần xác nhận" : "Chưa ghép được sản phẩm"}</strong>{analysis.status !== "matched" && <span>Bạn có thể tìm và chọn mặt hàng trong danh mục bên dưới.</span>}</div>
+            <div><strong>{analysis.status === "matched" ? "Đã tìm thấy sản phẩm phù hợp" : analysis.status === "ambiguous" ? "Có nhiều sản phẩm cần xác nhận" : "Chưa ghép được sản phẩm"}</strong>{analysis.status !== "matched" && <span>{analysis.suggestedProducts?.length ? "Sản phẩm chưa ghép sẽ được thêm vào báo giá để bạn bổ sung đơn giá." : "Bạn có thể tìm và chọn mặt hàng trong danh mục bên dưới."}</span>}</div>
           </div>
-          {analysis.missingFields.length > 0 && <div className="missing-fields"><strong>Cần kiểm tra thêm</strong><div>{analysis.missingFields.map((field) => <span key={field}>{field}</span>)}</div></div>}
+          {otherMissingFields.length > 0 && <div className="missing-fields"><strong>Cần kiểm tra thêm</strong><div>{otherMissingFields.map((field) => <span key={field}>{field}</span>)}</div></div>}
+          {Boolean(analysis.suggestedProducts?.length) && <div className="missing-fields"><strong>Sản phẩm chưa có giá sẽ được thêm vào báo giá</strong><div>{analysis.suggestedProducts!.map((product, index) => <span key={`${product.name}-${index}`}>{product.name} · {product.quantity} {product.unit || "cái"}</span>)}</div></div>}
 
           <div className="selected-list">
             {selected.map((line) => {
@@ -539,7 +613,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
             <label className="search-field"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm thêm sản phẩm trong danh mục…" /></label>
             {query && <div className="search-results">{results.length ? results.map((item) => <button key={item._id} onClick={() => addCatalogItem(item)}><span><strong>{item.name}</strong><small>{item.sku} · {item.unit}</small>{Object.keys(item.attributes ?? {}).length > 0 && <small className="catalog-result-attributes">{Object.entries(item.attributes ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ")}</small>}</span><span className="result-price">{formatMoney(item.price, item.currency)}<Icon name="plus" size={15} /></span></button>) : <div className="search-empty">Không tìm thấy sản phẩm đang hoạt động.</div>}</div>}
           </div>
-          <div className="analysis-footer"><span>{selected.length} mặt hàng đã chọn</span><button className="button button-primary" disabled={busy || !customerName.trim() || selected.length === 0} onClick={() => void createQuote()}>{busy ? "Đang tạo bản nháp…" : "Tạo bản nháp"}<Icon name="arrow" size={16} /></button></div>
+          <div className="analysis-footer"><span>{selected.length + (analysis.suggestedProducts?.length ?? 0)} mặt hàng trong báo giá</span><button className="button button-primary" disabled={busy || !customerName.trim() || (selected.length === 0 && !analysis.suggestedProducts?.length)} onClick={() => void createQuote()}>{busy ? "Đang tạo bản nháp…" : "Tạo bản nháp"}<Icon name="arrow" size={16} /></button></div>
         </section>}
       </div>
       <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
@@ -553,6 +627,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   const [taxRateText, setTaxRateText] = useState("0");
   const [taxRateConfirmed, setTaxRateConfirmed] = useState(false);
   const [shippingFeeText, setShippingFeeText] = useState("");
+  const [additionalInformation, setAdditionalInformation] = useState<Record<string, string>>({});
+  const [supplementalProducts, setSupplementalProducts] = useState<SupplementalProductDraft[]>([]);
   const [validityDaysText, setValidityDaysText] = useState("");
   const [completionDateText, setCompletionDateText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -581,6 +657,27 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
       setTaxRateText(String(value.taxRate * 100));
       setTaxRateConfirmed(value.taxRateConfirmed ?? !value.informationNeeded.some((field) => /vat|thuế/i.test(field)));
       setShippingFeeText(value.shippingFeeConfirmed === false ? "" : String(value.shippingFee ?? 0));
+      setAdditionalInformation(value.additionalInformation ?? {});
+      const savedSupplemental = value.lines.filter((line) => line.source === "supplemental");
+      const supplementalDrafts: SupplementalProductDraft[] = savedSupplemental.map((line) => ({
+        id: line.catalogItemId,
+        ...(line.supplementalFor ? { informationField: line.supplementalFor } : {}),
+        name: line.name,
+        description: line.description ?? "",
+        unit: normalizedSupplementalUnit(line.unit),
+        quantity: String(line.quantity),
+        unitPrice: String(line.unitPrice),
+      }));
+      for (const suggestion of value.suggestedProducts ?? []) {
+        if (!suggestion.informationField || savedSupplemental.some((line) => line.supplementalFor === suggestion.informationField)) continue;
+        supplementalDrafts.push(createSupplementalProductDraft(suggestion.informationField, suggestion));
+      }
+      const draftedInformationFields = new Set(supplementalDrafts.map((product) => product.informationField).filter((field): field is string => Boolean(field)));
+      const unresolvedCatalogFields = value.informationNeeded.filter((field) =>
+        isSupplementalProductInformation(field) && !draftedInformationFields.has(field),
+      );
+      unresolvedCatalogFields.forEach((field) => supplementalDrafts.push(createSupplementalProductDraft(field)));
+      setSupplementalProducts(supplementalDrafts);
       setValidityDaysText(value.validityDays == null ? "" : String(value.validityDays));
       setCompletionDateText(value.completionDate ?? "");
     } catch (cause) {
@@ -592,17 +689,37 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
 
   useEffect(() => { void load(); }, [load]);
 
+  const hasIncompleteSupplementalProduct = supplementalProducts.some((product) => {
+    if (!hasSupplementalProductContent(product)) return false;
+    const quantity = Number(product.quantity);
+    const unitPrice = Number(product.unitPrice);
+    return !product.name.trim() || product.name.length > 250 || !product.unit.trim() || product.unit.length > 50
+      || !product.quantity.trim() || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000
+      || !product.unitPrice.trim() || !Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 1e12
+      || product.description.length > 2000;
+  });
+
   const editPayload = () => ({
-    items: quote?.lines.map((line) => ({
+    items: quote?.lines.filter((line) => line.source !== "supplemental").map((line) => ({
       catalogItemId: line.catalogItemId,
       quantity: Number(quantities[line.catalogItemId]) || line.quantity,
     })) ?? [],
+    supplementalProducts: supplementalProducts.filter(hasSupplementalProductContent).map((product) => ({
+      ...(product.id.startsWith("supplemental:") ? { id: product.id } : {}),
+      ...(product.informationField ? { informationField: product.informationField } : {}),
+      name: product.name,
+      description: product.description,
+      unit: product.unit,
+      quantity: Number(product.quantity),
+      unitPrice: Number(product.unitPrice),
+    })),
     taxRate: Number(taxRateText) / 100,
     taxRateConfirmed: taxRateConfirmed && taxRateText.trim() !== "",
     shippingFee: shippingFeeText.trim() === "" ? null : Number(shippingFeeText),
     shippingFeeConfirmed: shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)),
     validityDays: validityDaysText.trim() === "" ? null : Number(validityDaysText),
     completionDate: completionDateText || null,
+    additionalInformation,
     customerName,
     customerEmail,
     customerPhone,
@@ -610,12 +727,22 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
 
   const hasUnsavedChanges = Boolean(
     quote && (
-      quote.lines.some((line) => Number(quantities[line.catalogItemId]) !== line.quantity) ||
+      quote.lines.some((line) => line.source !== "supplemental" && Number(quantities[line.catalogItemId]) !== line.quantity) ||
+      JSON.stringify(supplementalProducts.filter(hasSupplementalProductContent).map(supplementalProductFields)) !== JSON.stringify(quote.lines.filter((line) => line.source === "supplemental").map((line) => ({
+        informationField: line.supplementalFor ?? "",
+        name: line.name.trim(),
+        description: (line.description ?? "").trim(),
+        unit: normalizedSupplementalUnit(line.unit),
+        quantity: String(line.quantity),
+        unitPrice: String(line.unitPrice),
+      }))) ||
       Number(taxRateText) / 100 !== quote.taxRate ||
       taxRateConfirmed !== (quote.taxRateConfirmed ?? !quote.informationNeeded.some((field) => /vat|thuế/i.test(field))) ||
       (shippingFeeText.trim() === "" ? null : Number(shippingFeeText)) !== (quote.shippingFeeConfirmed === false ? null : quote.shippingFee ?? 0) ||
       (validityDaysText.trim() === "" ? null : Number(validityDaysText)) !== (quote.validityDays ?? null) ||
       (completionDateText || null) !== (quote.completionDate ?? null) ||
+      [...new Set([...Object.keys(quote.additionalInformation ?? {}), ...Object.keys(additionalInformation)])]
+        .some((field) => (quote.additionalInformation?.[field] ?? "").trim() !== (additionalInformation[field] ?? "").trim()) ||
       customerName !== quote.customerName ||
       customerEmail !== quote.customerEmail ||
       customerPhone !== (quote.customerPhone ?? "")
@@ -624,15 +751,23 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
 
   const liveSubtotal = useMemo(() => {
     if (!quote) return 0;
-    return quote.lines.reduce((sum, line) => {
+    const catalogSubtotal = quote.lines.filter((line) => line.source !== "supplemental").reduce((sum, line) => {
       const qty = Number(quantities[line.catalogItemId] ?? line.quantity) || 0;
-      return sum + qty * line.unitPrice;
+      return sum + Math.round((qty * line.unitPrice + Number.EPSILON) * 100) / 100;
     }, 0);
-  }, [quote, quantities]);
+    const supplementalSubtotal = supplementalProducts.reduce((sum, product) => {
+      const quantity = Number(product.quantity);
+      const unitPrice = Number(product.unitPrice);
+      return sum + (Number.isFinite(quantity) && quantity > 0 && Number.isFinite(unitPrice) && unitPrice >= 0
+        ? Math.round((quantity * unitPrice + Number.EPSILON) * 100) / 100
+        : 0);
+    }, 0);
+    return Math.round((catalogSubtotal + supplementalSubtotal + Number.EPSILON) * 100) / 100;
+  }, [quote, quantities, supplementalProducts]);
 
   const liveTaxAmount = useMemo(() => {
     if (!quote || !taxRateConfirmed || taxRateText.trim() === "") return 0;
-    return Math.round(liveSubtotal * (Number(taxRateText) / 100));
+    return Math.round((liveSubtotal * (Number(taxRateText) / 100) + Number.EPSILON) * 100) / 100;
   }, [quote, liveSubtotal, taxRateConfirmed, taxRateText]);
 
   const liveShippingFee = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) && Number(shippingFeeText) >= 0 ? Number(shippingFeeText) : 0;
@@ -648,6 +783,10 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   };
 
   const perform = async (url: string, body?: unknown, method = "POST", success = "Đã cập nhật báo giá.") => {
+    if (editable && hasIncompleteSupplementalProduct) {
+      setError("Vui lòng nhập tên, đơn vị, số lượng hợp lệ và đơn giá cho mỗi dòng sản phẩm bổ sung.");
+      return;
+    }
     if (quote) {
       let confirmation: ConfirmOptions | undefined;
       if (url.endsWith("/submit-review")) confirmation = { title: "Gửi báo giá duyệt?", message: `Báo giá ${quote.quoteNumber} sẽ chuyển vào danh sách chờ duyệt.`, confirmLabel: "Gửi duyệt" };
@@ -682,10 +821,21 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   if (!quote) return <div className="empty-state"><h2>Báo giá không khả dụng</h2><p>{error || "Không tìm thấy dữ liệu."}</p><button className="button button-soft" onClick={onBack}>Quay lại</button></div>;
 
   const shippingFeeIsConfirmed = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) && Number(shippingFeeText) >= 0;
-  const hasUnresolvedInformation = quote.informationNeeded.length > 0 || !taxRateConfirmed || taxRateText.trim() === "" || !shippingFeeIsConfirmed;
-  const hasUnpricedCatalogItem = quote.informationNeeded.some((field) =>
-    !/vat|tax|thuế|vận chuyển|shipping|giao hàng/i.test(field) && /mosaic|ốp lát|gạch|sản phẩm|mặt hàng|nhân công|vật tư|đơn giá|giá/i.test(field),
+  const unresolvedInformation = quote.informationNeeded.filter((field) => isSupplementalProductInformation(field)
+    ? !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field)
+    : !canSupplementMissingInformation(field) || !quote.additionalInformation?.[field]?.trim(),
   );
+  const hasUnresolvedInformation = unresolvedInformation.length > 0 || !taxRateConfirmed || taxRateText.trim() === "" || !shippingFeeIsConfirmed;
+  const supplementalInformation = quote.informationNeeded;
+  const taxInformationInSupplement = supplementalInformation.some(isTaxMissingInformation);
+  const shippingInformationInSupplement = supplementalInformation.some(isShippingMissingInformation);
+  const hasUnresolvedProductInformation = quote.informationNeeded.some((field) => isSupplementalProductInformation(field)
+    && !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field),
+  );
+  const catalogLines = quote.lines.filter((line) => line.source !== "supplemental");
+  const visibleLineCount = catalogLines.length + supplementalProducts.filter(hasSupplementalProductContent).length;
+  const outputExtension = quote.template?.originalFilename.split(".").pop()?.toLowerCase() || "pdf";
+  const canPreviewGeneratedFile = quote.status === "approved" || quote.status === "pending_review" || (editable && outputExtension === "xlsx");
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
   const downloadQuote = async () => {
@@ -732,7 +882,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <span className="dot-separator">·</span>
             <span>Ngày tạo: <strong>{formatDate(quote.createdAt)}</strong></span>
             <span className="dot-separator">·</span>
-            <span>Người lập: <strong>{quote.createdBy}</strong></span>
+            <span>Người lập: <strong>{user.name}</strong></span>
           </div>
         </div>
 
@@ -897,12 +1047,81 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <span className="banner-icon"><Icon name="spark" size={20} /></span>
             <div className="banner-text-box">
               <h3>Còn thông tin cần bổ sung</h3>
-              <p>{quote.informationNeeded.length ? quote.informationNeeded.join(" · ") : "Hãy xác nhận VAT và phí vận chuyển trong mục Chi phí và điều khoản."}</p>
+              <p>{unresolvedInformation.length ? unresolvedInformation.join(" · ") : "Hãy xác nhận VAT và phí vận chuyển trong mục Chi phí và điều khoản."}</p>
             </div>
           </div>
           <p className="field-hint">Báo giá chưa thể gửi duyệt khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.</p>
-          {hasUnpricedCatalogItem && <p className="field-hint">Nếu thiếu sản phẩm hoặc nhân công như hạng mục ốp lát mosaic, hãy thêm tên và đơn giá vào Bảng giá doanh nghiệp, sau đó phân tích lại yêu cầu để đưa hạng mục vào báo giá.</p>}
+          {hasUnresolvedProductInformation && <p className="field-hint">Bổ sung từng sản phẩm hoặc hạng mục ở phần Thông tin bổ sung bên dưới. Nhập tên, đơn vị tính, số lượng và đơn giá để hệ thống tính thành tiền.</p>}
         </div>
+      )}
+
+      {(editable || supplementalInformation.length > 0 || supplementalProducts.length > 0) && (
+        <section className="content-card quote-supplement-card">
+          <div className="section-title quote-terms-heading">
+            <div><h2>Thông tin bổ sung</h2><p>Thêm sản phẩm hoặc hạng mục còn thiếu bằng các ô bên dưới. Thành tiền và tổng báo giá được tính tự động.</p></div>
+          </div>
+          {supplementalInformation.length > 0 && <div className="quote-supplement-fields">
+            {supplementalInformation.map((field, index) => (
+              <div className="quote-supplement-field" key={field}>
+                <label className="quote-supplement-field-heading" htmlFor={`supplement-${quote._id}-${index}`}>
+                  {field}
+                  {isSupplementalProductInformation(field) ? <small>Nhập thành dòng sản phẩm bên dưới</small>
+                    : isTaxMissingInformation(field) ? <small>{taxRateConfirmed ? "Đã xác nhận" : "Cần xác nhận"}</small>
+                      : isShippingMissingInformation(field) ? <small>{shippingFeeIsConfirmed ? "Đã xác nhận" : "Cần xác nhận"}</small>
+                        : Boolean((quote.additionalInformation?.[field] ?? "").trim()) && (quote.additionalInformation?.[field] ?? "").trim() === (additionalInformation[field] ?? "").trim() && <small>Đã lưu</small>}
+                </label>
+                {isTaxMissingInformation(field) ? (
+                  <div className="quote-supplement-structured-control">
+                    <input id={`supplement-${quote._id}-${index}`} type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} aria-label="Thuế suất VAT (%)" onChange={(event) => { setTaxRateText(event.target.value); if (!event.target.value.trim()) setTaxRateConfirmed(false); }} />
+                    <label className="quote-supplement-confirm"><input type="checkbox" checked={taxRateConfirmed} disabled={!editable || busy || taxRateText.trim() === ""} onChange={(event) => setTaxRateConfirmed(event.target.checked)} /> Xác nhận thuế suất VAT</label>
+                  </div>
+                ) : isShippingMissingInformation(field) ? (
+                  <input id={`supplement-${quote._id}-${index}`} className="quote-supplement-number" type="number" min="0" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder="Nhập số tiền, hoặc 0 nếu miễn phí" aria-label={`Phí vận chuyển (${quote.currency})`} onChange={(event) => setShippingFeeText(event.target.value)} />
+                ) : isSupplementalProductInformation(field) ? (
+                  <small>Điền tên sản phẩm, quy cách, đơn vị, số lượng và đơn giá ở bảng sản phẩm bổ sung.</small>
+                ) : (
+                  <textarea id={`supplement-${quote._id}-${index}`} rows={2} maxLength={2000} value={additionalInformation[field] ?? ""} disabled={!editable || busy} placeholder="Nhập thông tin đã xác nhận…" onChange={(event) => setAdditionalInformation((current) => ({ ...current, [field]: event.target.value }))} />
+                )}
+                {isTaxMissingInformation(field) ? <small>{taxRateConfirmed ? "Thuế suất VAT sẽ được cộng vào tổng tiền sau khi lưu." : "Nhập tỷ lệ và xác nhận trước khi gửi duyệt."}</small>
+                  : isShippingMissingInformation(field) ? <small>{shippingFeeText.trim() === "" ? "Nhập số tiền hoặc 0 nếu miễn phí." : "Phí vận chuyển sẽ được cộng vào tổng tiền sau khi lưu."}</small>
+                    : !isSupplementalProductInformation(field) && <small>{(additionalInformation[field] ?? "").length}/2.000 ký tự</small>}
+              </div>
+            ))}
+          </div>}
+
+          <div className="quote-supplement-products">
+            <div className="quote-supplement-products-heading">
+              <div><strong>Sản phẩm / hạng mục bổ sung</strong><small>Tổng dòng hàng được tính từ số lượng × đơn giá.</small></div>
+              {editable && <button type="button" className="button button-soft" disabled={busy} onClick={() => setSupplementalProducts((current) => [...current, createSupplementalProductDraft()])}><Icon name="plus" size={15} /> Thêm dòng</button>}
+            </div>
+            {supplementalProducts.length > 0 ? <div className="quote-supplement-product-wrap">
+              <table className="quote-supplement-product-table">
+                <thead><tr><th>Tên sản phẩm & quy cách</th><th>ĐVT</th><th>Số lượng</th><th>Đơn giá ({quote.currency})</th><th>Thành tiền</th><th aria-label="Thao tác" /></tr></thead>
+                <tbody>{supplementalProducts.map((product) => {
+                  const quantity = Number(product.quantity);
+                  const unitPrice = Number(product.unitPrice);
+                  const hasUnitPrice = product.unitPrice.trim() !== "" && Number.isFinite(unitPrice) && unitPrice >= 0;
+                  const lineTotal = Number.isFinite(quantity) && quantity > 0 && hasUnitPrice ? Math.round((quantity * unitPrice + Number.EPSILON) * 100) / 100 : 0;
+                  const unitOptions = supplementalUnitOptions.includes(product.unit) ? supplementalUnitOptions : [product.unit, ...supplementalUnitOptions];
+                  const updateProduct = (patch: Partial<SupplementalProductDraft>) => setSupplementalProducts((current) => current.map((row) => row.id === product.id ? { ...row, ...patch } : row));
+                  return <tr key={product.id}>
+                    <td><input value={product.name} maxLength={250} disabled={!editable || busy} placeholder="Tên sản phẩm / hạng mục" aria-label="Tên sản phẩm bổ sung" onChange={(event) => updateProduct({ name: event.target.value })} /><input value={product.description} maxLength={2000} disabled={!editable || busy} placeholder="Quy cách / mô tả" aria-label="Quy cách sản phẩm bổ sung" onChange={(event) => updateProduct({ description: event.target.value })} />{product.informationField && <small>Bổ sung cho: {product.informationField}</small>}</td>
+                    <td><select value={product.unit} disabled={!editable || busy} aria-label="Đơn vị tính" onChange={(event) => updateProduct({ unit: event.target.value })}>{unitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></td>
+                    <td><input type="number" min="0.01" step="any" value={product.quantity} disabled={!editable || busy} placeholder="0" aria-label="Số lượng" onChange={(event) => updateProduct({ quantity: event.target.value })} /></td>
+                    <td><input type="number" min="0" step="any" value={product.unitPrice} disabled={!editable || busy} placeholder="0" aria-label="Đơn giá" onChange={(event) => updateProduct({ unitPrice: event.target.value })} /></td>
+                    <td><strong>{hasUnitPrice ? formatMoney(lineTotal, quote.currency) : "—"}</strong></td>
+                    <td>{editable && <button type="button" className="icon-button remove-button" disabled={busy} aria-label="Xóa dòng bổ sung" onClick={() => setSupplementalProducts((current) => current.filter((row) => row.id !== product.id))}><Icon name="close" size={15} /></button>}</td>
+                  </tr>;
+                })}</tbody>
+              </table>
+            </div> : <p className="quote-supplement-empty">Chưa có dòng bổ sung. Bấm “Thêm dòng” để nhập sản phẩm hoặc hạng mục mới.</p>}
+          </div>
+          {editable && hasUnsavedChanges && <div className="quote-supplement-actions">
+            <button type="button" className="button button-primary" disabled={busy} onClick={() => void save()}>
+              {busy ? "Đang lưu…" : "Lưu thông tin bổ sung"}
+            </button>
+          </div>}
+        </section>
       )}
 
       {/* Inline Reject Form */}
@@ -960,18 +1179,18 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
           <section className="content-card quote-terms-panel">
             <div className="section-title quote-terms-heading"><div><h2>Chi phí và điều khoản</h2><p>Khoản chưa xác nhận sẽ chưa được cộng vào tổng tiền.</p></div></div>
             <div className="quote-terms-grid">
-              <label>Phí vận chuyển ({quote.currency})
+              {!shippingInformationInSupplement && <label>Phí vận chuyển ({quote.currency})
                 <input type="number" min="0" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder="Nhập số tiền, hoặc 0 nếu miễn phí" onChange={(event) => setShippingFeeText(event.target.value)} />
                 <small>{shippingFeeText.trim() === "" ? "Chưa xác nhận phí vận chuyển." : "Sẽ được cộng vào tổng tiền sau khi lưu."}</small>
-              </label>
-              <label>Thuế VAT (%)
+              </label>}
+              {!taxInformationInSupplement && <label>Thuế VAT (%)
                 <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} onChange={(event) => { setTaxRateText(event.target.value); if (!event.target.value.trim()) setTaxRateConfirmed(false); }} />
                 <small>{taxRateConfirmed ? "Thuế suất đã được xác nhận." : "Cần xác nhận thuế suất trước khi gửi duyệt."}</small>
-              </label>
-              <label className="quote-term-confirm">
+              </label>}
+              {!taxInformationInSupplement && <label className="quote-term-confirm">
                 <span>Xác nhận thuế suất VAT</span>
                 <input type="checkbox" checked={taxRateConfirmed} disabled={!editable || busy || taxRateText.trim() === ""} onChange={(event) => setTaxRateConfirmed(event.target.checked)} />
-              </label>
+              </label>}
               <label>Hiệu lực báo giá (ngày)
                 <input type="number" min="1" max="3650" step="1" value={validityDaysText} disabled={!editable || busy} placeholder="Ví dụ: 30" onChange={(event) => setValidityDaysText(event.target.value)} />
               </label>
@@ -986,7 +1205,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <div className="quote-products-header">
               <div className="quote-products-title">
                 <h2>Chi tiết sản phẩm & đơn giá</h2>
-                <span className="quote-badge-count">{quote.lines.length} sản phẩm</span>
+                <span className="quote-badge-count">{visibleLineCount} sản phẩm</span>
                 {hasUnsavedChanges && (
                   <span className="quote-unsaved-badge">
                     ● Có thay đổi chưa lưu
@@ -1018,7 +1237,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                   </tr>
                 </thead>
                 <tbody>
-                  {quote.lines.map((line, index) => {
+                  {catalogLines.map((line, index) => {
                     const lineQty = Number(quantities[line.catalogItemId]) || line.quantity;
                     const lineTotal = lineQty * line.unitPrice;
                     return (
@@ -1091,7 +1310,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <div className="quote-totals-container">
               <div className="quote-totals-card">
                 <div className="quote-total-row">
-                  <span>Tạm tính hàng hóa ({quote.lines.length} sản phẩm):</span>
+                  <span>Tạm tính hàng hóa ({visibleLineCount} sản phẩm):</span>
                   <strong>{formatMoney(liveSubtotal, quote.currency)}</strong>
                 </div>
                 <div className="quote-total-row">
@@ -1313,23 +1532,24 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                 </div>
               )}
 
-              {(quote.status === "approved" || quote.status === "pending_review") && (
+              {canPreviewGeneratedFile && (
                 <div className="quote-doc-item">
                   <div className="quote-doc-left">
                     <span className="quote-doc-icon"><Icon name="eye" size={16} /></span>
                     <div className="quote-doc-info">
-                      <strong>Bản báo giá điền hoàn chỉnh</strong>
-                      <span>{quote.status === "approved" ? "File chính thức đã duyệt" : "Bản xem trước phê duyệt"}</span>
+                      <strong>{quote.status === "approved" ? "Bản báo giá điền hoàn chỉnh" : "Xem trước file báo giá"}</strong>
+                      <span>{quote.status === "approved" ? "File chính thức đã duyệt" : quote.status === "pending_review" ? "Bản xem trước phê duyệt" : "File Excel được tạo từ báo giá"}</span>
                     </div>
                   </div>
                   <div className="quote-doc-actions">
                     <button
                       type="button"
                       className="button button-primary"
-                      disabled={busy || hasUnresolvedInformation}
-                      onClick={() => setPreviewFile({ name: `${quote.quoteNumber}.${quote.template?.originalFilename.split(".").pop()?.toLowerCase() || "pdf"}`, url: `/api/quotes/${quote._id}/export?preview=1` })}
+                      disabled={busy || hasUnresolvedInformation || hasUnsavedChanges}
+                      title={hasUnsavedChanges ? "Lưu thay đổi trước khi xem trước file" : undefined}
+                      onClick={() => setPreviewFile({ name: `${quote.quoteNumber}.${outputExtension}`, url: `/api/quotes/${quote._id}/export?preview=1` })}
                     >
-                      Xem trước
+                      {outputExtension === "xlsx" ? "Xem trước Excel" : "Xem trước"}
                     </button>
                   </div>
                 </div>

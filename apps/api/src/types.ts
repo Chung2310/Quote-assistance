@@ -100,6 +100,14 @@ export interface AnalyzedItem {
   evidence: string;
 }
 
+export interface SuggestedProduct {
+  name: string;
+  description: string;
+  unit: string;
+  quantity: number;
+  informationField?: string;
+}
+
 export interface QuoteRequest {
   priceListId?: string;
   requestFile?: { id: string; originalFilename: string };
@@ -117,6 +125,7 @@ export interface QuoteRequest {
   status: MatchStatus;
   items: AnalyzedItem[];
   missingFields: string[];
+  suggestedProducts?: SuggestedProduct[];
   createdBy: string;
   createdAt: Date;
   analyzedAt?: Date;
@@ -124,6 +133,8 @@ export interface QuoteRequest {
 
 export interface QuoteLine {
   catalogItemId: string;
+  source?: "catalog" | "supplemental";
+  supplementalFor?: string;
   sku: string;
   name: string;
   description?: string;
@@ -162,6 +173,8 @@ export interface Quote {
   total: number;
   currency: string;
   informationNeeded: string[];
+  additionalInformation?: Record<string, string>;
+  suggestedProducts?: SuggestedProduct[];
   informationConfirmed: boolean;
   status: QuoteStatus;
   createdBy: string;
