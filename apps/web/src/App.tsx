@@ -941,6 +941,30 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             </p>
           </section>
 
+          <section className="content-card quote-terms-panel">
+            <div className="section-title quote-terms-heading"><div><h2>Chi phí và điều khoản</h2><p>Khoản chưa xác nhận sẽ chưa được cộng vào tổng tiền.</p></div></div>
+            <div className="quote-terms-grid">
+              <label>Phí vận chuyển ({quote.currency})
+                <input type="number" min="0" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder="Nhập số tiền, hoặc 0 nếu miễn phí" onChange={(event) => setShippingFeeText(event.target.value)} />
+                <small>{shippingFeeText.trim() === "" ? "Chưa xác nhận phí vận chuyển." : "Sẽ được cộng vào tổng tiền sau khi lưu."}</small>
+              </label>
+              <label>Thuế VAT (%)
+                <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} onChange={(event) => setTaxRateText(event.target.value)} />
+                <small>{taxRateConfirmed ? "Thuế suất đã được xác nhận." : "Cần xác nhận thuế suất trước khi gửi duyệt."}</small>
+              </label>
+              <label className="quote-term-confirm">
+                <span>Xác nhận thuế suất VAT</span>
+                <input type="checkbox" checked={taxRateConfirmed} disabled={!editable || busy || taxRateText.trim() === ""} onChange={(event) => setTaxRateConfirmed(event.target.checked)} />
+              </label>
+              <label>Hiệu lực báo giá (ngày)
+                <input type="number" min="1" max="3650" step="1" value={validityDaysText} disabled={!editable || busy} placeholder="Ví dụ: 30" onChange={(event) => setValidityDaysText(event.target.value)} />
+              </label>
+              <label>Hạn hoàn thành
+                <input type="date" value={completionDateText} disabled={!editable || busy} onChange={(event) => setCompletionDateText(event.target.value)} />
+              </label>
+            </div>
+          </section>
+
           {/* Products & Pricing Table Card */}
           <section className="quote-products-card">
             <div className="quote-products-header">
