@@ -110,40 +110,97 @@ async function removeLegacyTenantFields(db: Db) {
   }
 }
 
-async function seedAdmin(db: Db, defaultCompany: Company) {
+async function seedAdmin(db: Db) {
   const users = db.collection<UserAccount>("users");
   const user = config.seedAdmin;
   if (user) {
-    const company = normalizeCompanyName(user.companyName) === defaultCompany.normalizedName
-      ? defaultCompany
-      : await ensureCompany(db, user.companyName);
-    if (!company._id) throw new Error(`Company record has no id: ${company.name}`);
+    let email = user.email.trim().toLowerCase();
+    const admin = await users.findOne({ role: "admin", companyId: { $exists: false } });
+    const existingEmail = await users.findOne({ email });
+    if (!admin && existingEmail) {
+      const at = email.lastIndexOf("@");
+      const localPart = at > 0 ? email.slice(0, at) : "system-admin";
+      const domain = at > 0 ? email.slice(at) : "@localhost.invalid";
+      let suffix = 1;
+      do {
+        email = `${localPart}+system-admin${suffix === 1 ? "" : `-${suffix}`}${domain}`;
+        suffix += 1;
+      } while (await users.findOne({ email }));
+      console.warn(`SEED_ADMIN_EMAIL belongs to a business account; keeping that account and using ${email} for the system admin.`);
+    } else if (admin && existingEmail && String(admin._id) !== String(existingEmail._id)) {
+      console.warn(`SEED_ADMIN_EMAIL belongs to a business account; keeping that account and retaining ${admin.email} for the system admin.`);
+    }
+    if (admin) {
+      await users.updateMany(
+        { role: "admin", _id: { $ne: admin._id } },
+        { $set: { role: "user", updatedAt: new Date() }, $unset: { platformAdmin: "" } },
+      );
+    }
+    const target = admin;
+    const targetEmail = admin && existingEmail && String(admin._id) !== String(existingEmail._id)
+      ? admin.email
+      : email;
     const now = new Date();
-    const email = user.email.trim().toLowerCase();
-    const existingUser = await users.findOne({ email });
+    const fields = {
+      id: target?.id ?? user.id,
+      email: targetEmail,
+      name: user.name,
+      role: user.role,
+      passwordHash: user.passwordHash,
+      active: true,
+      authVersion: target?.authVersion ?? 0,
+      updatedAt: now,
+    };
+    if (target) {
+      await users.updateOne(
+        { _id: target._id },
+        { $set: fields, $unset: { companyId: "", platformAdmin: "" } },
+      );
+    } else {
+      await users.updateMany(
+        { role: "admin" },
+        { $set: { role: "user", updatedAt: now }, $unset: { platformAdmin: "" } },
+      );
+      await users.insertOne({ ...fields, createdAt: now });
+    }
+  }
+}
+
+async function migrateUserRoles(db: Db) {
+  const users = db.collection("users");
+  const now = new Date();
+  const configuredAdminEmail = config.seedAdmin?.email.trim().toLowerCase();
+  const configuredAccount = configuredAdminEmail ? await users.findOne({ email: configuredAdminEmail }) : null;
+  const legacyPlatformAdmin = await users.findOne({ platformAdmin: true });
+  const stableSeedAdmin = await users.findOne({ id: "seed-admin" });
+  const detachedAdmin = await users.findOne({ role: "admin", companyId: { $exists: false } });
+  const configuredAccountIsBusiness = Boolean(configuredAccount)
+    && configuredAccount?.platformAdmin !== true
+    && configuredAccount?.id !== "seed-admin"
+    && (configuredAccount?.role !== "admin" || typeof configuredAccount.companyId === "string");
+  const systemAdmin = configuredAccount && !configuredAccountIsBusiness
+    ? configuredAccount
+    : legacyPlatformAdmin ?? stableSeedAdmin ?? detachedAdmin;
+
+  await users.updateMany(
+    { role: { $in: ["sales", "approver"] } },
+    { $set: { role: "user", updatedAt: now }, $unset: { platformAdmin: "" } },
+  );
+  await users.updateMany(
+    { role: "admin", ...(systemAdmin ? { _id: { $ne: systemAdmin._id } } : {}) },
+    { $set: { role: "user", updatedAt: now }, $unset: { platformAdmin: "" } },
+  );
+  await users.updateMany(
+    { platformAdmin: true, ...(systemAdmin ? { _id: { $ne: systemAdmin._id } } : {}) },
+    { $set: { role: "user", updatedAt: now }, $unset: { platformAdmin: "" } },
+  );
+  if (systemAdmin) {
     await users.updateOne(
-      { email },
-      {
-        $set: {
-          id: existingUser?.id ?? user.id,
-          email,
-          name: user.name,
-          role: user.role,
-          platformAdmin: user.platformAdmin === true,
-          passwordHash: user.passwordHash,
-          companyId: company._id.toHexString(),
-          active: true,
-          authVersion: existingUser?.authVersion ?? 0,
-          updatedAt: now,
-        },
-        $setOnInsert: { createdAt: now },
-      },
-      { upsert: true },
+      { _id: systemAdmin._id },
+      { $set: { role: "admin", updatedAt: now }, $unset: { companyId: "", platformAdmin: "" } },
     );
   }
-  if (config.nodeEnv === "production" && await users.countDocuments() === 0) {
-    throw new Error("Seed an admin with SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD before production startup");
-  }
+
 }
 
 export async function connectDatabase() {
@@ -156,9 +213,7 @@ export async function connectDatabase() {
         db.collection<UserAccount>("users").createIndex({ email: 1 }, { unique: true }),
         db.collection("companyFiles").createIndex({ companyId: 1, createdAt: -1 }),
       ]);
-      const migrationCompanyName = config.seedAdmin?.companyName
-        ?? config.defaultCompanyName;
-      const defaultCompany = await ensureCompany(db, migrationCompanyName);
+      const defaultCompany = await ensureCompany(db, config.defaultCompanyName);
       if (!defaultCompany._id) throw new Error("Default company record has no id");
       await migrateLegacyTenantData(db, defaultCompany);
       await dropLegacyTenantIndexes(db);
@@ -166,6 +221,7 @@ export async function connectDatabase() {
       await Promise.all([
         db.collection("catalogItems").createIndex({ companyId: 1, sku: 1 }, { unique: true }),
         db.collection("catalogItems").createIndex({ companyId: 1, active: 1, name: 1 }),
+        db.collection("catalogImportMappings").createIndex({ companyId: 1 }, { unique: true }),
         db.collection("quoteRequests").createIndex({ companyId: 1, createdAt: -1 }),
         db.collection("quoteRequests").createIndex({ companyId: 1, idempotencyKey: 1 }, { unique: true, partialFilterExpression: { idempotencyKey: { $type: "string" } } }),
         db.collection("quotes").createIndex({ companyId: 1, quoteNumber: 1 }, { unique: true }),
@@ -173,11 +229,22 @@ export async function connectDatabase() {
         db.collection("quotes").createIndex({ companyId: 1, status: 1, createdAt: -1 }),
         db.collection("auditLogs").createIndex({ companyId: 1, createdAt: -1 }),
       ]);
-      await db.collection("users").updateMany(
-        { role: "approver" },
-        { $set: { role: "sales", updatedAt: new Date() } },
-      );
-      await seedAdmin(db, defaultCompany);
+      const platformSettings = db.collection<{ _id: string; createdAt?: Date }>("platformSettings");
+      const roleModel = await platformSettings.findOne({ _id: "user-role-model-v2" });
+      if (!roleModel) {
+        await migrateUserRoles(db);
+        await seedAdmin(db);
+        await platformSettings.updateOne(
+          { _id: "user-role-model-v2" },
+          { $setOnInsert: { createdAt: new Date() } },
+          { upsert: true },
+        );
+      } else {
+        await seedAdmin(db);
+      }
+      if (config.nodeEnv === "production" && await db.collection<UserAccount>("users").countDocuments({ role: "admin" }) !== 1) {
+        throw new Error("Configure exactly one system admin with SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD");
+      }
     });
   }
   await connection;

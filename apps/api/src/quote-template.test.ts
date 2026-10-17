@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Binary } from "mongodb";
 import PizZip from "pizzip";
 import { PDFDocument } from "pdf-lib";
-import { createTemplateFillPlan, inspectTemplate, renderTemplate, templateAiContent, validateFillPlan, type QuoteTemplate } from "./quote-template.js";
+import { createTemplateFillPlan, createXlsxTemplateFillPlan, inspectTemplate, renderTemplate, templateAiContent, validateFillPlan, type QuoteTemplate } from "./quote-template.js";
 import { config } from "./config.js";
 import type { Quote } from "./types.js";
 
@@ -16,6 +16,34 @@ const quote: Quote = {
 };
 function template(bytes: Buffer, extension: string): QuoteTemplate {
   return { companyId: quote.companyId, originalFilename: `sample.${extension}`, extension, bytes: bytes.length, data: new Binary(bytes), capacity: 2, createdAt: new Date(), uploadedBy: "admin" };
+}
+function xlsxTemplateFixture() {
+  const zip = new PizZip();
+  zip.file("xl/workbook.xml", '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Estimate" sheetId="1" r:id="rId1"/></sheets></workbook>');
+  zip.file("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+  zip.file("xl/worksheets/sheet1.xml", '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:F7"/><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Khách hàng</t></is></c><c r="B1" s="2" t="inlineStr"><is><t>Mẫu cũ</t></is></c></row><row r="4"><c r="A4" s="3" t="inlineStr"><is><t>SP-OLD</t></is></c><c r="B4" s="3" t="inlineStr"><is><t>Sản phẩm cũ</t></is></c><c r="C4" s="4"><v>1</v></c><c r="D4" s="3" t="inlineStr"><is><t>cái</t></is></c><c r="E4" s="5"><v>10</v></c><c r="F4" s="6"><f>C4*E4</f><v>10</v></c></row><row r="7"><c r="C7" t="inlineStr"><is><t>Tổng cộng</t></is></c><c r="D7" s="7"><f>SUM(F4:F4)</f><v>10</v></c></row></sheetData><mergeCells count="1"><mergeCell ref="B1:C1"/></mergeCells><pageSetup orientation="landscape"/></worksheet>');
+  zip.file("xl/styles.xml", "original-styles");
+  zip.file("xl/drawings/drawing1.xml", "original-logo-position");
+  return template(zip.generate({ type: "nodebuffer" }), "xlsx");
+}
+function structuredXlsxTemplateFixture() {
+  const zip = new PizZip();
+  zip.file("xl/workbook.xml", '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Estimate" sheetId="1" r:id="rId1"/></sheets></workbook>');
+  zip.file("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+  zip.file("xl/worksheets/sheet1.xml", '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="C1" t="inlineStr"><is><t>Khách hàng: </t></is></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>STT</t></is></c><c r="B3" t="inlineStr"><is><t>HÌNH ẢNH SP</t></is></c><c r="C3" t="inlineStr"><is><t>TÊN SẢN PHẨM</t></is></c><c r="D3" t="inlineStr"><is><t>MÔ TẢ</t></is></c><c r="E3" t="inlineStr"><is><t>ĐVT</t></is></c><c r="F3" t="inlineStr"><is><t>SL</t></is></c><c r="G3" t="inlineStr"><is><t>ĐƠN GIÁ</t></is></c><c r="H3" t="inlineStr"><is><t>THÀNH TIỀN</t></is></c></row><row r="4"><c r="A4" s="1"><v>0</v></c><c r="B4" s="2"/><c r="C4" s="3" t="inlineStr"><is><t>Sản phẩm cũ 1</t></is></c><c r="D4" s="3" t="inlineStr"><is><t>Mô tả cũ</t></is></c><c r="E4" s="3" t="inlineStr"><is><t>cái</t></is></c><c r="F4" s="4"><f>A4</f><v>0</v></c><c r="G4" s="5"><v>100</v></c><c r="H4" s="6"><f>G4*F4</f><v>100</v></c></row><row r="5"><c r="A5" s="1"><v>2</v></c><c r="B5" s="2"/><c r="C5" s="3" t="inlineStr"><is><t>Sản phẩm cũ 2</t></is></c><c r="D5" s="3" t="inlineStr"><is><t>Mô tả cũ 2</t></is></c><c r="E5" s="3" t="inlineStr"><is><t>cái</t></is></c><c r="F5" s="4"><f>A5</f><v>2</v></c><c r="G5" s="5"><v>250</v></c><c r="H5" s="6"><f>G5*F5</f><v>500</v></c></row><row r="7"><c r="G7" t="inlineStr"><is><t>TỔNG</t></is></c><c r="H7" s="6"><f>SUM(H4:H5)</f><v>600</v></c></row></sheetData></worksheet>');
+  zip.file("xl/worksheets/_rels/sheet1.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdDrawing" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>');
+  zip.file("xl/drawings/drawing1.xml", '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"><xdr:twoCellAnchor><xdr:from><xdr:col>1</xdr:col><xdr:row>3</xdr:row></xdr:from><xdr:to><xdr:col>2</xdr:col><xdr:row>4</xdr:row></xdr:to><xdr:pic><xdr:nvPicPr/></xdr:pic><xdr:clientData/></xdr:twoCellAnchor><xdr:twoCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:row>0</xdr:row></xdr:from><xdr:to><xdr:col>1</xdr:col><xdr:row>1</xdr:row></xdr:to><xdr:pic><xdr:nvPicPr/></xdr:pic><xdr:clientData/></xdr:twoCellAnchor></xdr:wsDr>');
+  zip.file("xl/styles.xml", "original-styles");
+  return template(zip.generate({ type: "nodebuffer" }), "xlsx");
+}
+function xlsxPlan() {
+  return {
+    cells: [{ key: "customerName", sheet: "Estimate", cell: "B1" }, { key: "total", sheet: "Estimate", cell: "D7" }],
+    lineRows: [{ sheet: "Estimate", row: 4, fields: [
+      { key: "sku", cell: "A4" }, { key: "name", cell: "B4" }, { key: "quantity", cell: "C4" },
+      { key: "unit", cell: "D4" }, { key: "unitPrice", cell: "E4" }, { key: "lineTotal", cell: "F4" },
+    ] }],
+  };
 }
 function officeFixture(extension: "docx" | "xlsx", tags = names) {
   const zip = new PizZip();
@@ -60,6 +88,60 @@ test("Excel: replace text without rewriting styles, merged cells, drawings or pr
   assert.equal(output.file("xl/drawings/drawing1.xml")!.asText(), "original-logo-position");
 });
 
+test("Excel coordinate mapping fills values, preserves formulas, styles, merged cells and drawings", async () => {
+  const source = xlsxTemplateFixture();
+  const output = new PizZip(await renderTemplate(source, { ...quote, xlsxTemplateFillPlan: xlsxPlan() }));
+  const xml = output.file("xl/worksheets/sheet1.xml")!.asText();
+  assert.match(xml, /Công ty An &amp; Bình &lt;Việt&gt;/);
+  assert.match(xml, /<c r="B4"[^>]*s="3"[^>]*t="inlineStr"/);
+  assert.match(xml, /<f>C4\*E4<\/f><v>20000<\/v>/);
+  assert.match(xml, /<f>SUM\(F4:F4\)<\/f><v>22000<\/v>/);
+  assert.match(xml, /mergeCell ref="B1:C1"/);
+  assert.match(xml, /orientation="landscape"/);
+  assert.equal(output.file("xl/styles.xml")!.asText(), "original-styles");
+  assert.equal(output.file("xl/drawings/drawing1.xml")!.asText(), "original-logo-position");
+});
+
+test("Excel infers a standard quote table, removes old line data and keeps the logo", async (t) => {
+  const source = structuredXlsxTemplateFixture();
+  const previousKey = config.openRouterApiKey; config.openRouterApiKey = "test-key";
+  t.after(() => { config.openRouterApiKey = previousKey; });
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("Known column headers should be mapped locally."); });
+  const plan = await createXlsxTemplateFillPlan(source, quote);
+  assert.equal(plan.lineRows.length, 1);
+  assert.equal(plan.lineRows[0]!.row, 4);
+  const output = new PizZip(await renderTemplate(source, { ...quote, xlsxTemplateFillPlan: plan }));
+  const xml = output.file("xl/worksheets/sheet1.xml")!.asText();
+  assert.match(xml, /Khách hàng: Công ty An &amp; Bình &lt;Việt&gt;/);
+  assert.match(xml, /Máy lọc nước/);
+  assert.doesNotMatch(xml, /Sản phẩm cũ 1|Sản phẩm cũ 2|Mô tả cũ/);
+  assert.match(xml, /<c r="F4"[^>]*><v>2<\/v><\/c>/);
+  assert.match(xml, /<f>G4\*F4<\/f><v>20000<\/v>/);
+  assert.match(xml, /<f>SUM\(H4:H5\)<\/f><v>22000<\/v>/);
+  const drawing = output.file("xl/drawings/drawing1.xml")!.asText();
+  assert.equal((drawing.match(/<xdr:twoCellAnchor/g) ?? []).length, 1);
+  assert.match(drawing, /<xdr:row>0<\/xdr:row>/);
+});
+
+test("Excel AI mapping uses compact cell coordinates instead of rewriting workbook XML", async (t) => {
+  const source = xlsxTemplateFixture();
+  const plan = xlsxPlan();
+  const previousKey = config.openRouterApiKey; config.openRouterApiKey = "test-key";
+  t.after(() => { config.openRouterApiKey = previousKey; });
+  t.mock.method(globalThis, "fetch", async (_url: unknown, options: RequestInit) => {
+    const request = JSON.parse(String(options.body));
+    const prompt = JSON.stringify(request.messages);
+    assert.equal(request.model, config.openRouterModel);
+    assert.ok(prompt.includes("Estimate"));
+    assert.ok(prompt.includes("A4"));
+    assert.ok(prompt.includes("SP-OLD"));
+    assert.ok(!prompt.includes("<sheetData>"));
+    assert.ok(!prompt.includes("Công ty An"));
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(plan) } }] }), { status: 200 });
+  });
+  assert.deepEqual(await createXlsxTemplateFillPlan(source, quote), plan);
+});
+
 test("PDF: fill and flatten Unicode form fields while preserving page dimensions", async () => {
   const pdf = await PDFDocument.create();
   const page = pdf.addPage([595, 842]);
@@ -94,7 +176,7 @@ test("Word supports placeholders split across formatting runs", async () => {
 
 const bindingText = "Khách: [[customerName]]; Tổng: [[total]]; Hàng: [[line_1_name]]; SL: [[line_1_quantity]]; Đơn giá: [[line_1_unitPrice]]; Thành tiền: [[line_1_lineTotal]]";
 
-test("AI receives actual Word template and fills an unmarked sample; saved bindings use current prices", async (t) => {
+test("AI receives the Word template and binding names without quote data", async (t) => {
   const zip = new PizZip(officeFixture("docx", []));
   const original = zip.file("word/document.xml")!.asText().replace("<w:body>", "<w:body><w:p><w:r><w:t>Báo giá mẫu doanh nghiệp</w:t></w:r></w:p>");
   zip.file("word/document.xml", original);
@@ -105,9 +187,12 @@ test("AI receives actual Word template and fills an unmarked sample; saved bindi
   t.mock.method(globalThis, "fetch", async (_url: unknown, options: RequestInit) => {
     const request = JSON.parse(String(options.body));
     const text = JSON.stringify(request.messages);
+    assert.equal(request.model, config.openRouterModel);
     assert.ok(text.includes("Báo giá mẫu doanh nghiệp"));
-    assert.ok(text.includes("Công ty An & Bình <Việt>"));
-    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(plan) } }] }), { status: 200 });
+    assert.ok(text.includes("line_1_name"));
+    assert.ok(text.includes("line_1_quantity"));
+    assert.ok(!text.includes("Công ty An & Bình <Việt>"));
+    return new Response(JSON.stringify({ choices: [{ message: { content: `<think>Locate the table row.</think>\n\`\`\`json\n${JSON.stringify(plan)}\n\`\`\`` } }] }), { status: 200 });
   });
   const saved = await createTemplateFillPlan(source, quote);
   const result = new PizZip(await renderTemplate(source, { ...quote, templateFillPlan: saved, total: 33000 }));

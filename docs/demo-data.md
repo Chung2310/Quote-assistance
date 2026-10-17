@@ -1,6 +1,6 @@
 # Dữ liệu demo
 
-Lệnh seed tạo ba công ty hư cấu để thử luồng nhiều doanh nghiệp. Mỗi công ty có một tài khoản quản trị, sáu mặt hàng (toàn bộ danh mục demo), một file bảng giá Excel, một mẫu báo giá Excel dạng dự toán và ba yêu cầu khách hàng có file Excel riêng. Mẫu báo giá có nhóm cột sản phẩm, quy cách, thông số, đơn vị, số lượng, đơn giá, thành tiền và ghi chú. Các yêu cầu đều để chờ phân tích để có thể thử luồng đầy đủ: AI nhận mẫu báo giá, bảng giá và file yêu cầu khách hàng.
+Lệnh seed tạo ba công ty hư cấu để thử luồng nhiều doanh nghiệp. Mỗi công ty có một tài khoản user, sáu mặt hàng (toàn bộ danh mục demo), một file bảng giá Excel, một mẫu báo giá Excel dạng dự toán và ba yêu cầu khách hàng có file Excel riêng. Mẫu báo giá có nhóm cột sản phẩm, quy cách, thông số, đơn vị, số lượng, đơn giá, thành tiền và ghi chú. Các yêu cầu đều để chờ phân tích để có thể thử luồng đầy đủ: AI đọc file yêu cầu khách hàng và ghép với sản phẩm, giá đã có trong danh mục doanh nghiệp.
 
 Toàn bộ tên, địa chỉ, mã số thuế, khách hàng và giá là dữ liệu tổng hợp chỉ dùng để thử nghiệm. Email dùng miền `.example.test`.
 

@@ -51,7 +51,7 @@ export default function AdminApp() {
     api<{ user: User }>("/api/auth/me")
       .then(({ user }) => {
         setCurrentUser(user);
-        setSessionState(user.platformAdmin ? "allowed" : "forbidden");
+        setSessionState(user.role === "admin" ? "allowed" : "forbidden");
       })
       .catch(() => setSessionState("anonymous"));
   }, []);
@@ -102,7 +102,7 @@ export default function AdminApp() {
   return <div className="admin-shell">
     <aside className="admin-sidebar">
       <a className="admin-brand" href="/admin" aria-label="Trang quản trị">
-        <span className="admin-mark">G</span><span className="admin-brand-copy"><strong>giáo</strong><small>QUẢN TRỊ DOANH NGHIỆP</small></span>
+        <span className="admin-mark">G</span><span className="admin-brand-copy"><strong>giáo</strong><small>QUẢN TRỊ HỆ THỐNG</small></span>
       </a>
       <div className="admin-nav-label">QUẢN LÝ</div>
       <nav className="admin-nav">
@@ -111,7 +111,7 @@ export default function AdminApp() {
       </nav>
       <div className="admin-profile">
         <span className="admin-avatar">{currentUser?.name.trim().charAt(0).toLocaleUpperCase("vi") || "A"}</span>
-        <span className="admin-profile-copy"><strong>{currentUser?.name}</strong><small>Quản trị viên</small></span>
+        <span className="admin-profile-copy"><strong>{currentUser?.name}</strong><small>Admin hệ thống</small></span>
         <button className="admin-icon-button" onClick={() => void signOut()} title="Đăng xuất" aria-label="Đăng xuất"><AdminIcon name="logout" size={17} /></button>
       </div>
     </aside>
@@ -142,9 +142,9 @@ export default function AdminApp() {
               </div>
             </div>
             {loadError && <div className="admin-inline-error" role="alert">{loadError}<button onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div>}
-            {loadingUsers ? <div className="admin-loading"><span className="admin-spinner" />Đang tải doanh nghiệp…</div> : users.length === 0 ? <div className="admin-empty"><span><AdminIcon name="users" size={23} /></span><strong>Chưa có doanh nghiệp</strong><p>Tạo doanh nghiệp đầu tiên cùng tài khoản quản trị.</p><button className="admin-button admin-button-primary" onClick={() => setDialogUser(null)}><AdminIcon name="plus" size={16} /> Thêm doanh nghiệp</button></div> : visibleUsers.length === 0 ? <div className="admin-empty admin-empty-compact"><strong>Không tìm thấy doanh nghiệp phù hợp</strong><p>Thử từ khóa hoặc trạng thái khác.</p></div> : <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>DOANH NGHIỆP</th><th>TÀI KHOẢN QUẢN TRỊ</th><th>TRẠNG THÁI</th><th>NGÀY TẠO</th><th><span className="sr-only">Thao tác</span></th></tr></thead><tbody>
+            {loadingUsers ? <div className="admin-loading"><span className="admin-spinner" />Đang tải doanh nghiệp…</div> : users.length === 0 ? <div className="admin-empty"><span><AdminIcon name="users" size={23} /></span><strong>Chưa có doanh nghiệp</strong><p>Doanh nghiệp có thể tự đăng ký tài khoản trên trang đăng nhập.</p><button className="admin-button admin-button-primary" onClick={() => setDialogUser(null)}><AdminIcon name="plus" size={16} /> Thêm doanh nghiệp</button></div> : visibleUsers.length === 0 ? <div className="admin-empty admin-empty-compact"><strong>Không tìm thấy doanh nghiệp phù hợp</strong><p>Thử từ khóa hoặc trạng thái khác.</p></div> : <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>DOANH NGHIỆP</th><th>TÀI KHOẢN NGƯỜI DÙNG</th><th>TRẠNG THÁI</th><th>NGÀY TẠO</th><th><span className="sr-only">Thao tác</span></th></tr></thead><tbody>
               {visibleUsers.map((managedUser) => <tr key={managedUser.id}>
-                <td><div className="admin-user-cell"><span className="admin-user-avatar role-admin">{managedUser.companyName.trim().charAt(0).toLocaleUpperCase("vi") || "?"}</span><span><strong>{managedUser.companyName}</strong><small>MST: {managedUser.taxId} · {managedUser.representativeName}</small></span></div></td>
+                <td><div className="admin-user-cell"><span className="admin-user-avatar">{managedUser.companyName.trim().charAt(0).toLocaleUpperCase("vi") || "?"}</span><span><strong>{managedUser.companyName}</strong><small>MST: {managedUser.taxId} · {managedUser.representativeName}</small></span></div></td>
                 <td><div className="admin-business-contact"><strong>{managedUser.name}</strong><small>{managedUser.email}</small><small>{managedUser.phone} · {managedUser.businessEmail}</small></div></td>
                 <td><span className={`admin-status ${managedUser.active ? "is-active" : "is-inactive"}`}><i />{managedUser.active ? "Đang hoạt động" : "Đã khóa"}</span></td>
                 <td className="admin-date-cell">{managedUser.createdAt ? formatDate(managedUser.createdAt) : "—"}</td>
@@ -162,7 +162,7 @@ export default function AdminApp() {
       user={dialogUser}
       confirm={confirm}
       onClose={() => setDialogUser(undefined)}
-      onSaved={() => { setDialogUser(undefined); setReloadKey((key) => key + 1); notify(dialogUser ? "Đã cập nhật doanh nghiệp." : "Đã tạo doanh nghiệp và tài khoản quản trị."); }}
+      onSaved={() => { setDialogUser(undefined); setReloadKey((key) => key + 1); notify(dialogUser ? "Đã cập nhật doanh nghiệp." : "Đã tạo doanh nghiệp và tài khoản người dùng."); }}
     />}
     {passwordUser && <PasswordDialog
       user={passwordUser}
@@ -333,7 +333,7 @@ function AccountDialog({ user, onClose, onSaved, confirm }: { user: ManagedUser 
       return;
     }
     if (user && user.active && !draft.active && !await confirm({ title: "Khóa tài khoản doanh nghiệp?", message: `${user.companyName} sẽ không thể đăng nhập cho đến khi tài khoản được mở lại.`, confirmLabel: "Khóa tài khoản", tone: "danger" })) return;
-    if (!user && !await confirm({ title: "Tạo doanh nghiệp và tài khoản quản trị?", message: `Doanh nghiệp: ${draft.companyName}\nTài khoản đăng nhập: ${draft.businessEmail}\nSau khi tạo, tài khoản sẽ có quyền quản trị doanh nghiệp.`, confirmLabel: "Tạo doanh nghiệp" })) return;
+    if (!user && !await confirm({ title: "Tạo doanh nghiệp và tài khoản người dùng?", message: `Doanh nghiệp: ${draft.companyName}\nTài khoản đăng nhập: ${draft.businessEmail}`, confirmLabel: "Tạo doanh nghiệp" })) return;
     setBusy(true);
     setError("");
     try {
@@ -361,9 +361,9 @@ function AccountDialog({ user, onClose, onSaved, confirm }: { user: ManagedUser 
         <label>Địa chỉ doanh nghiệp<input autoComplete="street-address" maxLength={500} value={draft.address} onChange={(event) => setDraft({ ...draft, address: event.target.value })} placeholder="Số nhà, đường, quận/huyện, tỉnh/thành" required /></label>
         <label>Điện thoại doanh nghiệp<input type="tel" autoComplete="tel" maxLength={30} value={draft.phone} onChange={(event) => setDraft({ ...draft, phone: event.target.value })} placeholder="028 1234 5678" required /></label>
         {user ? <label>Email doanh nghiệp<input type="email" autoComplete="email" maxLength={250} value={draft.businessEmail} onChange={(event) => setDraft({ ...draft, businessEmail: event.target.value })} placeholder="info@congty.vn" required /></label> : <label>Email doanh nghiệp và đăng nhập<input type="email" autoComplete="email" maxLength={250} value={draft.businessEmail} onChange={(event) => updateSharedEmail(event.target.value)} placeholder="info@congty.vn" required /></label>}
-        {user ? <label>Người đại diện<input autoComplete="name" maxLength={200} value={draft.representativeName} onChange={(event) => setDraft({ ...draft, representativeName: event.target.value })} placeholder="Nguyễn Văn An" required /></label> : <label>Người đại diện và họ tên quản trị viên<input autoComplete="name" maxLength={200} value={draft.representativeName} onChange={(event) => updateSharedName(event.target.value)} placeholder="Nguyễn Văn An" required /></label>}
+        {user ? <label>Người đại diện<input autoComplete="name" maxLength={200} value={draft.representativeName} onChange={(event) => setDraft({ ...draft, representativeName: event.target.value })} placeholder="Nguyễn Văn An" required /></label> : <label>Người đại diện và người dùng<input autoComplete="name" maxLength={200} value={draft.representativeName} onChange={(event) => updateSharedName(event.target.value)} placeholder="Nguyễn Văn An" required /></label>}
         {user && <>
-          <label>Họ và tên người quản trị<input autoComplete="name" maxLength={200} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Nguyễn Văn An" required /></label>
+          <label>Họ và tên người dùng<input autoComplete="name" maxLength={200} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Nguyễn Văn An" required /></label>
           <label>Email đăng nhập<input type="email" autoComplete="username" maxLength={250} value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} placeholder="admin@congty.vn" required /></label>
         </>}
         {user ? <label>Trạng thái<select value={draft.active ? "active" : "inactive"} onChange={(event) => setDraft({ ...draft, active: event.target.value === "active" })}><option value="active">Đang hoạt động</option><option value="inactive">Đã khóa</option></select><small>Khóa sẽ chặn tài khoản đăng nhập vào doanh nghiệp.</small></label> : <label>Mật khẩu ban đầu<input type="password" autoComplete="new-password" minLength={7} maxLength={200} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Ít nhất 7 ký tự" required /><small>Mật khẩu cần có từ 7 đến 200 ký tự.</small></label>}

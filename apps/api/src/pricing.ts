@@ -22,10 +22,12 @@ export function calculateQuote(items: CatalogItem[], requested: Array<{
       catalogItemId: String(item._id),
       sku: item.sku,
       name: item.name,
+      description: item.description ?? "",
       quantity: requestedLine.quantity,
       unit: item.unit,
       unitPrice: item.price,
       currency: item.currency,
+      catalogAttributes: item.attributes ?? {},
       attributes: requestedLine.attributes ?? {},
       lineTotal,
     };

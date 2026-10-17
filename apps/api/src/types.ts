@@ -1,6 +1,6 @@
 import type { ObjectId } from "mongodb";
 
-export type UserRole = "sales" | "admin";
+export type UserRole = "user" | "admin";
 export type QuoteStatus = "draft" | "needs_info" | "pending_review" | "approved" | "rejected";
 export type MatchStatus = "matched" | "ambiguous" | "not_found";
 
@@ -58,7 +58,8 @@ export interface UserAccount {
   name: string;
   role: UserRole;
   passwordHash: string;
-  companyId: string;
+  companyId?: string;
+  /** Legacy marker removed when user roles are migrated at startup. */
   platformAdmin?: boolean;
   active?: boolean;
   authVersion?: number;
@@ -72,7 +73,6 @@ export interface SessionUser {
   name: string;
   role: UserRole;
   companyId: string;
-  platformAdmin?: boolean;
 }
 
 export interface CatalogItem {
@@ -81,6 +81,7 @@ export interface CatalogItem {
   sku: string;
   name: string;
   description: string;
+  attributes?: Record<string, string>;
   unit: string;
   price: number;
   currency: string;
@@ -125,10 +126,12 @@ export interface QuoteLine {
   catalogItemId: string;
   sku: string;
   name: string;
+  description?: string;
   quantity: number;
   unit: string;
   unitPrice: number;
   currency: string;
+  catalogAttributes?: Record<string, string>;
   attributes: Record<string, string>;
   lineTotal: number;
 }
@@ -140,6 +143,7 @@ export interface Quote {
   companyId: string;
   template?: QuoteTemplateSnapshot;
   templateFillPlan?: TemplateFillPlan;
+  xlsxTemplateFillPlan?: XlsxTemplateFillPlan;
   idempotencyKey?: string;
   quoteNumber: string;
   requestId: string;
@@ -166,6 +170,15 @@ export interface Quote {
 export interface TemplateFillPlan {
   edits: Array<{ part: string; find: string; replace: string }>;
   pdfEdits: Array<{ page: number; x: number; y: number; width: number; height: number; fontSize: number; text: string; erase: boolean }>;
+}
+
+export interface XlsxTemplateFillPlan {
+  cells: Array<{ key: string; sheet: string; cell: string }>;
+  lineRows: Array<{
+    sheet: string;
+    row: number;
+    fields: Array<{ key: string; cell: string }>;
+  }>;
 }
 
 export interface QuoteTemplateSnapshot {

@@ -33,10 +33,9 @@ Yêu cầu Node.js 20.19+ và một MongoDB có thể truy cập từ máy chạ
    SEED_ADMIN_EMAIL=admin@congty.vn
    SEED_ADMIN_PASSWORD=mat-khau-dai-it-nhat-12-ky-tu
    SEED_ADMIN_NAME=Quản trị nền tảng
-   SEED_ADMIN_COMPANY_NAME=Công ty ABC
    ```
 
-   Mật khẩu cần dài từ 12 đến 200 ký tự; ứng dụng tự băm bằng scrypt rồi lưu tài khoản trong `users` và hồ sơ doanh nghiệp trong `companies`. Tài khoản seed có quyền quản trị nền tảng và dùng để đăng nhập `/admin`, nơi tạo từng doanh nghiệp cùng một tài khoản quản trị riêng. Mỗi doanh nghiệp có dữ liệu, cài đặt SMTP và Cloudinary riêng. Sau lần khởi động đầu tiên thành công, có thể xóa `SEED_ADMIN_EMAIL` và `SEED_ADMIN_PASSWORD`; quyền quản trị nền tảng đã được lưu trong MongoDB.
+   Mật khẩu cần dài từ 7 đến 200 ký tự; ứng dụng tự băm bằng scrypt rồi lưu tài khoản admin trong `users`, độc lập với hồ sơ doanh nghiệp. Tài khoản admin duy nhất dùng để đăng nhập `/admin` và quản lý các tài khoản doanh nghiệp. Doanh nghiệp tự đăng ký tài khoản user và dùng tài khoản đó để quản lý toàn bộ dữ liệu của mình. Nếu email seed đã thuộc một tài khoản doanh nghiệp, ứng dụng giữ nguyên tài khoản đó, tạo admin với email dạng `ten+system-admin@domain` (in ra terminal khi khởi động) và vẫn dùng mật khẩu seed. Sau lần khởi động đầu tiên thành công, có thể xóa `SEED_ADMIN_EMAIL` và `SEED_ADMIN_PASSWORD`; tài khoản admin đã được lưu trong MongoDB.
 
 3. Cấu hình `PORT` (mặc định 3000) cho cả API và giao diện. Có thể đặt URI MongoDB trong `MONGODB_URI`; nếu URI không có tên database, ứng dụng dùng `MONGODB_DATABASE` hoặc `bao_gia_pilot`. Để kết nối MongoDB local không xác thực, để trống user và password. `SESSION_SECRET` cần là chuỗi ngẫu nhiên dài ít nhất 32 ký tự. Nếu muốn gọi AI, thêm khóa vào `OPENROUTER_API_KEY`; có thể chọn model qua `OPENROUTER_MODEL`.
 
@@ -46,25 +45,27 @@ Yêu cầu Node.js 20.19+ và một MongoDB có thể truy cập từ máy chạ
    yarn dev
    ```
 
-   Mở giao diện và API tại `http://localhost:3013` theo giá trị mẫu trong `.env`. Express phục vụ API và Vite middleware trên cùng một cổng; không cần chạy proxy hoặc máy chủ frontend riêng. Nếu chưa đặt khóa OpenRouter, phân tích chỉ thử khớp chính xác mã/tên hàng; nhân viên vẫn có thể chọn mặt hàng thủ công từ danh mục.
+   Mở giao diện và API tại `http://localhost:3013` theo giá trị mẫu trong `.env`. Express phục vụ API và Vite middleware trên cùng một cổng; không cần chạy proxy hoặc máy chủ frontend riêng. Nếu chưa đặt khóa OpenRouter, phân tích chỉ thử khớp chính xác mã/tên hàng; người dùng vẫn có thể chọn mặt hàng thủ công từ danh mục.
 
 ## Nhập bảng giá
 
-Tài khoản `admin` có thể nhập `.csv`, `.xlsx` hoặc `.xls` (trang dữ liệu đầu tiên, tối đa 2.000 dòng và 5 MB). Các cột bắt buộc: `sku`, `name`, `unit`, `price`. Cột tùy chọn: `description`, `currency`, `effectiveFrom`, `effectiveTo`.
+Tài khoản doanh nghiệp tải `.csv`, `.xlsx` hoặc `.xls` lên tại mục **Bảng giá** (tối đa 5 MB mỗi file). Trước khi nhập, hệ thống hiển thị từng sheet, gợi ý dòng tiêu đề và cách ghép cột để người dùng kiểm tra. Mã hàng, tên, đơn vị, đơn giá, tiền tệ, mô tả và ngày hiệu lực được lưu vào trường chuẩn. Những cột khác được lưu thành thuộc tính riêng theo từng sản phẩm, nên mỗi doanh nghiệp có thể giữ các thông tin riêng như vật liệu, kích thước, thương hiệu, xuất xứ hoặc nhóm hàng. Người dùng có thể sửa các thuộc tính này trong danh sách sản phẩm; tìm kiếm cũng xét các thuộc tính đó.
 
-Tên cột tiếng Việt cũng được nhận diện: `mã hàng`, `tên hàng`, `đơn vị tính`, `đơn giá`, `mô tả`, `tiền tệ`, `hiệu lực từ`, `hiệu lực đến`. Ngày hiệu lực dùng `YYYY-MM-DD`. Mã hàng được chuyển thành chữ hoa; mã trùng trong tệp làm dừng lượt nhập. Trùng với danh mục hiện tại sẽ cập nhật mặt hàng sau khi người dùng xác nhận bản xem trước.
+Cách ghép cột được lưu theo doanh nghiệp và tự gợi ý cho file sau có cùng sheet và tiêu đề. Mã hàng đã có trong danh mục được cập nhật từ file vừa tải; nếu file không có mã, hệ thống tạo mã từ thông tin sản phẩm. Dòng thiếu tên hoặc đơn giá bị bỏ qua và số dòng được hiển thị sau khi nhập. Nếu một mã có nhiều tên hoặc giá khác nhau trong cùng file, hệ thống dừng nhập để tránh ghi giá sai. File gốc vẫn được lưu để xem lại.
+
+Khi tạo báo giá, hệ thống chụp các thuộc tính sản phẩm vào từng dòng để dữ liệu không đổi nếu danh mục được cập nhật sau đó. Thông số sản phẩm và thuộc tính khách yêu cầu thêm được hiển thị riêng; file báo giá PDF và mẫu doanh nghiệp cũng nhận được các thông tin này.
 
 ## Luồng pilot
 
-1. Admin nhập bảng giá và khai báo mẫu báo giá tại mục **Mẫu báo giá** trong menu.
-2. Popup tạo báo giá có dropdown chọn mẫu (chọn sẵn mẫu mặc định), dropdown chọn bảng giá và ô nhập yêu cầu hoặc tải file yêu cầu. File hỗ trợ TXT, PDF, DOCX, CSV, XLS, XLSX, tối đa 10 MB. AI nhận mẫu và đúng bảng giá đã chọn cùng yêu cầu của khách; nhân viên xác nhận thông tin khách hàng và mặt hàng sau khi phân tích.
-3. Máy chủ đọc giá hiệu lực, chụp tên/mã/đơn vị/đơn giá và tính tạm tính, thuế, tổng tiền.
-4. Nhân viên chỉnh số lượng và gửi duyệt. Quản trị viên của doanh nghiệp có thể duyệt hoặc trả lại với lý do.
-5. Sau khi được doanh nghiệp duyệt, nhân viên tải file đúng định dạng mẫu hoặc gửi file đó qua SMTP đã cấu hình. Báo giá cũ chưa gắn mẫu vẫn xuất PDF như trước.
+1. User của doanh nghiệp tải bảng giá lên; hệ thống tự tạo/cập nhật sản phẩm và đơn giá trong danh mục. User khai báo mẫu báo giá tại mục **Mẫu báo giá**.
+2. Popup tạo báo giá chọn mẫu (chọn sẵn mẫu mặc định) và nhận yêu cầu bằng văn bản hoặc file. File hỗ trợ TXT, PDF, DOCX, CSV, XLS, XLSX, tối đa 10 MB. AI đối chiếu yêu cầu với danh mục sản phẩm đã nhập; user xác nhận thông tin khách hàng và mặt hàng sau khi phân tích.
+3. Máy chủ đọc giá hiệu lực trong danh mục, chụp tên/mã/đơn vị/đơn giá và tính tạm tính, thuế, tổng tiền.
+4. Tài khoản doanh nghiệp chỉnh số lượng, chuyển báo giá sang chờ duyệt, rồi duyệt hoặc trả lại với lý do.
+5. Sau khi duyệt, tài khoản doanh nghiệp tải file đúng định dạng mẫu hoặc gửi file đó qua SMTP đã cấu hình. Báo giá cũ chưa gắn mẫu vẫn xuất PDF như trước.
 
 ## Mẫu báo giá theo doanh nghiệp
 
-Mỗi doanh nghiệp có một mẫu mặc định, hỗ trợ `.docx`, `.xlsx` và `.pdf` (tối đa 10 MB). Trong menu **Mẫu báo giá**, bấm **Tạo mẫu** để nhập tên và chọn file trong popup. Mẫu được lưu trong MongoDB, không phụ thuộc Cloudinary. Chỉ admin doanh nghiệp được thay mẫu; người dùng chỉ truy cập mẫu thuộc doanh nghiệp của mình. Mỗi lần thay tạo một phiên bản mới. Yêu cầu đã bắt đầu và báo giá đã tạo giữ phiên bản mẫu ban đầu.
+Mỗi doanh nghiệp có một mẫu mặc định, hỗ trợ `.docx`, `.xlsx` và `.pdf` (tối đa 10 MB). Trong menu **Mẫu báo giá**, bấm **Tạo mẫu** để nhập tên và chọn file trong popup. Mẫu được lưu trong MongoDB, không phụ thuộc Cloudinary. Tài khoản user của doanh nghiệp được thay mẫu và chỉ truy cập mẫu thuộc doanh nghiệp đó. Mỗi lần thay tạo một phiên bản mới. Yêu cầu đã bắt đầu và báo giá đã tạo giữ phiên bản mẫu ban đầu.
 
 Doanh nghiệp tải mẫu đang dùng, không cần thêm placeholder, trường đặt tên sẵn hoặc khai báo số dòng sản phẩm. Upload chỉ kiểm tra định dạng và khả năng đọc file, không bắt mẫu có trường khách hàng/tổng tiền. Khi phân tích yêu cầu và tạo bản nháp, hệ thống gửi nội dung mẫu cho OpenRouter: Word/Excel dưới dạng XML giữ cấu trúc, định dạng và ô dữ liệu; PDF gửi nguyên file base64 cùng kích thước trang. Word/Excel giới hạn nội dung gửi AI ở 600.000 ký tự; mẫu lớn hơn vẫn lưu được nhưng bước AI sẽ báo không xử lý được trong một lần.
 
@@ -76,13 +77,13 @@ Kiểm thử xử lý mẫu: `node --import tsx --test apps/api/src/quote-templa
 
 ## Tài khoản doanh nghiệp
 
-Khách truy cập có thể chọn “Đăng ký doanh nghiệp” ngay trên màn hình đăng nhập. Biểu mẫu yêu cầu tên doanh nghiệp, mã số thuế, địa chỉ, điện thoại, email doanh nghiệp, người đại diện, họ tên người quản trị, email đăng nhập và mật khẩu. Tài khoản đăng ký đầu tiên có quyền quản trị doanh nghiệp và được đăng nhập ngay sau khi tạo. Quản trị nền tảng cũng có thể tạo, cập nhật hồ sơ, khóa tài khoản hoặc đặt lại mật khẩu tại `/admin`. Tài khoản doanh nghiệp không có quyền truy cập `/admin`; quản trị viên doanh nghiệp tự duyệt hoặc trả lại báo giá.
+Khách truy cập có thể chọn “Đăng ký doanh nghiệp” ngay trên màn hình đăng nhập. Biểu mẫu yêu cầu thông tin doanh nghiệp, người đại diện, họ tên người dùng, email đăng nhập và mật khẩu. Mỗi doanh nghiệp có một tài khoản user gắn với hồ sơ doanh nghiệp đó; tài khoản đăng ký được đăng nhập ngay sau khi tạo và có thể quản lý, duyệt báo giá cùng các cài đặt của doanh nghiệp. Admin hệ thống cũng có thể tạo, cập nhật hồ sơ, khóa tài khoản hoặc đặt lại mật khẩu tại `/admin`. Chỉ tài khoản admin hệ thống truy cập được `/admin`.
 
 ## Gửi báo giá qua email
 
-Quản trị viên của từng doanh nghiệp bấm biểu tượng người dùng ở thanh bên, mở trang cá nhân rồi vào phần cài đặt email và nhập thông tin SMTP riêng của doanh nghiệp: máy chủ, cổng, kiểu kết nối, tên đăng nhập, mật khẩu và địa chỉ người gửi. Mỗi bộ cấu hình được lưu riêng trong hồ sơ doanh nghiệp; mật khẩu được mã hóa AES-256-GCM trước khi lưu và không được trả về giao diện.
+Tài khoản user của doanh nghiệp bấm biểu tượng người dùng ở thanh bên, mở trang cá nhân rồi vào phần cài đặt email và nhập thông tin SMTP riêng của doanh nghiệp: máy chủ, cổng, kiểu kết nối, tên đăng nhập, mật khẩu và địa chỉ người gửi. Mỗi bộ cấu hình được lưu riêng trong hồ sơ doanh nghiệp; mật khẩu được mã hóa AES-256-GCM trước khi lưu và không được trả về giao diện.
 
-Với cổng 587, chọn STARTTLS (`secure=false`); với cổng 465, chọn TLS (`secure=true`). Có thể lưu cấu hình rồi dùng nút kiểm tra kết nối trước khi gửi báo giá. Nhân viên có thể gửi PDF của báo giá đã duyệt tới email khách hàng; SMTP sẽ dùng cấu hình của doanh nghiệp sở hữu báo giá.
+Với cổng 587, chọn STARTTLS (`secure=false`); với cổng 465, chọn TLS (`secure=true`). Có thể lưu cấu hình rồi dùng nút kiểm tra kết nối trước khi gửi báo giá. Tài khoản doanh nghiệp có thể gửi báo giá đã duyệt tới email khách hàng; SMTP sẽ dùng cấu hình của doanh nghiệp sở hữu báo giá.
 
 Khóa mã hóa mật khẩu SMTP được dẫn xuất từ `SESSION_SECRET`. Khi thay khóa phiên, hãy nhập lại mật khẩu SMTP của doanh nghiệp để mã hóa lại bằng khóa mới.
 
@@ -102,7 +103,7 @@ yarn start
 
 ## Quyền riêng tư và giới hạn
 
-- Nội dung yêu cầu tự do được gửi tới OpenRouter khi bật AI. Mã, tên, mô tả và đơn vị của tối đa 40 sản phẩm ứng viên cũng được gửi để đối chiếu; giá, email khách hàng và giá vốn không được gửi.
+- Nội dung yêu cầu tự do được gửi tới OpenRouter khi bật AI. Mã, tên, mô tả và đơn vị của tối đa 40 sản phẩm ứng viên cũng được gửi để đối chiếu; email khách hàng và giá vốn không được gửi trong bước này. Nếu file bảng giá không có tiêu đề cột nhận diện được, các dòng dữ liệu gồm cả giá được gửi tới OpenRouter để trích xuất sản phẩm. File có tiêu đề cột nhận diện được xử lý tại máy chủ.
 - Dùng dữ liệu đã ẩn thông tin nhạy cảm trong pilot và xác nhận chính sách nhà cung cấp trước khi dùng yêu cầu thật. Không bật log nội dung yêu cầu.
 - Mỗi doanh nghiệp có hồ sơ trong collection `companies`; tài khoản đăng nhập lưu mã doanh nghiệp tham chiếu đến hồ sơ đó. Máy chủ lấy mã từ tài khoản đã xác thực và tự giới hạn truy vấn theo mã này; client không thể tự chọn doanh nghiệp trong API. Vẫn cần đánh giá bảo mật trước khi dùng production.
 - Nhật ký ghi các lần nhập giá, phân tích, tạo/sửa/gửi/duyệt/trả lại báo giá và thay đổi cài đặt SMTP. Mật khẩu SMTP được mã hóa trước khi lưu trong MongoDB.
@@ -111,9 +112,9 @@ yarn start
 
 ## Lưu trữ tệp và ảnh trên Cloudinary
 
-Quản trị viên mở biểu tượng người dùng, vào trang cá nhân và nhập Cloud name, API key, API secret lấy từ Cloudinary. API secret được mã hóa AES-256-GCM trong hồ sơ doanh nghiệp; cấu hình và tệp được tách theo từng doanh nghiệp. Tệp tải lên dùng chế độ authenticated, được giới hạn 10 MB và hỗ trợ ảnh PNG/JPG/WEBP/GIF, PDF, CSV, XLS và XLSX. Danh sách trong trang cá nhân chỉ hiển thị tên, dung lượng và ngày tải lên.
+User doanh nghiệp mở biểu tượng người dùng, vào trang cá nhân và nhập Cloud name, API key, API secret lấy từ Cloudinary. API secret được mã hóa AES-256-GCM trong hồ sơ doanh nghiệp; cấu hình và tệp được tách theo từng doanh nghiệp. Tệp tải lên dùng chế độ authenticated, được giới hạn 10 MB và hỗ trợ ảnh PNG/JPG/WEBP/GIF, PDF, CSV, XLS và XLSX. Danh sách trong trang cá nhân chỉ hiển thị tên, dung lượng và ngày tải lên.
 
-Khi nhập bảng giá hợp lệ, ứng dụng lưu tệp nguồn lên Cloudinary trước khi hiển thị bước xác nhận nhập. Tài khoản cần cấu hình Cloudinary trước khi tải tệp lên.
+File bảng giá được lưu trong MongoDB làm tài liệu nguồn sau khi sản phẩm và đơn giá đã được trích xuất thành công. Không cần cấu hình Cloudinary để tải bảng giá lên.
 
 ## API chính
 

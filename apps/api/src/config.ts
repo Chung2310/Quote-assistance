@@ -6,8 +6,7 @@ import { hashPassword } from "./password.js";
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 loadEnvironment({ path: process.env.ENV_FILE ?? path.resolve(moduleDirectory, "../../../.env") });
 
-const DEFAULT_COMPANY_NAME = "Doanh nghiệp pilot";
-const defaultCompanyName = process.env.SEED_ADMIN_COMPANY_NAME?.trim() || DEFAULT_COMPANY_NAME;
+const defaultCompanyName = "Doanh nghiệp pilot";
 
 function required(name: string, fallback?: string): string {
   const value = process.env[name] ?? fallback;
@@ -19,7 +18,6 @@ function readSeedAdmin() {
   const adminEmail = process.env.SEED_ADMIN_EMAIL?.trim() ?? "";
   const adminPassword = process.env.SEED_ADMIN_PASSWORD ?? "";
   const adminName = process.env.SEED_ADMIN_NAME?.trim() || "Quản trị hệ thống";
-  const adminCompanyName = process.env.SEED_ADMIN_COMPANY_NAME?.trim() || defaultCompanyName;
   if (Boolean(adminEmail) !== Boolean(adminPassword)) {
     throw new Error("SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD must both be set or both be empty");
   }
@@ -27,18 +25,12 @@ function readSeedAdmin() {
   if (adminPassword.length < 7 || adminPassword.length > 200) {
     throw new Error("SEED_ADMIN_PASSWORD must contain between 7 and 200 characters");
   }
-  if (adminCompanyName.length > 200) {
-    throw new Error("SEED_ADMIN_COMPANY_NAME must be at most 200 characters");
-  }
-
   return {
     id: "seed-admin",
     email: adminEmail,
     name: adminName,
     role: "admin" as const,
-    platformAdmin: true,
     passwordHash: hashPassword(adminPassword),
-    companyName: adminCompanyName,
   };
 }
 

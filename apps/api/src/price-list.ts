@@ -11,6 +11,8 @@ export interface PriceList {
   bytes: number;
   uploadedBy: string;
   updatedAt: Date;
+  productCount?: number;
+  skippedRows?: number;
 }
 
 export interface PriceListAnalysisRow {
@@ -172,11 +174,11 @@ export function validatePriceAnalysis(raw: unknown, companyId: string, visibleSo
     if (!row || typeof row !== "object" || !["sku", "name", "unit", "currency", "evidence"].every((key) => typeof row[key] === "string" && row[key].trim().length > 0 && row[key].length <= 1000) || !/^[A-Z]{3}$/.test(row.currency) || typeof row.price !== "number" || !Number.isFinite(row.price) || row.price < 0 || row.price > 1e12 || typeof row.quantity !== "number" || !Number.isFinite(row.quantity) || row.quantity <= 0 || row.quantity > 1e6) throw new Error("AI trả về sản phẩm, đơn giá hoặc số lượng không hợp lệ.");
     let evidence = row.evidence;
     if (visibleSources) {
-      if (typeof row.sourceFile !== "string" || typeof row.sourceSheet !== "string" || !Number.isInteger(row.sourceRow)) throw new Error("AI chÆ°a tráº£ vá» trÃ­ch dáº«n dÃ²ng nguá»“n há»£p lá»‡.");
+      if (typeof row.sourceFile !== "string" || typeof row.sourceSheet !== "string" || !Number.isInteger(row.sourceRow)) throw new Error("AI chưa trả về trích dẫn dòng nguồn hợp lệ.");
       const source = visibleSources.find((entry) => entry.file === row.sourceFile && entry.row.sheet === row.sourceSheet && entry.row.row === row.sourceRow);
       const fileRows = source ? visibleSources.filter((entry) => entry.file === source.file).map((entry) => entry.row) : [];
-      if (!source || !sourceRowContainsPrice(source.row, fileRows, row.price)) throw new Error("AI tráº£ vá» giÃ¡ khÃ´ng cÃ³ trong dÃ²ng báº£ng giÃ¡ Ä‘Æ°á»£c trÃ­ch.");
-      evidence = `File ${source.file}; sheet ${source.row.sheet}; dÃ²ng ${source.row.row}: ${source.row.cells.join(" | ")}`;
+      if (!source || !sourceRowContainsPrice(source.row, fileRows, row.price)) throw new Error("AI trả về giá không có trong dòng bảng giá được trích.");
+      evidence = `File ${source.file}; sheet ${source.row.sheet}; dòng ${source.row.row}: ${source.row.cells.join(" | ")}`;
     }
     const id = new ObjectId();
     candidates.push({ _id: id, companyId, sku: row.sku, name: row.name, description: evidence, unit: row.unit, price: row.price, currency: row.currency, active: true, createdAt: new Date(), updatedAt: new Date() });

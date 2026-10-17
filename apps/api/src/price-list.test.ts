@@ -12,7 +12,7 @@ function fixture(): PriceList {
   XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([["Dịch vụ B", 30000]]), "Dịch vụ");
   return { companyId: "company-a", originalFilename: "bang-gia.xlsx", bytes: 100, data: new Binary(XLSX.write(book, { type: "buffer", bookType: "xlsx" })), uploadedBy: "admin", updatedAt: new Date() };
 }
-const result = { status: "matched", items: [{ sku: "A", name: "Máy A", unit: "cái", price: 120000, currency: "VND", quantity: 2, evidence: "Sheet Máy, dòng 2, giá 120000" }], missingFields: [] };
+const result = { status: "matched", items: [{ sku: "A", name: "Máy A", unit: "cái", price: 120000, currency: "VND", quantity: 2, evidence: "Sheet Máy, dòng 2, giá 120000", sourceFile: "bang-gia.xlsx", sourceSheet: "Máy", sourceRow: 2 }], missingFields: [] };
 
 test("reads every sheet without requiring catalog columns", () => {
   const content = priceListContent(fixture()).text;
@@ -66,8 +66,9 @@ test("file-only customer request uses exactly the selected price list and extrac
     assert.doesNotMatch(content, /bang-gia-thu-hai.xlsx/);
     assert.match(content, /FILE YÊU CẦU CỦA KHÁCH HÀNG/);
     assert.match(content, /Mua 2 máy A/);
-    assert.match(content, /mẫu được chọn/);
-    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ ...result, customerName: "Công ty Minh An", customerEmail: "buyer@example.com" }) } }] }));
+    assert.doesNotMatch(content, /mẫu được chọn/);
+    const selectedResult = { ...result, items: result.items.map((item) => ({ ...item, sourceFile: "bang-gia-duoc-chon.xlsx" })), customerName: "Công ty Minh An", customerEmail: "buyer@example.com" };
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(selectedResult) } }] }));
   });
   const analysis = await analyzePriceList("", { ...fixture(), originalFilename: "bang-gia-duoc-chon.xlsx" }, [{ type: "text", text: "mẫu được chọn" }], [{ type: "text", text: "FILE YÊU CẦU CỦA KHÁCH HÀNG: Mua 2 máy A" }]);
   assert.equal(analysis.customerName, "Công ty Minh An");

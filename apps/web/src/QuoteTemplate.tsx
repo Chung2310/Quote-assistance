@@ -66,7 +66,7 @@ export function QuoteTemplatePanel({ canManage, onContinue, onManage }: { canMan
         <button type="button" className="button button-soft quote-template-download" onClick={() => setPreview({ name: template.originalFilename, url: `/api/quote-template/${template.id}/file?preview=1` })}>Xem trước mẫu</button>
         <a className="text-button quote-template-download-link" href={`/api/quote-template/${template.id}/file`}>Tải mẫu gốc</a>
       </article>)}
-    </div> : <p>Doanh nghiệp chưa có mẫu báo giá. {canManage ? "Hãy tải mẫu lên trước khi tạo báo giá đầu tiên." : "Vui lòng nhờ quản trị viên doanh nghiệp bổ sung mẫu."}</p>}
+    </div> : <p>Doanh nghiệp chưa có mẫu báo giá. {canManage ? "Hãy tải mẫu lên trước khi tạo báo giá đầu tiên." : "Liên hệ quản trị hệ thống để được hỗ trợ."}</p>}
     {!onContinue && nextCursor && <div className="preview-actions"><button className="button button-soft" disabled={loading || loadingMore} onClick={() => void loadMore()}>{loadingMore ? "Đang tải…" : "Xem thêm mẫu"}</button></div>}
     {error && <div className="inline-error" role="alert">{error} <button className="text-button" disabled={loading || loadingMore} onClick={() => void load()}>Tải lại mẫu</button></div>}
     <FilePreview file={preview} onClose={() => setPreview(null)} />
