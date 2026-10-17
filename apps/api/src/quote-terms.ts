@@ -4,9 +4,17 @@ function normalizedText(value: string) {
 
 export function isGenericMissingPriceWarning(value: string) {
   const text = normalizedText(value);
-  const saysPriceIsMissing = /\b(khong co|chua co|thieu|missing)\b/.test(text) && /\b(don gia|gia|price)\b/.test(text);
-  const refersToEveryLine = /\b(tung dong|moi dong|tat ca dong|each line|every line)\b/.test(text);
+  const saysPriceIsMissing = /\b(khong co|chua co|khong tim thay|khong xac dinh|thieu|missing|not found|no|without|unavailable)\b/.test(text) && /\b(don gia|gia|price|pricing)\b/.test(text);
+  const refersToEveryLine = /\b(tung dong|moi dong|tat ca dong|tung hang muc|moi hang muc|tat ca hang muc|tung san pham|moi san pham|tat ca san pham|tung mat hang|moi mat hang|tat ca mat hang|each line|every line|any line|all lines|each item|every item|any item|all items)\b/.test(text);
   return saysPriceIsMissing && refersToEveryLine;
+}
+
+export function isResolvedQuoteTermWarning(value: string, terms: { validityDays?: number | null; completionDate?: string | null }) {
+  if (!/xác nhận|confirm/i.test(value)) return false;
+  const asksValidity = /hiệu lực|thời hạn|validity/i.test(value);
+  const asksCompletion = /hoàn thành|bàn giao|completion|delivery date/i.test(value);
+  if (!asksValidity && !asksCompletion) return false;
+  return (!asksValidity || terms.validityDays != null) && (!asksCompletion || terms.completionDate != null);
 }
 
 export function cleanMissingInformation(fields: string[], hasPricedItems: boolean) {

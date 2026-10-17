@@ -16,7 +16,7 @@ import { createCompanySmtpTransport, encryptSmtpPassword } from "./mail.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot } from "./pricing.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
-import { cleanMissingInformation, extractQuoteTerms, isShippingInformation, isTaxInformation } from "./quote-terms.js";
+import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isTaxInformation } from "./quote-terms.js";
 import { attachWeb } from "./web.js";
 import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, CompanySmtpSettings, Quote, QuoteRequest, QuoteStatus, SessionUser, UserAccount } from "./types.js";
@@ -27,12 +27,16 @@ type PdfDocumentDefinition = Parameters<InstanceType<typeof PdfPrinter>["createP
 const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 
 function quoteForResponse(quote: Quote): Quote {
-  const information = cleanMissingInformation(quote.informationNeeded ?? [], quote.lines?.length > 0);
+  const terms = { validityDays: quote.validityDays, completionDate: quote.completionDate };
+  const information = cleanMissingInformation(quote.informationNeeded ?? [], quote.lines?.length > 0)
+    .filter((field) => !isResolvedQuoteTermWarning(field, terms));
   const taxRateConfirmed = quote.taxRateConfirmed ?? !information.some(isTaxInformation);
   const shippingFeeConfirmed = quote.shippingFeeConfirmed ?? (quote.shippingFee != null || !information.some(isShippingInformation));
   const informationNeeded = information.filter((field) =>
     !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
   );
+  if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
+  if (!shippingFeeConfirmed && !informationNeeded.some(isShippingInformation)) informationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
   const unresolved = informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed;
   const status = quote.status === "draft" || quote.status === "needs_info"
     ? unresolved ? "needs_info" : "draft"
@@ -41,8 +45,10 @@ function quoteForResponse(quote: Quote): Quote {
     ...quote,
     informationNeeded,
     taxRateConfirmed,
+    taxAmount: taxRateConfirmed ? quote.taxAmount : 0,
     shippingFee: quote.shippingFee ?? (shippingFeeConfirmed ? 0 : null),
     shippingFeeConfirmed,
+    total: Math.round((quote.subtotal + (taxRateConfirmed ? quote.taxAmount : 0) + (shippingFeeConfirmed ? quote.shippingFee ?? 0 : 0) + Number.EPSILON) * 100) / 100,
     status,
   };
 }
@@ -374,11 +380,16 @@ function makePdf(quote: Quote) {
           { width: "*", text: "Giá được tính từ bảng giá đã xác nhận tại thời điểm tạo báo giá.", color: "#74817f", fontSize: 8, margin: [0, 16, 0, 0] },
           { width: 210, table: { widths: ["*", 95], body: [
             ["Tạm tính", { text: formatMoney(quote.subtotal, quote.currency), alignment: "right" }],
+            ["Phí vận chuyển", { text: formatMoney(quote.shippingFee ?? 0, quote.currency), alignment: "right" }],
             [`Thuế (${(quote.taxRate * 100).toLocaleString("vi-VN")}%)`, { text: formatMoney(quote.taxAmount, quote.currency), alignment: "right" }],
             [{ text: "TỔNG CỘNG", bold: true }, { text: formatMoney(quote.total, quote.currency), bold: true, alignment: "right" }],
           ] }, layout: "noBorders", margin: [0, 12, 0, 0] },
         ],
       },
+      ...[
+        ...(quote.validityDays == null ? [] : [`Hiệu lực báo giá: ${quote.validityDays} ngày`]),
+        ...(quote.completionDate ? [`Hạn hoàn thành: ${new Date(`${quote.completionDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" })}`] : []),
+      ].map((text) => ({ text, margin: [0, 4, 0, 0] as [number, number, number, number] })),
       { text: `Ngày tạo: ${new Date(quote.createdAt).toLocaleDateString("vi-VN")}`, color: "#74817f", fontSize: 8, margin: [0, 36, 0, 0] },
     ],
     styles: {
@@ -1472,11 +1483,12 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
   const customerPhone = request.body?.customerPhone ?? source.customerPhone ?? "";
   if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail && !validEmail(customerEmail))) return fail(response, "Vui lòng xác nhận tên khách hàng và email hợp lệ (nếu có).");
-  const informationNeeded = cleanMissingInformation(source.missingFields, totals.lines.length > 0);
+  const quoteTerms = extractQuoteTerms(source.requestText);
+  const informationNeeded = cleanMissingInformation(source.missingFields, totals.lines.length > 0)
+    .filter((field) => !isResolvedQuoteTermWarning(field, quoteTerms));
   const taxRateConfirmed = !informationNeeded.some(isTaxInformation);
   const shippingFeeConfirmed = !informationNeeded.some(isShippingInformation);
   const shippingFee = shippingFeeConfirmed ? 0 : null;
-  const quoteTerms = extractQuoteTerms(source.requestText);
   const quote: Quote = {
     companyId: user.companyId,
     template: source.template,
@@ -1493,7 +1505,8 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
     shippingFee,
     shippingFeeConfirmed,
     ...quoteTerms,
-    total: totals.total + (shippingFeeConfirmed ? shippingFee ?? 0 : 0),
+    taxAmount: taxRateConfirmed ? totals.taxAmount : 0,
+    total: totals.subtotal + (taxRateConfirmed ? totals.taxAmount : 0) + (shippingFeeConfirmed ? shippingFee ?? 0 : 0),
     informationNeeded,
     informationConfirmed,
     status: informationNeeded.length > 0 || !taxRateConfirmed || !shippingFeeConfirmed ? "needs_info" : "draft",
@@ -1582,14 +1595,16 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   const validityDays = Object.prototype.hasOwnProperty.call(body, "validityDays") ? body.validityDays : quote.validityDays ?? null;
   if (validityDays !== null && (typeof validityDays !== "number" || !Number.isInteger(validityDays) || validityDays < 1 || validityDays > 3650)) return fail(response, "Thời hạn báo giá phải từ 1 đến 3.650 ngày.");
   const completionDate = Object.prototype.hasOwnProperty.call(body, "completionDate") ? body.completionDate : quote.completionDate ?? null;
-  if (completionDate !== null && (typeof completionDate !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(completionDate) || Number.isNaN(Date.parse(`${completionDate}T00:00:00Z`)))) return fail(response, "Hạn hoàn thành không hợp lệ.");
+  const parsedCompletionDate = typeof completionDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(completionDate) ? new Date(`${completionDate}T00:00:00Z`) : null;
+  if (completionDate !== null && (!parsedCompletionDate || Number.isNaN(parsedCompletionDate.getTime()) || parsedCompletionDate.toISOString().slice(0, 10) !== completionDate)) return fail(response, "Hạn hoàn thành không hợp lệ.");
   let totals;
   try {
     const recalculated = recalculateSnapshot(quote.lines, updates.map((item: Record<string, unknown>) => ({
       catalogItemId: String(item.catalogItemId), quantity: Number(item.quantity),
-    })), taxRate);
+    })), taxRateConfirmed ? taxRate : 0);
     totals = {
       ...recalculated,
+      taxRate,
       taxRateConfirmed,
       shippingFee,
       shippingFeeConfirmed,
@@ -1678,8 +1693,10 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
   if (!id) return fail(response, "Mã báo giá không hợp lệ.");
   const db = await connectDatabase();
   const quotes = db.collection<Quote>("quotes");
-  const quote = await quotes.findOne({ _id: id, companyId: userOf(request).companyId });
-  if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
+  const storedQuote = await quotes.findOne({ _id: id, companyId: userOf(request).companyId });
+  if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
+  const quote = quoteForResponse(storedQuote);
+  if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể xuất báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   const preview = request.query.preview === "1";
   if (quote.status !== "approved" && !(preview && quote.status === "pending_review")) return fail(response, "Chỉ có thể xuất file sau khi báo giá được duyệt.", 409);
   try {
@@ -1692,7 +1709,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     } else if (template) {
       const plan = await getOrCreateTemplateFillPlan(db, template, quote);
       renderQuote = { ...quote, templateFillPlan: plan };
-      const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v2d" : "v2"}_${quote.lines.length}`;
+      const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v3d" : "v3"}_${quote.lines.length}`;
       if (template.extension === "pdf" || quote.lines.length > 30 || !template.fillPlanCache?.[fillPlanKey]) {
         await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
       }
@@ -1714,9 +1731,11 @@ app.get("/api/quotes/:id/pdf", requireRole("user"), async (request, response) =>
   if (!id) return fail(response, "Mã báo giá không hợp lệ.");
   const db = await connectDatabase();
   const user = userOf(request);
-  const quote = await db.collection<Quote>("quotes").findOne({ _id: id, companyId: user.companyId });
-  if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
+  const storedQuote = await db.collection<Quote>("quotes").findOne({ _id: id, companyId: user.companyId });
+  if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
+  const quote = quoteForResponse(storedQuote);
   if (quote.status !== "approved") return fail(response, "Chỉ có thể xuất PDF sau khi báo giá được duyệt.", 409);
+  if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể xuất báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   if (quote.template) return response.redirect(307, `/api/quotes/${quote._id}/export`);
   const pdf = makePdf(quote);
   response.setHeader("Content-Type", "application/pdf");
@@ -1732,9 +1751,11 @@ app.post("/api/quotes/:id/email", requireRole("user"), async (request, response)
   const db = await connectDatabase();
   const user = userOf(request);
   const quotes = db.collection<Quote>("quotes");
-  const quote = await quotes.findOne({ _id: id, companyId: user.companyId });
-  if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
+  const storedQuote = await quotes.findOne({ _id: id, companyId: user.companyId });
+  if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
+  const quote = quoteForResponse(storedQuote);
   if (quote.status !== "approved") return fail(response, "Chỉ có thể gửi báo giá đã được duyệt.", 409);
+  if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể gửi báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   if (!validEmail(quote.customerEmail)) return fail(response, "Báo giá chưa có email khách hàng hợp lệ.", 422);
 
   const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) });
@@ -1752,7 +1773,7 @@ app.post("/api/quotes/:id/email", requireRole("user"), async (request, response)
     } else if (template) {
       const plan = await getOrCreateTemplateFillPlan(db, template, quote);
       renderQuote = { ...quote, templateFillPlan: plan };
-      const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v2d" : "v2"}_${quote.lines.length}`;
+      const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v3d" : "v3"}_${quote.lines.length}`;
       if (template.extension === "pdf" || quote.lines.length > 30 || !template.fillPlanCache?.[fillPlanKey]) {
         await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
       }

@@ -40,7 +40,7 @@ function quoteLineDetails(line: Quote["lines"][number]) {
   return [...description, ...catalogDetails, ...requestedDetails].join(" · ");
 }
 
-const xlsxScalarKeys = ["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt", "subtotal", "taxRate", "taxAmount", "total", "currency"] as const;
+const xlsxScalarKeys = ["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt", "subtotal", "shippingFee", "taxRate", "taxAmount", "total", "currency", "validityDays", "completionDate"] as const;
 const xlsxLineKeys = ["index", "sku", "name", "details", "quantity", "unit", "unitPrice", "lineTotal"] as const;
 const spreadsheetNamespace = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
 
@@ -74,7 +74,9 @@ function quoteValues(quote: Quote): Record<string, string> {
   const values: Record<string, string> = {
     quoteNumber: quote.quoteNumber, customerName: quote.customerName, customerEmail: quote.customerEmail, customerPhone: quote.customerPhone ?? "",
     createdAt: new Date(quote.createdAt).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
-    subtotal: quote.subtotal.toLocaleString("vi-VN"), taxRate: `${quote.taxRate * 100}%`, taxAmount: quote.taxAmount.toLocaleString("vi-VN"), total: quote.total.toLocaleString("vi-VN"), currency: quote.currency,
+    subtotal: quote.subtotal.toLocaleString("vi-VN"), shippingFee: (quote.shippingFee ?? 0).toLocaleString("vi-VN"), taxRate: `${quote.taxRate * 100}%`, taxAmount: quote.taxAmount.toLocaleString("vi-VN"), total: quote.total.toLocaleString("vi-VN"), currency: quote.currency,
+    validityDays: quote.validityDays == null ? "" : `${quote.validityDays} ngày`,
+    completionDate: quote.completionDate ? new Date(`${quote.completionDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }) : "",
   };
   quote.lines.forEach((line, index) => {
     values[`line_${index + 1}_index`] = String(index + 1);
@@ -153,7 +155,7 @@ export async function createTemplateFillPlan(template: QuoteTemplate, quote: Quo
 
 export async function getOrCreateTemplateFillPlan(db: Db, template: QuoteTemplate, quote: Quote): Promise<TemplateFillPlan> {
   const hasLineDetails = quote.lines.some((line) => Boolean(quoteLineDetails(line)));
-  const key = `${hasLineDetails ? "v2d" : "v2"}_${quote.lines.length}`;
+  const key = `${hasLineDetails ? "v3d" : "v3"}_${quote.lines.length}`;
   const cached = template.extension === "pdf" || quote.lines.length > 30 ? undefined : template.fillPlanCache?.[key];
   if (cached) {
     try {
@@ -167,7 +169,7 @@ export async function getOrCreateTemplateFillPlan(db: Db, template: QuoteTemplat
 
   const plan = await createTemplateFillPlan(template, quote);
   if (template.extension !== "pdf" && quote.lines.length <= 30 && template._id) {
-    const cache = Object.fromEntries(Object.entries(template.fillPlanCache ?? {}).filter(([entryKey]) => entryKey.startsWith("v2") && entryKey !== key));
+    const cache = Object.fromEntries(Object.entries(template.fillPlanCache ?? {}).filter(([entryKey]) => entryKey.startsWith("v3") && entryKey !== key));
     const planBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
     const otherEntries = Object.entries(cache);
     const cachedBytes = otherEntries.reduce((total, [, entry]) => total + Buffer.byteLength(JSON.stringify(entry), "utf8"), 0);
@@ -374,7 +376,7 @@ const xlsxMapSchema = {
   },
 };
 
-function xlsxPlanKey(quote: Quote) { return `v1_${quote.lines.length}_${quote.lines.map((line) => quoteLineDetails(line) ? "1" : "0").join("")}`; }
+function xlsxPlanKey(quote: Quote) { return `v2_${quote.lines.length}_${quote.lines.map((line) => quoteLineDetails(line) ? "1" : "0").join("")}`; }
 
 function normalizeSheetLabel(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLocaleLowerCase("vi").replace(/[^a-z0-9]+/g, " ").trim();
@@ -537,7 +539,7 @@ export function validateXlsxTemplateFillPlan(raw: unknown, template: QuoteTempla
   if (!Array.isArray(plan.cells) || !Array.isArray(plan.lineRows) || plan.lineRows.length !== quote.lines.length || plan.cells.length + plan.lineRows.reduce((sum, row) => sum + (Array.isArray(row?.fields) ? row.fields.length : 0), 0) > 2000) throw new Error("AI trả về ánh xạ Excel không hợp lệ.");
   const info = workbookInfo(template);
   const targets = new Set<string>();
-  const numericKeys = new Set(["subtotal", "taxRate", "taxAmount", "total", "index", "quantity", "unitPrice", "lineTotal"]);
+  const numericKeys = new Set(["subtotal", "shippingFee", "taxRate", "taxAmount", "total", "index", "quantity", "unitPrice", "lineTotal"]);
   const checkTarget = (sheetName: unknown, refValue: unknown, key: string, expectedRow?: number) => {
     const sheet = typeof sheetName === "string" ? info.sheets.get(sheetName) : undefined;
     const ref = typeof refValue === "string" ? refValue.replace(/\$/g, "").toUpperCase() : "";
@@ -577,7 +579,9 @@ function xlsxQuoteValues(quote: Quote): Record<string, string | number> {
   const values: Record<string, string | number> = {
     quoteNumber: quote.quoteNumber, customerName: quote.customerName, customerEmail: quote.customerEmail, customerPhone: quote.customerPhone ?? "",
     createdAt: new Date(quote.createdAt).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
-    subtotal: quote.subtotal, taxRate: quote.taxRate, taxAmount: quote.taxAmount, total: quote.total, currency: quote.currency,
+    subtotal: quote.subtotal, shippingFee: quote.shippingFee ?? 0, taxRate: quote.taxRate, taxAmount: quote.taxAmount, total: quote.total, currency: quote.currency,
+    validityDays: quote.validityDays ?? "",
+    completionDate: quote.completionDate ? new Date(`${quote.completionDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }) : "",
   };
   quote.lines.forEach((line, index) => {
     const lineValues: Record<string, string | number> = {
@@ -764,7 +768,7 @@ export async function renderTemplate(template: QuoteTemplate, quote: Quote) {
     if (xlsxPlan) return renderXlsxTemplate(template, quote, xlsxPlan);
   }
   const hasLineDetails = quote.lines.some((line) => Boolean(quoteLineDetails(line)));
-  const fillPlanKey = `${hasLineDetails ? "v2d" : "v2"}_${quote.lines.length}`;
+  const fillPlanKey = `${hasLineDetails ? "v3d" : "v3"}_${quote.lines.length}`;
   const fillPlan = quote.templateFillPlan ?? template.fillPlanCache?.[fillPlanKey] ?? template.fillPlanCache?.[String(quote.lines.length)];
   if (fillPlan) return renderAiTemplate(template, quote, fillPlan);
   if (!template.capacity) throw new Error("Báo giá chưa được AI điền theo mẫu. Vui lòng tạo lại báo giá.");
@@ -772,7 +776,9 @@ export async function renderTemplate(template: QuoteTemplate, quote: Quote) {
   const values: Record<string, string> = {
     quoteNumber: quote.quoteNumber, customerName: quote.customerName, customerEmail: quote.customerEmail, customerPhone: quote.customerPhone ?? "",
     createdAt: new Date(quote.createdAt).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
-    subtotal: quote.subtotal.toLocaleString("vi-VN"), taxRate: `${quote.taxRate * 100}%`, taxAmount: quote.taxAmount.toLocaleString("vi-VN"), total: quote.total.toLocaleString("vi-VN"), currency: quote.currency,
+    subtotal: quote.subtotal.toLocaleString("vi-VN"), shippingFee: (quote.shippingFee ?? 0).toLocaleString("vi-VN"), taxRate: `${quote.taxRate * 100}%`, taxAmount: quote.taxAmount.toLocaleString("vi-VN"), total: quote.total.toLocaleString("vi-VN"), currency: quote.currency,
+    validityDays: quote.validityDays == null ? "" : `${quote.validityDays} ngày`,
+    completionDate: quote.completionDate ? new Date(`${quote.completionDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }) : "",
   };
   for (let row = 1; row <= template.capacity; row++) {
     const line = quote.lines[row - 1];
