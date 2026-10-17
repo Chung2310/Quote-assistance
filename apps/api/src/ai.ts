@@ -84,17 +84,18 @@ function validateResult(raw: unknown, candidates: CatalogItem[]): AnalysisResult
   const items = value.items.flatMap((entry) => {
     if (!entry || typeof entry !== "object") throw new Error("Mặt hàng AI trả về không hợp lệ.");
     const item = entry as Record<string, unknown>;
+    const evidence = item.evidence;
     if (
       typeof item.catalogItemId !== "string" ||
       !candidateIds.has(item.catalogItemId) ||
       typeof item.quantity !== "number" || !Number.isFinite(item.quantity) || item.quantity <= 0 || item.quantity > 1_000_000 ||
-      typeof item.unit !== "string" || typeof item.evidence !== "string" ||
+      typeof item.unit !== "string" || typeof evidence !== "string" ||
       !item.attributes || typeof item.attributes !== "object" || Array.isArray(item.attributes)
     ) {
       throw new Error("AI tham chiếu mặt hàng ngoài danh sách hoặc trả về số lượng không hợp lệ.");
     }
     const catalogItem = candidates.find((candidate) => String(candidate._id) === item.catalogItemId)!;
-    const citedSku = candidates.find((candidate) => item.evidence.toLocaleLowerCase("vi").includes(candidate.sku.toLocaleLowerCase("vi")));
+    const citedSku = candidates.find((candidate) => evidence.toLocaleLowerCase("vi").includes(candidate.sku.toLocaleLowerCase("vi")));
     if (citedSku && String(citedSku._id) !== item.catalogItemId) {
       mismatchedCitations.push(`${citedSku.name} (${citedSku.sku}): cần xác nhận lại mã sản phẩm được ghép.`);
       return [];
@@ -109,7 +110,7 @@ function validateResult(raw: unknown, candidates: CatalogItem[]): AnalysisResult
       quantity: item.quantity,
       unit: catalogItem.unit,
       attributes,
-      evidence: item.evidence.slice(0, 500),
+      evidence: evidence.slice(0, 500),
     }];
   });
   const missingFields = [...value.missingFields.filter((field): field is string => typeof field === "string"), ...mismatchedCitations].slice(0, 30);
