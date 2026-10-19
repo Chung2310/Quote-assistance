@@ -3358,33 +3358,6 @@ h3 {
   color: #059669;
 }
 
-.profile-role-tags {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.profile-badge-role {
-  padding: 3px 9px;
-  border-radius: 6px;
-  background: #eaf8fa;
-  border: 1px solid #c7edf2;
-  color: #087d96;
-  font-size: 11.5px;
-  font-weight: 700;
-}
-
-.profile-badge-active {
-  padding: 3px 8px;
-  border-radius: 6px;
-  background: #ecfdf5;
-  border: 1px solid #a7f3d0;
-  color: #059669;
-  font-size: 11px;
-  font-weight: 700;
-}
-
 /* Thẻ Hạn Mức Gói Hiện Tại (Quota Card) */
 .profile-quota-card {
   padding: 22px 20px;
@@ -3517,8 +3490,7 @@ h3 {
 }
 
 /* Thẻ Bảng Giá Nâng Cấp (Billing Card) */
-.profile-billing-card,
-.profile-files-card {
+.profile-billing-card {
   padding: 24px;
   border: 1px solid #dcecef;
   border-radius: 16px;
@@ -3792,124 +3764,6 @@ h3 {
   animation: pulse-soft 1.2s infinite alternate ease-in-out;
 }
 
-/* Thẻ Tệp Doanh Nghiệp (Files Card) */
-.profile-upload-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 14px;
-  font-size: 12.5px;
-  font-weight: 700;
-  border-radius: 8px;
-  white-space: nowrap;
-}
-
-.profile-files-table {
-  display: grid;
-  gap: 8px;
-}
-
-.profile-file-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border: 1px solid #e6f0f2;
-  border-radius: 10px;
-  background: #fafcfd;
-  transition: all 0.15s ease;
-}
-
-.profile-file-item:hover {
-  background: #f3fbfc;
-  border-color: #d0e8ee;
-}
-
-.profile-file-badge {
-  width: 34px;
-  height: 34px;
-  display: grid;
-  place-items: center;
-  border-radius: 8px;
-  flex: none;
-}
-
-.profile-file-badge.is-excel {
-  background: #ecfdf5;
-  color: #059669;
-}
-
-.profile-file-badge.is-pdf {
-  background: #fef2f2;
-  color: #dc2626;
-}
-
-.profile-file-badge.is-img {
-  background: #f0f9ff;
-  color: #0284c7;
-}
-
-.profile-file-badge.is-file {
-  background: #f1f5f9;
-  color: #475569;
-}
-
-.profile-file-details {
-  flex: 1;
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.profile-file-details strong {
-  font-size: 13px;
-  color: #1e3f48;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile-file-details span {
-  font-size: 11px;
-  color: #7b949c;
-}
-
-.profile-preview-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 32px;
-  padding: 0 10px;
-  font-size: 12px;
-  border-radius: 7px;
-  flex: none;
-}
-
-.profile-files-empty {
-  display: grid;
-  justify-items: center;
-  text-align: center;
-  padding: 32px 20px;
-  color: #8da4ac;
-}
-
-.profile-files-empty svg {
-  margin-bottom: 8px;
-  opacity: 0.5;
-}
-
-.profile-files-empty p {
-  margin: 0 0 4px;
-  color: #3b5f69;
-  font-size: 13.5px;
-  font-weight: 700;
-}
-
-.profile-files-empty small {
-  color: #7b949c;
-  font-size: 11.5px;
-}
 
 /* Responsive Breakpoints */
 @media (max-width: 980px) {
@@ -3940,10 +3794,6 @@ h3 {
     align-items: flex-start;
   }
 
-  .profile-upload-btn {
-    width: 100%;
-    justify-content: center;
-  }
 }
 
 

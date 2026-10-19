@@ -25,7 +25,6 @@
 .settings-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:4px}
 .settings-actions>div{display:flex;align-items:center;gap:12px}
 .settings-delete{color:#a3655e}
-.company-files-card .inline-error{margin-top:15px}
 .stored-files-section{border-top:1px solid #edf0ed;margin-top:21px;padding-top:18px}
 .stored-files-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .stored-files-heading .settings-hint{margin-top:5px}

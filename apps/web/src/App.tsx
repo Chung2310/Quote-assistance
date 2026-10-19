@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, api, apiUploadWithProgress, formatDate, formatMoney, responseBlobWithProgress } from "./api";
 import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
@@ -30,7 +30,6 @@ function userRouteForPath(pathname: string): { section: Section; quoteId: string
   const quoteMatch = path.match(/^\/bao-gia\/([a-f0-9]{24})$/i);
   return quoteMatch ? { section: "quotes", quoteId: quoteMatch[1] } : null;
 }
-interface CompanyStoredFile { _id?: string; originalFilename: string; mimeType: string; bytes: number; createdAt: string }
 interface SubscriptionUsage {
   plan: SubscriptionPlanSummary;
   subscriptionExpiresAt: string | null;
@@ -2403,10 +2402,6 @@ function AccountProfile({
                   <span className="profile-email-text">{user.email}</span>
                   <CopyTextButton text={user.email} label="email" onToast={onToast} title="Sao chép email" />
                 </div>
-                <div className="profile-role-tags">
-                  <span className="profile-badge-role">{roleLabels[user.role]}</span>
-                  <span className="profile-badge-active">Đang kích hoạt</span>
-                </div>
               </div>
             </div>
           </section>
@@ -2485,7 +2480,7 @@ function AccountProfile({
           </section>
         </aside>
 
-        {/* CỘT PHẢI: NÂNG CẤP GÓI & TỆP DOANH NGHIỆP */}
+        {/* CỘT PHẢI: NÂNG CẤP GÓI */}
         <div className="profile-main-col">
           <SubscriptionBillingPanel
             currentPlanCode={plan?.code ?? "free"}
@@ -2495,7 +2490,6 @@ function AccountProfile({
             onPaid={onBillingPaid}
             onToast={onToast}
           />
-          <CompanyFiles onToast={onToast} confirm={confirm} />
         </div>
       </div>
     </div>
@@ -2863,135 +2857,6 @@ function SubscriptionBillingPanel({
   );
 }
 
-function CompanyFiles({ onToast, confirm }: { onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
-  const [files, setFiles] = useState<CompanyStoredFile[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState(false);
-  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
-  const setError = useCallback((message: string) => { if (message) onToast(message, "error"); }, [onToast]);
-  const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { files: storedFiles } = await api<{ files: CompanyStoredFile[] }>("/api/files");
-      setFiles(storedFiles);
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không tải được danh sách tệp.");
-    } finally {
-      setLoading(false);
-    }
-  }, [setError]);
-
-  useEffect(() => { void load(); }, [load]);
-
-  const upload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const input = event.currentTarget;
-    const file = input.files?.[0];
-    if (!file) return;
-    input.value = "";
-    if (file.size > 10 * 1024 * 1024) {
-      setError("Tệp không được vượt quá 10 MB.");
-      return;
-    }
-    if (!await confirm({ title: "Tải tệp lên?", message: `${file.name}\nDung lượng: ${(file.size / 1024 / 1024).toFixed(2)} MB`, confirmLabel: "Tải lên" })) return;
-    setUploading(true);
-    setError("");
-    setTaskProgress({ label: "Đang tải tệp lên", detail: file.name });
-    try {
-      await apiUploadWithProgress<{ file: CompanyStoredFile }>("/api/files", file, {
-        "Content-Type": "application/octet-stream",
-        "X-File-Name": encodeURIComponent(file.name),
-        "X-File-Type": file.type || "application/octet-stream",
-      }, (progress) => setTaskProgress(progress >= 100
-        ? { label: "Đang lưu tệp", detail: "Đang xử lý file trên máy chủ…" }
-        : { label: "Đang tải tệp lên", progress, detail: file.name }));
-      setTaskProgress({ label: "Đang cập nhật danh sách tệp", detail: "Đang hoàn tất…" });
-      await load();
-      onToast("Tệp đã được lưu.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không tải được tệp lên.");
-    } finally {
-      setUploading(false);
-      setTaskProgress(null);
-    }
-  };
-
-  const getFileIconColor = (filename: string) => {
-    const ext = filename.split(".").pop()?.toLowerCase() ?? "";
-    if (ext === "xlsx" || ext === "xls" || ext === "csv") return "is-excel";
-    if (ext === "pdf") return "is-pdf";
-    if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) return "is-img";
-    return "is-file";
-  };
-
-  if (loading) return <section className="content-card profile-files-card"><Loading /></section>;
-
-  return (
-    <section className="content-card profile-files-card">
-      <div className="profile-section-header">
-        <div>
-          <h2>Tệp và tài liệu doanh nghiệp</h2>
-        </div>
-        <button
-          className="button button-primary profile-upload-btn"
-          type="button"
-          disabled={uploading}
-          onClick={() => fileInput.current?.click()}
-        >
-          <Icon name="plus" size={16} />
-          <span>{uploading ? "Đang tải lên…" : "Tải tệp mới"}</span>
-        </button>
-        <input
-          ref={fileInput}
-          type="file"
-          hidden
-          accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.csv,.xlsx,.xls"
-          onChange={(event) => void upload(event)}
-        />
-      </div>
-
-      {taskProgress && <TaskProgress {...taskProgress} />}
-
-      <div className="profile-files-container">
-        {files.length ? (
-          <div className="profile-files-table">
-            {files.map((file) => (
-              <div className="profile-file-item" key={file._id ?? `${file.originalFilename}-${file.createdAt}`}>
-                <span className={`profile-file-badge ${getFileIconColor(file.originalFilename)}`}>
-                  <Icon name="file" size={17} />
-                </span>
-                <div className="profile-file-details">
-                  <strong title={file.originalFilename}>{file.originalFilename}</strong>
-                  <span>Tải lên ngày {formatDate(file.createdAt)} · {(file.bytes / 1024).toFixed(0)} KB</span>
-                </div>
-                <button
-                  type="button"
-                  className="button button-soft profile-preview-btn"
-                  disabled={!file._id}
-                  onClick={() => setPreviewFile({ name: file.originalFilename, url: `/api/files/${file._id}/preview` })}
-                >
-                  <Icon name="eye" size={14} />
-                  <span>Xem</span>
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="profile-files-empty">
-            <Icon name="file" size={32} />
-            <p>Chưa có tệp tài liệu nào được tải lên.</p>
-            <small>Các tệp tải lên tại đây có thể đính kèm vào báo giá gửi khách hàng.</small>
-          </div>
-        )}
-      </div>
-
-      <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
-    </section>
-  );
-}
 function getCustomerInitials(name: string): string {
   if (!name || !name.trim()) return "KH";
   const parts = name.trim().split(/\s+/);
