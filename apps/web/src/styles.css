@@ -10,11 +10,11 @@
 
 .brand-logo-image{display:block;flex:none;width:53px;height:24px;object-fit:cover;object-position:center}.brand-logo-image-splash{width:72px;height:35px}
 
-/* Use the system UI font across every app route. */
+/* Keep the application font without overriding the landing page typography. */
 html,
 body,
 #root,
-#root * {
+#root *:not(.landing-page, .landing-page *) {
   font-family: system-ui, sans-serif !important;
 }
 

@@ -233,7 +233,7 @@ function UserApp() {
     setCreatingQuote(true);
   };
   const signOut = async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => undefined); setUser(null); setSection("home"); window.location.replace("/"); };
-  if (checkingSession) return <div className="splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /><span>Đang mở không gian làm việc…</span></div>;
+  if (checkingSession) return <div className="splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /><span>Đang mở không gian làm việc…</span></div>;
   if (!user) return <NotificationProvider notify={notify}><><Login onLogin={handleLogin} onNotify={notify} />{notification && <NotificationToast notification={notification} onDismiss={dismiss} />}{confirmationDialog}</></NotificationProvider>;
   const openQuote = (id: string) => setQuoteId(id);
   const removeQuote = async (quote: Quote) => {
@@ -259,7 +259,7 @@ function UserApp() {
 
   return <NotificationProvider notify={notify}><div className="app-shell">
     <aside className="sidebar">
-      <div className="brand-lockup"><img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /></div>
+      <div className="brand-lockup"><img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /></div>
       <nav className="side-nav">
         <NavButton icon="home" label="Tổng quan" active={!quoteId && section === "home"} onClick={() => { setQuoteId(null); setSection("home"); }} />
         <NavButton icon="quote" label="Báo giá" active={!quoteId && section === "quotes"} onClick={() => { setQuoteId(null); setSection("quotes"); }} />
@@ -357,7 +357,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
       <div className="login-art">
         <div className="art-content">
           <div className="art-brand-header">
-            <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
+            <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" />
           </div>
 
           <div className="art-hero">
@@ -373,7 +373,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
       <div className={`login-panel ${mode === "register" ? "register-mode" : ""}`}>
         <div className="login-form-card">
           <div className="mobile-brand">
-            <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
+            <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" />
           </div>
 
           <div className="login-header">
@@ -471,7 +471,7 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, quoteUsageLabel, c
         <div className="dashboard-banner-copy">
           <h1>Báo giá nhanh, rõ ràng</h1>
           <div className="dashboard-banner-actions">
-            <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>
+            <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={14} />Tạo báo giá</button>
             {quoteUsageLabel && <p className="dashboard-banner-quota"><span aria-hidden="true" />{quoteUsageLabel}</p>}
           </div>
           {!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}
@@ -506,7 +506,20 @@ function QuoteWorkspace({ onOpen, onCreate, canCreate, quoteUsageLabel, createBl
   const notify = useAppNotification();
   useEffect(() => { setLoading(true); setLoadFailed(false); api<{ quotes: Quote[] }>("/api/quotes").then((result) => setQuotes(result.quotes)).catch((cause) => { setLoadFailed(true); notify(cause instanceof Error ? cause.message : "Không thể tải danh sách báo giá.", "error"); }).finally(() => setLoading(false)); }, [reloadKey, notify]);
   const filtered = filter === "all" ? quotes : quotes.filter((quote) => quote.status === filter);
-  return <div className="page-stack"><section className="page-heading-row"><div><h1>Báo giá</h1>{quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}{!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}</div><div className="page-heading-actions">{loadFailed && <button type="button" className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button>}<button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá mới</button></div></section><section className="content-card list-card"><div className="list-toolbar"><div className="filter-tabs">{[["all", "Tất cả"], ["draft", "Bản nháp"], ["pending_review", "Chờ duyệt"], ["approved", "Đã duyệt"], ["needs_info", "Cần bổ sung"], ["rejected", "Cần chỉnh sửa"]].map(([value, label]) => <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div><span className="row-count">{filtered.length} báo giá</span></div>{loading ? <Loading /> : <QuoteCards quotes={filtered} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Không có báo giá trong mục này" emptyText="" />}</section></div>;
+  return <div className="page-stack">
+    <section className="page-heading-row quote-workspace-heading">
+      <div>
+        <h1>Báo giá</h1>
+        {!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}
+      </div>
+      <div className="page-heading-actions quote-workspace-actions">
+        {loadFailed && <button type="button" className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button>}
+        {quoteUsageLabel && <p className="quota-usage-count"><span aria-hidden="true" />{quoteUsageLabel}</p>}
+        <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={14} />Tạo báo giá mới</button>
+      </div>
+    </section>
+    <section className="content-card list-card"><div className="list-toolbar"><div className="filter-tabs">{[["all", "Tất cả"], ["draft", "Bản nháp"], ["pending_review", "Chờ duyệt"], ["approved", "Đã duyệt"], ["needs_info", "Cần bổ sung"], ["rejected", "Cần chỉnh sửa"]].map(([value, label]) => <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div><span className="row-count">{filtered.length} báo giá</span></div>{loading ? <Loading /> : <QuoteCards quotes={filtered} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Không có báo giá trong mục này" emptyText="" />}</section>
+  </div>;
 }
 
 interface QuoteOptions { templates: TemplateDetails[]; defaultTemplateId: string | null; productsAvailable: boolean }
@@ -1818,7 +1831,7 @@ function AccountProfile({ user, onToast, onSignOut, confirm, subscriptionExpires
         </div>
       </section>
       <section className="content-card profile-plan-card">
-        <div className="profile-plan-main"><span className="profile-plan-icon"><Icon name="check" size={19} /></span><div><span className="profile-plan-eyebrow">Gói đang sử dụng</span><h2>{plan?.name ?? "Dùng thử"}</h2><p>{plan?.description ?? "Gói miễn phí mặc định của iGen Baogia."}</p></div></div>
+        <div className="profile-plan-main"><span className="profile-plan-icon"><Icon name="check" size={19} /></span><div><span className="profile-plan-eyebrow">Gói đang sử dụng</span><h2>{plan?.name ?? "Dùng thử"}</h2><p>{plan?.description ?? "Gói miễn phí mặc định của iGen Trợ lí báo giá."}</p></div></div>
         <div className="profile-plan-details"><span><small>Giá gói</small><strong>{plan?.monthlyPrice === null ? "Theo nhu cầu" : plan?.monthlyPrice ? `${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ / tháng` : "Miễn phí"}</strong></span><span><small>Báo giá</small><strong>{plan?.quoteLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt / tháng`}</strong></span><span><small>Mẫu báo giá</small><strong>{plan?.templateLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.templateLimit)} mẫu`}</strong></span></div>
       </section>
       <CompanyFiles onToast={onToast} confirm={confirm} />

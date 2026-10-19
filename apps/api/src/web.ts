@@ -16,28 +16,28 @@ const legacyRoutes: Record<string, string> = {
 
 const pageMetadata: Record<string, { title: string; description: string; robots: string }> = {
   "/": {
-    title: "Giáo — Tạo báo giá chuyên nghiệp bằng AI",
-    description: "Tạo báo giá nhanh từ yêu cầu khách hàng và bảng giá doanh nghiệp. Quản lý mẫu, duyệt trước khi gửi và xuất Excel, PDF với Giáo.",
+    title: "iGen Trợ lí báo giá — Tạo báo giá chuyên nghiệp bằng AI",
+    description: "Tạo báo giá nhanh từ yêu cầu khách hàng và bảng giá doanh nghiệp. Quản lý mẫu, duyệt trước khi gửi và xuất Excel, PDF với iGen Trợ lí báo giá.",
     robots: "index,follow",
   },
   "/dang-nhap": {
-    title: "Đăng nhập — Giáo",
+    title: "Đăng nhập — iGen Trợ lí báo giá",
     description: "Đăng nhập vào không gian tạo và quản lý báo giá của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
   "/dang-ky": {
-    title: "Đăng ký doanh nghiệp — Giáo",
+    title: "Đăng ký doanh nghiệp — iGen Trợ lí báo giá",
     description: "Tạo tài khoản doanh nghiệp để quản lý bảng giá, mẫu và quy trình báo giá.",
     robots: "noindex,nofollow",
   },
   "/ung-dung": {
-    title: "Không gian báo giá — Giáo",
+    title: "Không gian báo giá — iGen Trợ lí báo giá",
     description: "Không gian làm việc báo giá của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
   "/quan-tri": {
-    title: "Quản trị — Giáo",
-    description: "Khu vực quản trị hệ thống Giáo.",
+    title: "Quản trị — iGen Trợ lí báo giá",
+    description: "Khu vực quản trị hệ thống iGen Trợ lí báo giá.",
     robots: "noindex,nofollow",
   },
 };
@@ -86,7 +86,7 @@ function redirectOldOrTrailingPath(request: import("express").Request, response:
 function renderPageMetadata(html: string, request: import("express").Request) {
   const pathname = pagePath(request);
   const page = pageMetadata[pathname] ?? {
-    title: "Không tìm thấy trang — Giáo",
+    title: "Không tìm thấy trang — iGen Trợ lí báo giá",
     description: "Không tìm thấy trang bạn đang tìm.",
     robots: "noindex,follow",
   };
@@ -109,7 +109,7 @@ function renderPageMetadata(html: string, request: import("express").Request) {
     const structuredData = {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
-      name: "Giáo",
+      name: "iGen Trợ lí báo giá",
       description: page.description,
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
