@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { api, formatDate } from "./api";
 import { NotificationProvider, NotificationToast, TaskProgress, useAppNotification, useConfirmation, useNotification, type ConfirmOptions, type Notify, type TaskProgressState } from "./Feedback";
 import type { User } from "./types";
@@ -35,6 +36,153 @@ function AdminIcon({ name, size = 18 }: { name: string; size?: number }) {
     bank: <><path d="M3 10h18M5 10v9m5-9v9m4-9v9m5-9v9M3 21h18M12 3 2 8v2h20V8L12 3Z" /></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.users}</svg>;
+}
+
+type AdminSelectOption = { value: string; label: string };
+type AdminSelectProps = {
+  value: string;
+  options: AdminSelectOption[];
+  onChange: (value: string) => void;
+  ariaLabel?: string;
+  variant?: "field" | "filter";
+};
+
+function AdminSelect({ value, options, onChange, ariaLabel, variant = "field" }: AdminSelectProps) {
+  const selectId = `admin-select-${useId()}`;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, width: 0, maxHeight: 280 });
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selectedOption = options[selectedIndex];
+  const activeOption = options[activeIndex];
+
+  const updateMenuPosition = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const maxHeight = Math.min(280, window.innerHeight - 24);
+    const estimatedHeight = Math.min(maxHeight, options.length * 42 + 10);
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const opensUp = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
+    const availableHeight = opensUp ? spaceAbove : spaceBelow;
+    const visibleHeight = Math.max(80, Math.min(estimatedHeight, availableHeight));
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8));
+    setMenuPosition({
+      top: opensUp ? Math.max(8, rect.top - visibleHeight - 8) : Math.min(rect.bottom + 8, window.innerHeight - visibleHeight - 8),
+      left,
+      width: rect.width,
+      maxHeight: visibleHeight,
+    });
+  };
+
+  const openMenu = (nextIndex = selectedIndex) => {
+    if (!options.length) return;
+    setActiveIndex(Math.max(0, Math.min(nextIndex, options.length - 1)));
+    updateMenuPosition();
+    setIsOpen(true);
+  };
+
+  const chooseOption = (option: AdminSelectOption) => {
+    onChange(option.value);
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setIsOpen(false);
+    };
+    const reposition = () => updateMenuPosition();
+    document.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [isOpen, options.length]);
+
+  useEffect(() => {
+    if (isOpen && activeOption) document.getElementById(`${selectId}-option-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [isOpen, activeIndex, activeOption, selectId]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!isOpen && ["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      openMenu(event.key === "ArrowDown" ? selectedIndex + 1 : event.key === "ArrowUp" ? selectedIndex - 1 : selectedIndex);
+      return;
+    }
+    if (!isOpen) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((index) => (index + delta + options.length) % options.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setActiveIndex(event.key === "Home" ? 0 : options.length - 1);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (activeOption) chooseOption(activeOption);
+    } else if (event.key === "Escape" || event.key === "Tab") {
+      setIsOpen(false);
+    }
+  };
+
+  return <div className={`admin-select admin-select-${variant}`} ref={rootRef} onBlur={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsOpen(false);
+  }}>
+    <button
+      ref={triggerRef}
+      id={`${selectId}-trigger`}
+      type="button"
+      className={`admin-select-trigger ${isOpen ? "is-open" : ""}`}
+      role="combobox"
+      aria-haspopup="listbox"
+      aria-expanded={isOpen}
+      aria-controls={`${selectId}-listbox`}
+      aria-activedescendant={isOpen && activeOption ? `${selectId}-option-${activeIndex}` : undefined}
+      aria-label={ariaLabel}
+      onClick={() => isOpen ? setIsOpen(false) : openMenu()}
+      onKeyDown={handleKeyDown}
+    >
+      <span className="admin-select-value">{selectedOption?.label ?? ""}</span>
+      <svg className="admin-select-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+    </button>
+    {isOpen && createPortal(<div
+      ref={menuRef}
+      id={`${selectId}-listbox`}
+      className="admin-select-menu"
+      role="listbox"
+      aria-label={ariaLabel}
+      style={{ top: menuPosition.top, left: menuPosition.left, width: menuPosition.width, maxHeight: menuPosition.maxHeight }}
+    >
+      {options.map((option, index) => {
+        const isSelected = option.value === value;
+        const isActive = index === activeIndex;
+        return <div
+          key={option.value}
+          id={`${selectId}-option-${index}`}
+          className={`admin-select-option ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`}
+          role="option"
+          aria-selected={isSelected}
+          aria-posinset={index + 1}
+          aria-setsize={options.length}
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => chooseOption(option)}
+        >
+          <span>{option.label}</span>
+          <span className="admin-select-check" aria-hidden="true">{isSelected ? "✓" : ""}</span>
+        </div>;
+      })}
+    </div>, document.body)}
+  </div>;
 }
 
 export default function AdminApp() {
@@ -156,9 +304,13 @@ export default function AdminApp() {
               <div><h2>Danh sách doanh nghiệp</h2><span>{users.length} doanh nghiệp</span></div>
               <div className="admin-filters">
                 <label className="admin-search"><AdminIcon name="search" size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, mã số thuế hoặc email" aria-label="Tìm doanh nghiệp" /></label>
-                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "inactive")} aria-label="Lọc theo trạng thái">
-                  <option value="all">Tất cả trạng thái</option><option value="active">Đang hoạt động</option><option value="inactive">Đã khóa</option>
-                </select>
+                <AdminSelect
+                  variant="filter"
+                  value={statusFilter}
+                  onChange={(value) => setStatusFilter(value as "all" | "active" | "inactive")}
+                  ariaLabel="Lọc theo trạng thái"
+                  options={[{ value: "all", label: "Tất cả trạng thái" }, { value: "active", label: "Đang hoạt động" }, { value: "inactive", label: "Đã khóa" }]}
+                />
               </div>
             </div>
             {loadError && <div className="admin-inline-error" role="alert">{loadError}<button onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div>}
@@ -275,7 +427,7 @@ function PlanContactRequestDialog({ request, onClose, onSaved }: { request: Plan
       <div className="admin-contact-details"><div><small>Người liên hệ</small><strong>{request.name}</strong></div><div><small>Email</small><a href={`mailto:${request.email}`}>{request.email}</a></div><div><small>Số điện thoại</small>{request.phone ? <a href={`tel:${request.phone}`}>{request.phone}</a> : <span>Chưa cung cấp</span>}</div></div>
       <section className="admin-contact-message-full"><span>Nhu cầu của khách hàng</span><p>{request.message}</p></section>
       <form className="admin-account-form" onSubmit={(event) => void submit(event)}>
-        <label>Trạng thái xử lý<select value={status} onChange={(event) => setStatus(event.target.value as ContactStatus)}><option value="new">Mới</option><option value="contacted">Đã liên hệ</option><option value="closed">Đã đóng</option></select></label>
+        <label>Trạng thái xử lý<AdminSelect value={status} onChange={(value) => setStatus(value as ContactStatus)} options={[{ value: "new", label: "Mới" }, { value: "contacted", label: "Đã liên hệ" }, { value: "closed", label: "Đã đóng" }]} /></label>
         <label>Ghi chú nội bộ<textarea rows={4} maxLength={2000} value={adminNote} onChange={(event) => setAdminNote(event.target.value)} placeholder="Ghi lại nội dung trao đổi hoặc việc cần làm tiếp theo…" /></label>
         <div className="admin-modal-actions"><button type="button" className="admin-button admin-button-secondary" onClick={onClose}>Đóng</button><button className="admin-button admin-button-primary" disabled={busy}>{busy && <span className="admin-spinner admin-spinner-light" />}{busy ? "Đang lưu…" : "Lưu xử lý"}</button></div>
       </form>
@@ -436,8 +588,8 @@ function AccountDialog({ user, plans, onClose, onSaved, confirm }: { user: Manag
           <label>Họ và tên người dùng<input autoComplete="name" maxLength={200} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Nguyễn Văn An" required /></label>
           <label>Email đăng nhập<input type="email" autoComplete="username" maxLength={250} value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} placeholder="admin@congty.vn" required /></label>
         </>}
-        <label>{user ? "Gói dịch vụ" : "Gói cấp cho tài khoản"}<select value={draft.planCode} onChange={(event) => setDraft({ ...draft, planCode: event.target.value })}>{plans.filter((plan) => plan.active || plan.code === draft.planCode).map((plan) => <option value={plan.code} key={plan.code}>{plan.name}{plan.monthlyPrice === null ? " · Theo nhu cầu" : ` · ${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ/tháng`}</option>)}</select><small>{user ? "Thay đổi gói áp dụng ngay cho doanh nghiệp này." : "Gói được cấp ngay khi tạo tài khoản test; mặc định là Dùng thử miễn phí."}</small>{selectedPlan && <small className="admin-account-plan-summary">Hạn mức: {quoteLimitSummary} · Mẫu báo giá: {templateLimitSummary}</small>}</label>
-        {user ? <label>Trạng thái<select value={draft.active ? "active" : "inactive"} onChange={(event) => setDraft({ ...draft, active: event.target.value === "active" })}><option value="active">Đang hoạt động</option><option value="inactive">Đã khóa</option></select><small>Khóa sẽ chặn tài khoản đăng nhập vào doanh nghiệp.</small></label> : <label>Mật khẩu ban đầu<input type="password" autoComplete="new-password" minLength={7} maxLength={200} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Ít nhất 7 ký tự" required /><small>Mật khẩu cần có từ 7 đến 200 ký tự.</small></label>}
+        <label>{user ? "Gói dịch vụ" : "Gói cấp cho tài khoản"}<AdminSelect value={draft.planCode} onChange={(value) => setDraft({ ...draft, planCode: value })} options={plans.filter((plan) => plan.active || plan.code === draft.planCode).map((plan) => ({ value: plan.code, label: `${plan.name}${plan.monthlyPrice === null ? " · Theo nhu cầu" : ` · ${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ/tháng`}` }))} /><small>{user ? "Thay đổi gói áp dụng ngay cho doanh nghiệp này." : "Gói được cấp ngay khi tạo tài khoản test; mặc định là Dùng thử miễn phí."}</small>{selectedPlan && <small className="admin-account-plan-summary">Hạn mức: {quoteLimitSummary} · Mẫu báo giá: {templateLimitSummary}</small>}</label>
+        {user ? <label>Trạng thái<AdminSelect value={draft.active ? "active" : "inactive"} onChange={(value) => setDraft({ ...draft, active: value === "active" })} options={[{ value: "active", label: "Đang hoạt động" }, { value: "inactive", label: "Đã khóa" }]} /><small>Khóa sẽ chặn tài khoản đăng nhập vào doanh nghiệp.</small></label> : <label>Mật khẩu ban đầu<input type="password" autoComplete="new-password" minLength={7} maxLength={200} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Ít nhất 7 ký tự" required /><small>Mật khẩu cần có từ 7 đến 200 ký tự.</small></label>}
         <div className="admin-modal-actions"><button type="button" className="admin-button admin-button-secondary" onClick={onClose}>Hủy</button><button className="admin-button admin-button-primary" disabled={busy}>{busy && <span className="admin-spinner admin-spinner-light" />}{busy ? "Đang lưu…" : user ? "Lưu doanh nghiệp" : "Tạo doanh nghiệp và tài khoản"}</button></div>
       </form>
     </section>
