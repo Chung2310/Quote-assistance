@@ -1207,79 +1207,14 @@
   #root .admin-shell .admin-select-filter { width: 100%; flex-basis: auto; }
 }
 
-#root .admin-shell .admin-number-field {
-  position: relative;
-  width: 100%;
-  min-width: 0;
-}
-
-#root .admin-shell .admin-number-field input[type="number"] {
-  width: 100%;
-  padding-right: 44px !important;
+#root .admin-shell input[type="number"] {
   appearance: textfield !important;
   -moz-appearance: textfield !important;
 }
 
-#root .admin-shell .admin-number-field input[type="number"]::-webkit-inner-spin-button,
-#root .admin-shell .admin-number-field input[type="number"]::-webkit-outer-spin-button {
+#root .admin-shell input[type="number"]::-webkit-inner-spin-button,
+#root .admin-shell input[type="number"]::-webkit-outer-spin-button {
   margin: 0;
   appearance: none !important;
   -webkit-appearance: none !important;
-}
-
-#root .admin-shell .admin-number-steppers {
-  position: absolute;
-  top: 50%;
-  right: 7px;
-  display: grid;
-  gap: 2px;
-  transform: translateY(-50%);
-}
-
-#root .admin-shell .admin-number-step {
-  display: grid;
-  width: 25px;
-  height: 16px;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 5px;
-  color: #008dcf;
-  background: #e7f7ff;
-  cursor: pointer;
-  transition: color 120ms ease, background-color 120ms ease, transform 120ms ease;
-}
-
-#root .admin-shell .admin-number-step:hover:not(:disabled) {
-  color: #fff;
-  background: #00adfc;
-}
-
-#root .admin-shell .admin-number-step:active:not(:disabled) {
-  transform: scale(.92);
-}
-
-#root .admin-shell .admin-number-step:focus-visible {
-  outline: 2px solid #00adfc;
-  outline-offset: 1px;
-}
-
-#root .admin-shell .admin-number-step:disabled {
-  color: #b7cbd2;
-  background: #f1f6f8;
-  cursor: not-allowed;
-}
-
-#root .admin-shell .admin-number-step svg {
-  width: 13px;
-  height: 13px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.8;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-#root .admin-shell .admin-number-field.is-disabled .admin-number-steppers {
-  opacity: .6;
 }

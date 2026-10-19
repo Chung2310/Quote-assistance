@@ -188,53 +188,6 @@ function AdminSelect({ value, options, onChange, ariaLabel, variant = "field" }:
   </div>;
 }
 
-type AdminNumberInputProps = {
-  value: string;
-  onChange: (value: string) => void;
-  label: string;
-  min?: number;
-  max?: number;
-  step?: number;
-  placeholder?: string;
-  disabled?: boolean;
-  required?: boolean;
-};
-
-function AdminNumberInput({ value, onChange, label, min, max, step = 1, placeholder, disabled = false, required = false }: AdminNumberInputProps) {
-  const current = value.trim() === "" ? null : Number(value);
-  const atMinimum = min !== undefined && current !== null && current <= min;
-  const atMaximum = max !== undefined && current !== null && current >= max;
-  const changeBy = (direction: -1 | 1) => {
-    const base = current !== null && Number.isFinite(current) ? current : min ?? 0;
-    let next = base + direction * step;
-    if (min !== undefined) next = Math.max(min, next);
-    if (max !== undefined) next = Math.min(max, next);
-    onChange(String(next));
-  };
-
-  return <div className={`admin-number-field ${disabled ? "is-disabled" : ""}`}>
-    <input
-      type="number"
-      min={min}
-      max={max}
-      step={step}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      placeholder={placeholder}
-      disabled={disabled}
-      required={required}
-    />
-    <span className="admin-number-steppers">
-      <button type="button" className="admin-number-step" aria-label={`Tăng ${label}`} title={`Tăng ${label}`} disabled={disabled || atMaximum} onMouseDown={(event) => event.preventDefault()} onClick={() => changeBy(1)}>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 10 4-4 4 4" /></svg>
-      </button>
-      <button type="button" className="admin-number-step" aria-label={`Giảm ${label}`} title={`Giảm ${label}`} disabled={disabled || atMinimum} onMouseDown={(event) => event.preventDefault()} onClick={() => changeBy(-1)}>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" /></svg>
-      </button>
-    </span>
-  </div>;
-}
-
 export default function AdminApp() {
   const [sessionState, setSessionState] = useState<SessionState>("checking");
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -685,7 +638,7 @@ function AdminEmail({ onToast, confirm }: { onToast: Notify; confirm: (options: 
         <form className="admin-account-form admin-mail-form" onSubmit={(event) => void save(event)}>
           <label>Máy chủ SMTP<input value={form.host} onChange={(event) => setForm((current) => ({ ...current, host: event.target.value }))} placeholder="smtp.congty.vn" required /></label>
           <div className="admin-mail-row">
-            <label>Cổng<AdminNumberInput label="cổng" min={1} max={65535} value={form.port} onChange={(value) => setForm((current) => ({ ...current, port: value }))} required /></label>
+            <label>Cổng<input type="number" min="1" max="65535" value={form.port} onChange={(event) => setForm((current) => ({ ...current, port: event.target.value }))} required /></label>
             <label>Bảo mật<AdminSelect value={form.secure ? "tls" : "starttls"} onChange={(value) => setForm((current) => ({ ...current, secure: value === "tls" }))} options={[{ value: "starttls", label: "STARTTLS · cổng 587" }, { value: "tls", label: "TLS · cổng 465" }]} /></label>
           </div>
           <label>Tên đăng nhập SMTP<input value={form.user} onChange={(event) => setForm((current) => ({ ...current, user: event.target.value }))} autoComplete="username" /></label>
@@ -833,10 +786,10 @@ function PlanDialog({ plan, onClose, onSaved, confirm }: { plan: ServicePlan | n
         <label>Tên gói<input maxLength={80} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Ví dụ: Pro" required /></label>
         <label>Mô tả<input maxLength={300} value={draft.description} onChange={(event) => setDraft({ ...draft, description: event.target.value })} placeholder="Gói phù hợp với doanh nghiệp…" /></label>
         <div className="admin-plan-input-grid">
-          <label>Giá tháng (đ)<AdminNumberInput label="giá tháng" min={0} step={1000} value={isFreePlan ? "0" : draft.monthlyPrice} onChange={(value) => setDraft({ ...draft, monthlyPrice: value })} placeholder="Để trống = báo giá riêng" disabled={isFreePlan || isContactPlan} /><small>Để trống nếu giá theo thỏa thuận.</small></label>
-          <label>Lượt báo giá / tháng<AdminNumberInput label="lượt báo giá mỗi tháng" min={1} value={draft.quoteLimit} onChange={(value) => setDraft({ ...draft, quoteLimit: value })} placeholder="Để trống = theo nhu cầu" /><small>Để trống nếu không đặt hạn mức cố định.</small></label>
-          <label>Số mẫu báo giá<AdminNumberInput label="số mẫu báo giá" min={1} value={draft.templateLimit} onChange={(value) => setDraft({ ...draft, templateLimit: value })} placeholder="Để trống = theo nhu cầu" /><small>Số mẫu đang sử dụng của doanh nghiệp.</small></label>
-          <label>Thứ tự hiển thị<AdminNumberInput label="thứ tự hiển thị" min={0} value={draft.displayOrder} onChange={(value) => setDraft({ ...draft, displayOrder: value })} /></label>
+          <label>Giá tháng (đ)<input type="number" min="0" step="1000" value={isFreePlan ? "0" : draft.monthlyPrice} onChange={(event) => setDraft({ ...draft, monthlyPrice: event.target.value })} placeholder="Để trống = báo giá riêng" disabled={isFreePlan || isContactPlan} /><small>Để trống nếu giá theo thỏa thuận.</small></label>
+          <label>Lượt báo giá / tháng<input type="number" min="1" step="1" value={draft.quoteLimit} onChange={(event) => setDraft({ ...draft, quoteLimit: event.target.value })} placeholder="Để trống = theo nhu cầu" /><small>Để trống nếu không đặt hạn mức cố định.</small></label>
+          <label>Số mẫu báo giá<input type="number" min="1" step="1" value={draft.templateLimit} onChange={(event) => setDraft({ ...draft, templateLimit: event.target.value })} placeholder="Để trống = theo nhu cầu" /><small>Số mẫu đang sử dụng của doanh nghiệp.</small></label>
+          <label>Thứ tự hiển thị<input type="number" min="0" step="1" value={draft.displayOrder} onChange={(event) => setDraft({ ...draft, displayOrder: event.target.value })} /></label>
         </div>
         <div className="admin-plan-options"><label className="admin-plan-checkbox"><input type="checkbox" checked={draft.active} disabled={isFreePlan || isContactPlan} onChange={(event) => setDraft({ ...draft, active: event.target.checked })} /><span>Hiển thị và cho phép gán gói</span></label><label className="admin-plan-checkbox"><input type="checkbox" checked={draft.featured} onChange={(event) => setDraft({ ...draft, featured: event.target.checked })} /><span>Đánh dấu gói nổi bật trên landing page</span></label></div>
         {isFreePlan && <p className="admin-account-note"><AdminIcon name="shield" size={16} /> Gói Dùng thử luôn được miễn phí và không thể ẩn.</p>}
