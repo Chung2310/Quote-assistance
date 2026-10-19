@@ -49,7 +49,8 @@ const mongoUri = required("MONGODB_URI", "mongodb://localhost:27017/bao_gia_pilo
 const mongoUser = process.env.MONGODB_USER ?? "";
 const mongoPassword = process.env.MONGODB_PASSWORD ?? "";
 const port = Number(process.env.PORT ?? 3000);
-const sepayPaymentPrefix = (process.env.SEPAY_PAYMENT_PREFIX ?? "GQ").trim().toUpperCase();
+const configuredSepayPaymentPrefix = (process.env.SEPAY_PAYMENT_PREFIX ?? "BG").trim().toUpperCase();
+const sepayPaymentPrefix = configuredSepayPaymentPrefix === "GQ" ? "BG" : configuredSepayPaymentPrefix;
 if (!/^[A-Z]{2,5}$/.test(sepayPaymentPrefix)) {
   throw new Error("SEPAY_PAYMENT_PREFIX must contain between 2 and 5 letters");
 }
