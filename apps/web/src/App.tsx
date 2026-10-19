@@ -11,8 +11,25 @@ import "./settings.css";
 import "./quote-supplement.css";
 
 type Section = "home" | "quotes" | "catalog" | "templates" | "profile";
-interface CompanyEmailSettings { configured: boolean; host: string; port: number; secure: boolean; user: string; from: string; passwordSet: boolean }
-interface CompanyEmailForm { host: string; port: string; secure: boolean; user: string; password: string; from: string }
+const sectionPaths: Record<Section, string> = {
+  home: "/tong-quan",
+  quotes: "/bao-gia",
+  templates: "/mau-bao-gia",
+  catalog: "/bang-gia",
+  profile: "/tai-khoan",
+};
+
+function normalizedPath(pathname: string) {
+  return pathname.replace(/\/+$/, "") || "/";
+}
+
+function userRouteForPath(pathname: string): { section: Section; quoteId: string | null } | null {
+  const path = normalizedPath(pathname);
+  const section = (Object.entries(sectionPaths) as Array<[Section, string]>).find(([, value]) => value === path)?.[0];
+  if (section) return { section, quoteId: null };
+  const quoteMatch = path.match(/^\/bao-gia\/([a-f0-9]{24})$/i);
+  return quoteMatch ? { section: "quotes", quoteId: quoteMatch[1] } : null;
+}
 interface CompanyStoredFile { _id?: string; originalFilename: string; mimeType: string; bytes: number; createdAt: string }
 interface SubscriptionUsage {
   plan: SubscriptionPlanSummary;
@@ -50,13 +67,13 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     file: <><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /><path d="M14 3v5h5" /></>,
     close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     back: <><path d="m15 18-6-6 6-6" /><path d="M9 12h12" /></>,
-    mail: <><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></>,
     user: <><circle cx="12" cy="8" r="4" /><path d="M5 21a7 7 0 0 1 14 0" /></>,
     lock: <><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></>,
     eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
     eyeOff: <><path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" /><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" /><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" /><line x1="2" x2="22" y1="2" y2="22" /></>,
     shield: <><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /><path d="m9 12 2 2 4-4" /></>,
     phone: <><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" /></>,
+    mail: <><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></>,
     copy: <><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></>,
     clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>,
     edit: <><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></>,
@@ -154,8 +171,9 @@ async function confirmSession(expectedUser: User) {
 function UserApp() {
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [section, setSection] = useState<Section>("home");
-  const [quoteId, setQuoteId] = useState<string | null>(null);
+  const initialRoute = useRef(userRouteForPath(window.location.pathname));
+  const [section, setSection] = useState<Section>(initialRoute.current?.section ?? "home");
+  const [quoteId, setQuoteId] = useState<string | null>(initialRoute.current?.quoteId ?? null);
   const [creatingQuote, setCreatingQuote] = useState(false);
   const { notification, notify, dismiss } = useNotification();
   const { confirm, dialog: confirmationDialog } = useConfirmation();
@@ -173,18 +191,36 @@ function UserApp() {
       }
       const requestedPlan = new URLSearchParams(window.location.search).get("plan");
       const requestedPaidPlan = requestedPlan && requestedPlan !== "free" && /^[a-z][a-z0-9-]{0,60}$/i.test(requestedPlan) ? requestedPlan : null;
-      if (requestedPaidPlan) { setRequestedPlanCode(requestedPaidPlan); setSection("profile"); }
-      if (window.location.pathname !== "/ung-dung") window.history.replaceState(null, "", "/ung-dung");
+      if (requestedPaidPlan) {
+        setRequestedPlanCode(requestedPaidPlan);
+        setSection("profile");
+        setQuoteId(null);
+        window.history.replaceState(null, "", sectionPaths.profile);
+      } else if (!userRouteForPath(window.location.pathname)) {
+        setSection("home");
+        setQuoteId(null);
+        window.history.replaceState(null, "", sectionPaths.home);
+      }
       setUser(signedIn);
     }).catch(() => {
       setUser(null);
     }).finally(() => setCheckingSession(false));
   }, []);
+  useEffect(() => {
+    const syncRoute = () => {
+      const route = userRouteForPath(window.location.pathname);
+      if (route) { setSection(route.section); setQuoteId(route.quoteId); }
+    };
+    window.addEventListener("popstate", syncRoute);
+    return () => window.removeEventListener("popstate", syncRoute);
+  }, []);
   const handleLogin = (signedIn: User, planCode?: string) => {
-    window.history.replaceState(null, "", "/ung-dung");
     const requestedPaidPlan = planCode && planCode !== "free" && /^[a-z][a-z0-9-]{0,60}$/i.test(planCode) ? planCode : null;
+    const route = requestedPaidPlan ? { section: "profile" as Section, quoteId: null } : initialRoute.current ?? { section: "home" as Section, quoteId: null };
+    window.history.replaceState(null, "", route.quoteId ? `${sectionPaths.quotes}/${route.quoteId}` : sectionPaths[route.section]);
+    setSection(route.section);
+    setQuoteId(route.quoteId);
     setRequestedPlanCode(requestedPaidPlan);
-    if (requestedPaidPlan) setSection("profile");
     setUser(signedIn);
   };
   const refresh = useCallback(() => setRefreshKey((key) => key + 1), []);
@@ -233,9 +269,25 @@ function UserApp() {
     setCreatingQuote(true);
   };
   const signOut = async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => undefined); setUser(null); setSection("home"); window.location.replace("/"); };
+  const navigateSection = (nextSection: Section) => {
+    const target = sectionPaths[nextSection];
+    if (normalizedPath(window.location.pathname) !== target) window.history.pushState(null, "", target);
+    setQuoteId(null);
+    setSection(nextSection);
+  };
+  const closeQuote = () => {
+    window.history.replaceState(null, "", sectionPaths.quotes);
+    setQuoteId(null);
+    setSection("quotes");
+  };
   if (checkingSession) return <div className="splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /><span>Đang mở không gian làm việc…</span></div>;
   if (!user) return <NotificationProvider notify={notify}><><Login onLogin={handleLogin} onNotify={notify} />{notification && <NotificationToast notification={notification} onDismiss={dismiss} />}{confirmationDialog}</></NotificationProvider>;
-  const openQuote = (id: string) => setQuoteId(id);
+  const openQuote = (id: string) => {
+    const target = `${sectionPaths.quotes}/${id}`;
+    if (normalizedPath(window.location.pathname) !== target) window.history.pushState(null, "", target);
+    setSection("quotes");
+    setQuoteId(id);
+  };
   const removeQuote = async (quote: Quote) => {
     if (deletingQuoteRef.current) return;
     deletingQuoteRef.current = true;
@@ -247,7 +299,7 @@ function UserApp() {
         tone: "danger",
       })) return;
       await api(`/api/quotes/${quote._id}`, { method: "DELETE" });
-      setQuoteId(null);
+      if (quoteId === quote._id) closeQuote();
       refresh();
       notify(`Đã xóa báo giá ${quote.quoteNumber}.`, "success");
     } catch (cause) {
@@ -261,26 +313,36 @@ function UserApp() {
     <aside className="sidebar">
       <div className="brand-lockup"><img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /></div>
       <nav className="side-nav">
-        <NavButton icon="home" label="Tổng quan" active={!quoteId && section === "home"} onClick={() => { setQuoteId(null); setSection("home"); }} />
-        <NavButton icon="quote" label="Báo giá" active={!quoteId && section === "quotes"} onClick={() => { setQuoteId(null); setSection("quotes"); }} />
-        <NavButton icon="file" label="Mẫu báo giá" active={!quoteId && section === "templates"} onClick={() => { setQuoteId(null); setSection("templates"); }} />
-        <NavButton icon="box" label="Bảng giá" active={!quoteId && section === "catalog"} onClick={() => { setQuoteId(null); setSection("catalog"); }} />
+        <NavButton icon="home" label="Tổng quan" href={sectionPaths.home} active={!quoteId && section === "home"} onClick={() => navigateSection("home")} />
+        <NavButton icon="quote" label="Báo giá" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
+        <NavButton icon="file" label="Mẫu báo giá" href={sectionPaths.templates} active={!quoteId && section === "templates"} onClick={() => navigateSection("templates")} />
+        <NavButton icon="box" label="Bảng giá" href={sectionPaths.catalog} active={!quoteId && section === "catalog"} onClick={() => navigateSection("catalog")} />
       </nav>
       <div className="sidebar-bottom">
-        <button className={`profile-button ${!quoteId && section === "profile" ? "active" : ""}`} onClick={() => { setQuoteId(null); setSection("profile"); }} title="Trang cá nhân"><span className="avatar"><Icon name="user" size={17} /></span><span className="profile-copy"><strong>{user.name}</strong><small>{roleLabels[user.role]}</small></span><Icon name="arrow" size={17} /></button>
+        <a className={`profile-button ${!quoteId && section === "profile" ? "active" : ""}`} href={sectionPaths.profile} onClick={(event) => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); navigateSection("profile"); }} title="Trang cá nhân"><span className="avatar"><Icon name="user" size={17} /></span><span className="profile-copy"><strong>{user.name}</strong><small>{roleLabels[user.role]}</small></span><Icon name="arrow" size={17} /></a>
       </div>
     </aside>
     <div className="main-column">
-      <main className="main-content">{quoteId ? <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={() => setQuoteId(null)} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} /> : section === "home" ? <Dashboard key={refreshKey} canCreate={canCreateQuote} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} canReview onOpen={openQuote} onCreate={createQuote} onNavigate={setSection} onDeleteQuote={(quote) => void removeQuote(quote)} /> : section === "quotes" ? <QuoteWorkspace key={refreshKey} canCreate={canCreateQuote} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} onOpen={openQuote} onCreate={createQuote} onDeleteQuote={(quote) => void removeQuote(quote)} /> : section === "templates" ? <div className="page-stack templates-page"><section className="page-heading-row"><div><h1>Mẫu báo giá</h1><p className="muted">Khai báo và cập nhật mẫu mặc định của doanh nghiệp.</p></div></section><QuoteTemplatePanel canManage templateUsage={usage?.templates ?? null} usageLoading={usageLoading} usageError={Boolean(usageError)} onRefreshUsage={() => void loadUsage()} onUsageChanged={() => void loadUsage()} /></div> : section === "catalog" ? <PriceListPanel key={refreshKey} onToast={notify} /> : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
+      <main className="main-content">{quoteId ?
+        <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} />
+        : section === "home" ?
+          <Dashboard key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} canReview onOpen={openQuote} onCreate={createQuote} onNavigate={navigateSection} onDeleteQuote={(quote) => void removeQuote(quote)} />
+          : section === "quotes" ?
+            <QuoteWorkspace key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} onOpen={openQuote} onCreate={createQuote} onDeleteQuote={(quote) => void removeQuote(quote)} onNavigate={navigateSection} />
+            : section === "templates" ?
+              <div className="page-stack templates-page"><section className="page-heading-row"><div><h1>Mẫu báo giá</h1><p className="muted">Khai báo và cập nhật mẫu mặc định của doanh nghiệp.</p></div></section><QuoteTemplatePanel canManage templateUsage={usage?.templates ?? null} usageLoading={usageLoading} usageError={Boolean(usageError)} onRefreshUsage={() => void loadUsage()} onUsageChanged={() => void loadUsage()} /></div>
+              : section === "catalog" ?
+                <PriceListPanel key={refreshKey} onToast={notify} />
+                : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
-    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); setQuoteId(null); setSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); setSection("quotes"); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
+    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
     {confirmationDialog}
   </div></NotificationProvider>;
 }
 
-function NavButton({ icon, label, active, onClick }: { icon: string; label: string; active: boolean; onClick: () => void }) {
-  return <button className={`nav-button ${active ? "active" : ""}`} onClick={onClick}><Icon name={icon} size={18} /><span>{label}</span></button>;
+function NavButton({ icon, label, href, active, onClick }: { icon: string; label: string; href: string; active: boolean; onClick: () => void }) {
+  return <a className={`nav-button ${active ? "active" : ""}`} href={href} onClick={(event) => { if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return; event.preventDefault(); onClick(); }}><Icon name={icon} size={18} /><span>{label}</span></a>;
 }
 
 function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?: string) => void; onNotify: Notify }) {
@@ -354,113 +416,243 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
   return (
     <div className="login-screen">
       <div className={`login-card ${mode === "register" ? "register-mode" : ""}`}>
-      <div className="login-art">
-        <div className="art-content">
-          <div className="art-brand-header">
-            <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
-          </div>
+        <div className="login-art">
+          <div className="art-content">
+            <div className="art-brand-header">
+              <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
+            </div>
 
-          <div className="art-hero">
-            <h1>
-              Báo giá nhanh.<br />
-              <em>Rõ ràng.</em>
-            </h1>
+            <div className="art-hero">
+              <h1>
+                Báo giá nhanh.<br />
+                <em>Rõ ràng.</em>
+              </h1>
+            </div>
+            <img className="login-banner-image" src="/images/login-illustration.png" alt="Minh họa báo giá và quản lý doanh nghiệp" />
           </div>
-          <img className="login-banner-image" src="/images/login-illustration.png" alt="Minh họa báo giá và quản lý doanh nghiệp" />
         </div>
-      </div>
 
-      <div className={`login-panel ${mode === "register" ? "register-mode" : ""}`}>
-        <div className="login-form-card">
-          <div className="mobile-brand">
-            <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
-          </div>
-
-          <div className="login-header">
-            <h2>{mode === "login" ? "Đăng nhập" : "Đăng ký doanh nghiệp"}</h2>
-            <p className={`login-subtitle ${mode === "login" ? "login-subtitle-login" : ""}`}>
-              {mode === "login" ? <>Đăng nhập vào không gian <span className="login-brand-highlight">báo giá</span> của doanh nghiệp.</> : "Tạo hồ sơ doanh nghiệp và tài khoản sử dụng."}
-            </p>
-          </div>
-
-          {mode === "login" ? <form onSubmit={(event) => void submit(event)} className="login-form">
-            <div className="input-group">
-              <label htmlFor="login-email">Email công việc</label>
-              <div className="input-wrapper">
-                <span className="input-icon"><Icon name="mail" size={17} /></span>
-                <input
-                  id="login-email"
-                  type="email"
-                  autoComplete="username"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  placeholder="email@congty.vn"
-                  required
-                />
-              </div>
+        <div className={`login-panel ${mode === "register" ? "register-mode" : ""}`}>
+          <div className="login-form-card">
+            <div className="mobile-brand">
+              <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
             </div>
 
-            <div className="input-group">
-              <label htmlFor="login-password">Mật khẩu</label>
-              <div className="input-wrapper">
-                <span className="input-icon"><Icon name="lock" size={17} /></span>
-                <input
-                  id="login-password"
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Nhập mật khẩu"
-                  required
-                />
-                <button
-                  type="button"
-                  className="password-toggle"
-                  onClick={() => setShowPassword(!showPassword)}
-                  title={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
-                  tabIndex={-1}
-                >
-                  <Icon name={showPassword ? "eyeOff" : "eye"} size={17} />
-                </button>
-              </div>
+            <div className="login-header">
+              <h2>{mode === "login" ? "Đăng nhập" : "Đăng ký doanh nghiệp"}</h2>
+              <p className={`login-subtitle ${mode === "login" ? "login-subtitle-login" : ""}`}>
+                {mode === "login" ? <>Đăng nhập vào không gian <span className="login-brand-highlight">báo giá</span> của doanh nghiệp.</> : "Tạo hồ sơ doanh nghiệp và tài khoản sử dụng."}
+              </p>
             </div>
 
-            <button className="login-submit-btn" type="submit" disabled={busy}>
-              {busy ? <span className="login-spinner" /> : null}
-              <span>{busy ? "Đang xác thực…" : "Đăng nhập"}</span>
-            </button>
-          </form> : <form onSubmit={(event) => void submitRegistration(event)} className="login-form business-register-form">
-            {registrationFields.map(({ key, label, type = "text", autoComplete = "off", maxLength, wide }) => {
-              const isPassword = key === "password";
-              return <div className={`input-group register-field ${wide ? "register-field-wide" : ""}`} key={key}>
-                <label htmlFor={`register-${key}`}>{label}</label>
+            {mode === "login" ? <form onSubmit={(event) => void submit(event)} className="login-form">
+              <div className="input-group">
+                <label htmlFor="login-email">Email công việc</label>
                 <div className="input-wrapper">
-                  <input id={`register-${key}`} type={isPassword && showRegistrationPasswords ? "text" : type} autoComplete={autoComplete} maxLength={maxLength} minLength={isPassword ? 7 : undefined} value={registration[key]} onChange={(event) => setRegistration((current) => ({ ...current, [key]: event.target.value }))} placeholder={key === "taxId" ? "0123456789" : undefined} required />
-                  {isPassword && <button type="button" className="password-toggle" onClick={() => setShowRegistrationPasswords((shown) => !shown)} title={showRegistrationPasswords ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-label={showRegistrationPasswords ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-pressed={showRegistrationPasswords}><Icon name={showRegistrationPasswords ? "eyeOff" : "eye"} size={17} /></button>}
+                  <span className="input-icon"><Icon name="mail" size={17} /></span>
+                  <input
+                    id="login-email"
+                    type="email"
+                    autoComplete="username"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="email@congty.vn"
+                    required
+                  />
                 </div>
-              </div>;
-            })}
-            <button className="login-submit-btn register-field-wide" type="submit" disabled={busy}>{busy ? <span className="login-spinner" /> : null}<span>{busy ? "Đang tạo tài khoản…" : "Tạo tài khoản"}</span></button>
-          </form>}
-          {mode === "login" && <div className="login-signup-cta">
-            <span>Chưa có tài khoản?</span>
-            <button className="login-signup-link" type="button" onClick={() => switchMode("register")}>
-              <strong>Đăng ký tài khoản</strong>
-              <Icon name="arrow" size={15} />
-            </button>
-          </div>}
-          {mode === "register" && <button className="login-return-cta" type="button" onClick={() => switchMode("login")}>
-            <span>Đã có tài khoản?</span> <strong>Đăng nhập ngay</strong>
-          </button>}
-          {mode === "login" && <a className="admin-login-link" href="/quan-tri">Đăng nhập dành cho quản trị viên</a>}
+              </div>
+
+              <div className="input-group">
+                <label htmlFor="login-password">Mật khẩu</label>
+                <div className="input-wrapper">
+                  <span className="input-icon"><Icon name="lock" size={17} /></span>
+                  <input
+                    id="login-password"
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    placeholder="Nhập mật khẩu"
+                    required
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    onClick={() => setShowPassword(!showPassword)}
+                    title={showPassword ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+                    tabIndex={-1}
+                  >
+                    <Icon name={showPassword ? "eyeOff" : "eye"} size={17} />
+                  </button>
+                </div>
+              </div>
+
+              <button className="login-submit-btn" type="submit" disabled={busy}>
+                {busy ? <span className="login-spinner" /> : null}
+                <span>{busy ? "Đang xác thực…" : "Đăng nhập"}</span>
+              </button>
+            </form> : <form onSubmit={(event) => void submitRegistration(event)} className="login-form business-register-form">
+              {registrationFields.map(({ key, label, type = "text", autoComplete = "off", maxLength, wide }) => {
+                const isPassword = key === "password";
+                return <div className={`input-group register-field ${wide ? "register-field-wide" : ""}`} key={key}>
+                  <label htmlFor={`register-${key}`}>{label}</label>
+                  <div className="input-wrapper">
+                    <input id={`register-${key}`} type={isPassword && showRegistrationPasswords ? "text" : type} autoComplete={autoComplete} maxLength={maxLength} minLength={isPassword ? 7 : undefined} value={registration[key]} onChange={(event) => setRegistration((current) => ({ ...current, [key]: event.target.value }))} placeholder={key === "taxId" ? "0123456789" : undefined} required />
+                    {isPassword && <button type="button" className="password-toggle" onClick={() => setShowRegistrationPasswords((shown) => !shown)} title={showRegistrationPasswords ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-label={showRegistrationPasswords ? "Ẩn mật khẩu" : "Hiện mật khẩu"} aria-pressed={showRegistrationPasswords}><Icon name={showRegistrationPasswords ? "eyeOff" : "eye"} size={17} /></button>}
+                  </div>
+                </div>;
+              })}
+              <button className="login-submit-btn register-field-wide" type="submit" disabled={busy}>{busy ? <span className="login-spinner" /> : null}<span>{busy ? "Đang tạo tài khoản…" : "Tạo tài khoản"}</span></button>
+            </form>}
+            {mode === "login" && <div className="login-signup-cta">
+              <span>Chưa có tài khoản?</span>
+              <button className="login-signup-link" type="button" onClick={() => switchMode("register")}>
+                <strong>Đăng ký tài khoản</strong>
+                <Icon name="arrow" size={15} />
+              </button>
+            </div>}
+            {mode === "register" && <button className="login-return-cta" type="button" onClick={() => switchMode("login")}>
+              <span>Đã có tài khoản?</span> <strong>Đăng nhập ngay</strong>
+            </button>}
+            {mode === "login" && <a className="admin-login-link" href="/quan-tri">Đăng nhập dành cho quản trị viên</a>}
+          </div>
         </div>
-      </div>
       </div>
     </div>
   );
 }
 
-function Dashboard({ onOpen, onCreate, onNavigate, canCreate, quoteUsageLabel, createBlockedMessage, onRefreshUsage, showUsageError, canReview, onDeleteQuote }: { onOpen: (id: string) => void; onCreate: () => void; onNavigate: (section: Section) => void; canCreate: boolean; quoteUsageLabel: string; createBlockedMessage: string; onRefreshUsage: () => void; showUsageError: boolean; canReview: boolean; onDeleteQuote: (quote: Quote) => void }) {
+function QuoteUsageWidget({
+  usage,
+  quoteUsageLabel,
+  canCreate,
+  createBlockedMessage,
+  onRefreshUsage,
+  showUsageError,
+  onNavigate,
+  variant = "workspace",
+}: {
+  usage?: SubscriptionUsage | null;
+  quoteUsageLabel?: string;
+  canCreate: boolean;
+  createBlockedMessage: string;
+  onRefreshUsage: () => void;
+  showUsageError: boolean;
+  onNavigate?: (section: Section) => void;
+  variant?: "workspace" | "banner";
+}) {
+  if (!usage) {
+    if (!quoteUsageLabel && !createBlockedMessage) return null;
+    return (
+      <div className={`quote-quota-card variant-${variant}`}>
+        {quoteUsageLabel && <span className="quote-quota-count-text">{quoteUsageLabel}</span>}
+        {!canCreate && (
+          <div className="quote-quota-blocked-alert">
+            <Icon name="close" size={13} />
+            <span>{createBlockedMessage}</span>
+          </div>
+        )}
+        {showUsageError && (
+          <button type="button" className="quote-quota-retry-link" onClick={onRefreshUsage}>
+            Tải lại hạn mức
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const { plan, quotes } = usage;
+  const isUnlimited = quotes.limit === null;
+  const used = quotes.used ?? 0;
+  const limit = quotes.limit ?? 0;
+  const remaining = quotes.remaining ?? 0;
+  const percent = isUnlimited ? 0 : Math.min(100, Math.round((used / Math.max(1, limit)) * 100));
+
+  const isBlocked = !canCreate || (!isUnlimited && remaining <= 0);
+  const isWarning = !isBlocked && !isUnlimited && percent >= 80;
+  const tone = isBlocked ? "danger" : isWarning ? "warning" : isUnlimited ? "unlimited" : "normal";
+
+  return (
+    <div className={`quote-quota-card variant-${variant} tone-${tone}`} role="region" aria-label="Hạn mức tạo báo giá">
+      <div className="quote-quota-inner">
+        {/* Top: Plan badge & count & upgrade action */}
+        <div className="quote-quota-meta">
+          <div className="quote-quota-plan-tag">
+            <span className="quote-plan-dot" />
+            <span className="quote-plan-name">{plan.name}</span>
+          </div>
+
+          <div className="quote-quota-numbers">
+            {isUnlimited ? (
+              <span className="quote-quota-count-text">
+                Đã tạo <strong>{used.toLocaleString("vi-VN")}</strong> báo giá tháng này · <em>Không giới hạn</em>
+              </span>
+            ) : (
+              <span className="quote-quota-count-text">
+                Đã dùng <strong>{used.toLocaleString("vi-VN")}</strong> / {limit.toLocaleString("vi-VN")} lượt
+                <span className="quote-quota-pct-badge">{percent}%</span>
+              </span>
+            )}
+          </div>
+
+          {onNavigate && !isUnlimited && (
+            <button
+              type="button"
+              className="quote-quota-upgrade-btn"
+              onClick={() => onNavigate("profile")}
+              title="Nâng cấp gói để có thêm lượt tạo báo giá"
+            >
+              <span>Nâng cấp</span>
+              <Icon name="arrow" size={12} />
+            </button>
+          )}
+        </div>
+
+        {/* Progress Bar (Only when limited) */}
+        {!isUnlimited && (
+          <div className="quote-quota-bar-track" title={`Đã sử dụng ${percent}% hạn mức tháng`}>
+            <div
+              className={`quote-quota-bar-fill tone-${tone}`}
+              style={{ width: `${Math.max(used > 0 ? 4 : 0, percent)}%` }}
+            />
+          </div>
+        )}
+
+        {/* Bottom details: Remaining or Blocked message */}
+        <div className="quote-quota-subline">
+          {isBlocked ? (
+            <div className="quote-quota-blocked-alert">
+              <Icon name="close" size={13} />
+              <span>{createBlockedMessage || "Bạn đã dùng hết lượt tạo báo giá trong tháng này."}</span>
+              {showUsageError && (
+                <button type="button" className="quote-quota-retry-link" onClick={onRefreshUsage}>
+                  Tải lại hạn mức
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="quote-quota-status-line">
+              {!isUnlimited ? (
+                <span>
+                  Còn lại <strong>{remaining.toLocaleString("vi-VN")}</strong> lượt tạo trong chu kỳ này
+                </span>
+              ) : (
+                <span>Tài khoản doanh nghiệp không giới hạn số lượng tạo</span>
+              )}
+              {showUsageError && (
+                <button type="button" className="quote-quota-retry-link" onClick={onRefreshUsage}>
+                  Tải lại hạn mức
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ onOpen, onCreate, onNavigate, canCreate, usage, quoteUsageLabel, createBlockedMessage, onRefreshUsage, showUsageError, canReview, onDeleteQuote }: { onOpen: (id: string) => void; onCreate: () => void; onNavigate: (section: Section) => void; canCreate: boolean; usage?: SubscriptionUsage | null; quoteUsageLabel: string; createBlockedMessage: string; onRefreshUsage: () => void; showUsageError: boolean; canReview: boolean; onDeleteQuote: (quote: Quote) => void }) {
   const [data, setData] = useState<{ counts: { total: number; drafts: number; pending: number; approved: number }; recent: Quote[] } | null>(null);
   const notify = useAppNotification();
   useEffect(() => { api<typeof data>("/api/dashboard").then((value) => setData(value)).catch((cause) => notify(cause instanceof Error ? cause.message : "Không thể tải tổng quan báo giá.", "error")); }, [notify]);
@@ -471,8 +663,16 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, quoteUsageLabel, c
         <div className="dashboard-banner-copy">
           <h1>Báo giá nhanh, rõ ràng</h1>
           <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>
-          {quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}
-          {!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}
+          <QuoteUsageWidget
+            usage={usage}
+            quoteUsageLabel={quoteUsageLabel}
+            canCreate={canCreate}
+            createBlockedMessage={createBlockedMessage}
+            onRefreshUsage={onRefreshUsage}
+            showUsageError={showUsageError}
+            onNavigate={onNavigate}
+            variant="banner"
+          />
         </div>
       </article>
       <article className="dashboard-banner dashboard-banner-secondary">
@@ -499,12 +699,294 @@ function Metric({ label, value, icon, tone, action }: { label: string; value: nu
   return <button className={`metric-card tone-${tone} ${action ? "metric-action" : ""}`} onClick={action} disabled={!action}><span className="metric-watermark" aria-hidden="true"><Icon name={icon} size={88} /></span><span className="metric-top"><span>{label}</span><span className="metric-icon"><Icon name={icon} size={18} /></span></span><strong className="metric-value">{value}</strong></button>;
 }
 
-function QuoteWorkspace({ onOpen, onCreate, canCreate, quoteUsageLabel, createBlockedMessage, onRefreshUsage, showUsageError, onDeleteQuote }: { onOpen: (id: string) => void; onCreate: () => void; canCreate: boolean; quoteUsageLabel: string; createBlockedMessage: string; onRefreshUsage: () => void; showUsageError: boolean; onDeleteQuote: (quote: Quote) => void }) {
-  const [quotes, setQuotes] = useState<Quote[]>([]); const [loading, setLoading] = useState(true); const [loadFailed, setLoadFailed] = useState(false); const [reloadKey, setReloadKey] = useState(0); const [filter, setFilter] = useState("all");
+type QuoteSortKey = "newest" | "oldest" | "total_desc" | "total_asc" | "customer";
+interface QuoteListStats { total: number; drafts: number; pending: number; approved: number; needsInfo: number; rejected: number; approvedRevenue: number }
+interface QuoteListResponse { quotes: Quote[]; page: number; pageSize: number; total: number; totalPages: number; stats: QuoteListStats }
+
+function QuoteWorkspace({
+  onOpen,
+  onCreate,
+  canCreate,
+  usage,
+  quoteUsageLabel,
+  createBlockedMessage,
+  onRefreshUsage,
+  showUsageError,
+  onDeleteQuote,
+  onNavigate,
+}: {
+  onOpen: (id: string) => void;
+  onCreate: () => void;
+  canCreate: boolean;
+  usage?: SubscriptionUsage | null;
+  quoteUsageLabel: string;
+  createBlockedMessage: string;
+  onRefreshUsage: () => void;
+  showUsageError: boolean;
+  onDeleteQuote: (quote: Quote) => void;
+  onNavigate?: (section: Section) => void;
+}) {
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [filter, setFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [sortBy, setSortBy] = useState<QuoteSortKey>("newest");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(9);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [stats, setStats] = useState<QuoteListStats>({ total: 0, drafts: 0, pending: 0, approved: 0, needsInfo: 0, rejected: 0, approvedRevenue: 0 });
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const notify = useAppNotification();
-  useEffect(() => { setLoading(true); setLoadFailed(false); api<{ quotes: Quote[] }>("/api/quotes").then((result) => setQuotes(result.quotes)).catch((cause) => { setLoadFailed(true); notify(cause instanceof Error ? cause.message : "Không thể tải danh sách báo giá.", "error"); }).finally(() => setLoading(false)); }, [reloadKey, notify]);
-  const filtered = filter === "all" ? quotes : quotes.filter((quote) => quote.status === filter);
-  return <div className="page-stack"><section className="page-heading-row"><div><h1>Báo giá</h1>{quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}{!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}</div><div className="page-heading-actions">{loadFailed && <button type="button" className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button>}<button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá mới</button></div></section><section className="content-card list-card"><div className="list-toolbar"><div className="filter-tabs">{[["all", "Tất cả"], ["draft", "Bản nháp"], ["pending_review", "Chờ duyệt"], ["approved", "Đã duyệt"], ["needs_info", "Cần bổ sung"], ["rejected", "Cần chỉnh sửa"]].map(([value, label]) => <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div><span className="row-count">{filtered.length} báo giá</span></div>{loading ? <Loading /> : <QuoteCards quotes={filtered} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Không có báo giá trong mục này" emptyText="" />}</section></div>;
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search), 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadFailed(false);
+    const params = new URLSearchParams({ page: String(page), sort: sortBy });
+    if (filter !== "all") params.set("status", filter);
+    if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
+    api<QuoteListResponse>(`/api/quotes?${params}`)
+      .then((result) => {
+        if (cancelled) return;
+        setQuotes(result.quotes);
+        setPage(result.page);
+        setPageSize(result.pageSize);
+        setTotal(result.total);
+        setTotalPages(result.totalPages);
+        setStats(result.stats);
+      })
+      .catch((cause) => {
+        if (cancelled) return;
+        setLoadFailed(true);
+        notify(cause instanceof Error ? cause.message : "Không thể tải danh sách báo giá.", "error");
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [page, sortBy, filter, debouncedSearch, reloadKey, notify]);
+
+  // Phím tắt / để focus vào ô tìm kiếm
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const filterTabs: Array<{ key: string; label: string; count: number }> = [
+    { key: "all", label: "Tất cả", count: stats.total },
+    { key: "draft", label: "Bản nháp", count: stats.drafts },
+    { key: "pending_review", label: "Chờ duyệt", count: stats.pending },
+    { key: "approved", label: "Đã duyệt", count: stats.approved },
+    { key: "needs_info", label: "Cần bổ sung", count: stats.needsInfo },
+    { key: "rejected", label: "Cần chỉnh sửa", count: stats.rejected },
+  ];
+  const firstVisiblePage = Math.max(1, Math.min(page - 2, totalPages - 4));
+  const visiblePages = Array.from({ length: Math.min(5, totalPages) }, (_, index) => firstVisiblePage + index);
+
+  return (
+    <div className="page-stack quote-workspace-page">
+      {/* HEADER ROW */}
+      <section className="page-heading-row quote-workspace-header">
+        <div className="quote-workspace-heading-left">
+          <h1>Báo giá</h1>
+          <QuoteUsageWidget
+            usage={usage}
+            quoteUsageLabel={quoteUsageLabel}
+            canCreate={canCreate}
+            createBlockedMessage={createBlockedMessage}
+            onRefreshUsage={onRefreshUsage}
+            showUsageError={showUsageError}
+            onNavigate={onNavigate}
+            variant="workspace"
+          />
+        </div>
+        <div className="page-heading-actions">
+          {loadFailed && (
+            <button type="button" className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>
+              Tải lại
+            </button>
+          )}
+          <button
+            className="button button-primary quote-create-button"
+            disabled={!canCreate}
+            onClick={onCreate}
+          >
+            <Icon name="plus" size={17} />
+            <span>Tạo báo giá mới</span>
+          </button>
+        </div>
+      </section>
+
+      {/* QUICK KPI MINI STRIP */}
+      {stats.total > 0 && (
+        <section className="quote-kpi-strip" aria-label="Thống kê nhanh báo giá">
+          <div className="quote-kpi-card tone-total">
+            <span className="quote-kpi-icon"><Icon name="quote" size={18} /></span>
+            <div className="quote-kpi-data">
+              <span className="quote-kpi-label">Tổng số báo giá</span>
+              <strong className="quote-kpi-value">{stats.total}</strong>
+            </div>
+          </div>
+
+          <div className="quote-kpi-card tone-pending">
+            <span className="quote-kpi-icon"><Icon name="clock" size={18} /></span>
+            <div className="quote-kpi-data">
+              <span className="quote-kpi-label">Đang chờ duyệt</span>
+              <strong className="quote-kpi-value">{stats.pending}</strong>
+            </div>
+          </div>
+
+          <div className="quote-kpi-card tone-approved">
+            <span className="quote-kpi-icon"><Icon name="check" size={18} /></span>
+            <div className="quote-kpi-data">
+              <span className="quote-kpi-label">Đã phê duyệt</span>
+              <strong className="quote-kpi-value">{stats.approved}</strong>
+            </div>
+          </div>
+
+          <div className="quote-kpi-card tone-revenue">
+            <span className="quote-kpi-icon"><Icon name="spark" size={18} /></span>
+            <div className="quote-kpi-data">
+              <span className="quote-kpi-label">Doanh số đã duyệt</span>
+              <strong className="quote-kpi-value">{new Intl.NumberFormat("vi-VN").format(stats.approvedRevenue)}đ</strong>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* MAIN LIST CARD */}
+      <section className="content-card quote-list-card">
+        {/* TOOLBAR: SEARCH & SORT & STATUS TABS */}
+        <div className="quote-workspace-toolbar">
+          {/* Row 1: Search & Sort */}
+          <div className="quote-toolbar-top">
+            <div className="quote-search-wrapper">
+              <Icon name="search" size={16} />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                placeholder="Tìm theo mã báo giá, tên khách hàng, email, SĐT…"
+                className="quote-search-input"
+              />
+              {search ? (
+                <button
+                  type="button"
+                  className="quote-search-clear-btn"
+                  onClick={() => { setSearch(""); setPage(1); }}
+                  title="Xóa tìm kiếm (Esc)"
+                >
+                  <Icon name="close" size={14} />
+                </button>
+              ) : (
+                <span className="quote-search-shortcut" title="Phím tắt">/</span>
+              )}
+            </div>
+
+            <div className="quote-sort-wrapper">
+              <label htmlFor="quote-sort-select">Sắp xếp:</label>
+              <select
+                id="quote-sort-select"
+                value={sortBy}
+                onChange={(e) => { setSortBy(e.target.value as QuoteSortKey); setPage(1); }}
+                className="quote-sort-select"
+              >
+                <option value="newest">Mới nhất trước</option>
+                <option value="oldest">Cũ nhất trước</option>
+                <option value="total_desc">Giá trị: Cao đến thấp</option>
+                <option value="total_asc">Giá trị: Thấp đến cao</option>
+                <option value="customer">Tên khách hàng: A-Z</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Row 2: Status Tabs & Result Count */}
+          <div className="quote-toolbar-bottom">
+            <div className="quote-status-filter-tabs">
+              {filterTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={`quote-filter-tab ${filter === tab.key ? "is-active" : ""}`}
+                  onClick={() => { setFilter(tab.key); setPage(1); }}
+                >
+                  <span>{tab.label}</span>
+                  <span className="tab-badge">{tab.count}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="quote-toolbar-count">
+              {stats.total > 0 && (
+                <span>
+                  Hiển thị <strong>{total ? (page - 1) * pageSize + 1 : 0}–{Math.min(page * pageSize, total)}</strong> / {total} báo giá
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* QUOTE CARDS GRID */}
+        {loading ? (
+          <Loading />
+        ) : quotes.length === 0 ? (
+          <div className="quote-empty-container">
+            {search || filter !== "all" ? (
+              <div className="empty-state">
+                <span className="empty-icon"><Icon name="search" size={24} /></span>
+                <h3>Không tìm thấy báo giá phù hợp</h3>
+                <p>Thử tìm kiếm với từ khóa khác hoặc thay đổi bộ lọc trạng thái.</p>
+                <button
+                  type="button"
+                  className="button button-soft"
+                  onClick={() => {
+                    setSearch("");
+                    setFilter("all");
+                    setPage(1);
+                  }}
+                >
+                  Đặt lại bộ lọc
+                </button>
+              </div>
+            ) : (
+              <EmptyState title="Chưa có bản báo giá nào" text="Bắt đầu tạo bản báo giá đầu tiên từ yêu cầu của khách hàng." />
+            )}
+          </div>
+        ) : (
+          <QuoteCards
+            quotes={quotes}
+            onOpen={onOpen}
+            onDelete={onDeleteQuote}
+            emptyTitle="Không có báo giá trong mục này"
+            emptyText=""
+          />
+        )}
+        {!loading && !loadFailed && totalPages > 1 && (
+          <nav className="quote-pagination" aria-label="Phân trang báo giá">
+            <button type="button" className="quote-page-button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Trước</button>
+            <div className="quote-page-numbers">
+              {visiblePages.map((number) => <button key={number} type="button" className={`quote-page-button ${number === page ? "is-active" : ""}`} aria-label={`Trang ${number}`} aria-current={number === page ? "page" : undefined} onClick={() => setPage(number)}>{number}</button>)}
+            </div>
+            <button type="button" className="quote-page-button" disabled={page === totalPages} onClick={() => setPage((current) => current + 1)}>Sau</button>
+          </nav>
+        )}
+      </section>
+    </div>
+  );
 }
 
 interface QuoteOptions { templates: TemplateDetails[]; defaultTemplateId: string | null; productsAvailable: boolean }
@@ -965,12 +1447,11 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       let confirmation: ConfirmOptions | undefined;
       if (url.endsWith("/approve")) confirmation = { title: "Duyệt báo giá này?", message: `${quote.quoteNumber} · ${quote.customerName}\nTổng tiền: ${formatMoney(liveTotal, quote.currency)}\nSau khi duyệt, có thể tải file chính thức và gửi cho khách hàng.`, confirmLabel: "Duyệt báo giá" };
       else if (url.endsWith("/reject")) confirmation = { title: "Trả báo giá để chỉnh sửa?", message: `${quote.quoteNumber} sẽ chuyển về trạng thái cần chỉnh sửa.\nLý do: ${typeof body === "object" && body && "reason" in body ? String(body.reason) : ""}`, confirmLabel: "Trả lại", tone: "danger" };
-      else if (url.endsWith("/email")) confirmation = { title: "Gửi báo giá qua email?", message: `Báo giá đã duyệt sẽ được gửi tới ${quote.customerEmail || "khách hàng"}.`, confirmLabel: "Gửi email" };
       if (confirmation && !await confirm(confirmation)) return;
     }
     setBusy(true);
     setError("");
-    const taskLabel = url.endsWith("/approve") ? "Đang duyệt báo giá" : url.endsWith("/email") ? "Đang gửi báo giá qua email" : "Đang lưu báo giá";
+    const taskLabel = url.endsWith("/approve") ? "Đang duyệt báo giá" : "Đang lưu báo giá";
     setTaskProgress({ label: taskLabel, detail: "Đang cập nhật dữ liệu trên máy chủ…" });
     const saveBeforeApprove = url.endsWith("/approve") && editable && hasUnsavedChanges;
     try {
@@ -1047,15 +1528,19 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     finally { setBusy(false); setTaskProgress(null); }
   };
 
-  const customerInitials = (customerName || quote.customerName).trim().slice(0, 2).toLocaleUpperCase("vi") || "KH";
-
   return (
     <div className="page-stack detail-stack">
-      {/* Top Navigation */}
+      {/* Top Navigation Bar with Breadcrumb */}
       <div className="quote-detail-nav">
         <button type="button" className="quote-back-btn" onClick={onBack}>
-          <Icon name="back" size={16} /> Quay lại danh sách báo giá
+          <Icon name="back" size={15} />
+          <span>Quay lại danh sách</span>
         </button>
+        <div className="quote-detail-breadcrumb">
+          <span>Báo giá</span>
+          <span className="breadcrumb-separator">/</span>
+          <strong>{quote.quoteNumber}</strong>
+        </div>
       </div>
       {taskProgress && <TaskProgress {...taskProgress} />}
 
@@ -1063,6 +1548,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       <header className="quote-detail-header-card">
         <div className="quote-header-title-box">
           <div className="quote-number-row">
+            <span className="quote-detail-tag" aria-hidden="true">
+              <Icon name="quote" size={16} />
+            </span>
             <h1 className="quote-number-title">{quote.quoteNumber}</h1>
             <button
               type="button"
@@ -1070,16 +1558,26 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
               onClick={() => copyText(quote.quoteNumber, "mã báo giá")}
               title="Sao chép mã báo giá"
             >
-              <Icon name="copy" size={12} /> Sao chép
+              <Icon name="copy" size={12} />
+              <span>Sao chép</span>
             </button>
             <StatusPill status={quote.status} />
           </div>
+
           <div className="quote-header-meta">
-            <span>Khách hàng: <strong>{customerName || quote.customerName}</strong></span>
+            <span className="quote-meta-item">
+              <Icon name="user" size={13} />
+              <span>Khách hàng: <strong>{customerName || quote.customerName}</strong></span>
+            </span>
             <span className="dot-separator">·</span>
-            <span>Ngày tạo: <strong>{formatDate(quote.createdAt)}</strong></span>
+            <span className="quote-meta-item">
+              <Icon name="clock" size={13} />
+              <span>Ngày tạo: <strong>{formatDate(quote.createdAt)}</strong></span>
+            </span>
             <span className="dot-separator">·</span>
-            <span>Người lập: <strong>{user.name}</strong></span>
+            <span className="quote-meta-item">
+              <span>Người lập: <strong>{user.name}</strong></span>
+            </span>
           </div>
         </div>
 
@@ -1087,12 +1585,13 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
           {editable && (
             <button
               type="button"
-              className={`button ${hasUnsavedChanges ? "button-primary" : "button-soft"}`}
+              className={`button ${hasUnsavedChanges ? "button-primary quote-save-pulse-btn" : "button-soft"}`}
               disabled={busy || !hasUnsavedChanges}
               onClick={() => void save()}
               title="Lưu các thay đổi về số lượng và thông tin khách hàng"
             >
-              <Icon name="check" size={16} /> {busy ? "Đang lưu…" : "Lưu thay đổi"}
+              <Icon name="check" size={16} />
+              <span>{busy ? "Đang lưu…" : hasUnsavedChanges ? "Lưu thay đổi *" : "Đã lưu"}</span>
             </button>
           )}
 
@@ -1104,44 +1603,46 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             onClick={() => void downloadQuote()}
           >
             <Icon name="download" size={16} />
-            {quote.status === "approved" ? "Tải file báo giá" : canExportDraftXlsx ? "Xuất Excel nháp" : "Xuất sau khi duyệt"}
+            <span>{quote.status === "approved" ? "Tải file báo giá" : canExportDraftXlsx ? "Xuất Excel nháp" : "Xuất sau khi duyệt"}</span>
           </button>
 
           {canApprove && (quote.status === "draft" || quote.status === "pending_review") && (
             <>
-              {quote.status === "pending_review" && <button
-                type="button"
-                className="button button-soft"
-                disabled={busy}
-                onClick={() => setRejecting((prev) => !prev)}
-              >Trả lại chỉnh sửa</button>}
+              {quote.status === "pending_review" && (
+                <button
+                  type="button"
+                  className="button button-soft quote-reject-btn"
+                  disabled={busy}
+                  onClick={() => setRejecting((prev) => !prev)}
+                >
+                  <Icon name="close" size={14} />
+                  <span>Trả lại chỉnh sửa</span>
+                </button>
+              )}
               <button
                 type="button"
-                className="button button-primary"
+                className="button button-primary quote-approve-btn"
                 disabled={busy || hasUnresolvedInformation}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Báo giá đã được phê duyệt thành công.")}
               >
-                <Icon name="check" size={16} /> Duyệt báo giá
+                <Icon name="check" size={16} />
+                <span>Duyệt báo giá</span>
               </button>
             </>
           )}
 
-          {canEdit && quote.status === "approved" && (
+          {canEdit && (
             <button
               type="button"
-              className="button button-soft"
-              disabled={busy || !quote.customerEmail || hasUnresolvedInformation}
-              title={hasUnresolvedInformation ? "Cần xử lý thông tin còn thiếu trước khi gửi email" : !quote.customerEmail ? "Chưa có email khách hàng" : "Gửi báo giá qua email"}
-              onClick={() => void perform("/api/quotes/" + quote._id + "/email", undefined, "POST", "Đã gửi báo giá qua email thành công.")}
+              className="button button-soft quote-delete-action"
+              disabled={busy}
+              onClick={() => onDeleteQuote(quote)}
+              title="Xóa vĩnh viễn báo giá này"
             >
-              <Icon name="mail" size={16} /> Gửi email
+              <Icon name="trash" size={15} />
+              <span>Xóa</span>
             </button>
           )}
-
-          {canEdit && <button type="button" className="button button-soft quote-delete-action" disabled={busy} onClick={() => onDeleteQuote(quote)}>
-            <Icon name="trash" size={16} /> Xóa báo giá
-          </button>}
-
         </div>
       </header>
 
@@ -1624,10 +2125,15 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             ) : (
               <>
                 <div className="quote-customer-profile">
-                  <div className="quote-customer-avatar">{customerInitials}</div>
+                  <div
+                    className="quote-customer-avatar"
+                    style={{ background: getCustomerAvatarBg(customerName || quote.customerName) }}
+                  >
+                    {getCustomerInitials(customerName || quote.customerName)}
+                  </div>
                   <div className="quote-customer-info">
                     <strong className="quote-customer-name">{customerName || quote.customerName}</strong>
-                    <span className="table-subtext">Khách hàng báo giá</span>
+                    <span className="table-subtext">Khách hàng nhận báo giá</span>
                   </div>
                 </div>
 
@@ -1804,65 +2310,196 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   );
 }
 
-function AccountProfile({ user, onToast, onSignOut, confirm, subscriptionExpiresAt, requestedPlanCode, onInitialPlanHandled, onBillingPaid }: { user: User; onToast: Notify; onSignOut: () => void; confirm: (options: ConfirmOptions) => Promise<boolean>; subscriptionExpiresAt: string | null; requestedPlanCode: string | null; onInitialPlanHandled: () => void; onBillingPaid: () => void }) {
-  const plan = user.plan;
-  return <div className="page-stack profile-page">
-    <section className="page-heading-row"><div><h1>Trang cá nhân</h1><p className="muted">Quản lý tài khoản, email gửi báo giá và tệp doanh nghiệp.</p></div><button type="button" className="profile-signout" onClick={() => void confirm({ title: "Đăng xuất khỏi tài khoản?", message: "Bạn sẽ cần đăng nhập lại để tiếp tục làm việc.", confirmLabel: "Đăng xuất", tone: "danger", dismissWithClose: true }).then((accepted) => { if (accepted) onSignOut(); })}><Icon name="logout" size={17} />Đăng xuất</button></section>
-    <div className="profile-left-column">
-      <section className="content-card profile-overview">
-        <div className="profile-identity">
-          <span className="profile-overview-avatar" aria-hidden="true">{user.name.trim().slice(0, 1).toLocaleUpperCase("vi") || "?"}</span>
-          <div className="profile-overview-copy"><strong>{user.name}</strong><span className="profile-email">{user.email}</span><small className="profile-role">{roleLabels[user.role]}</small></div>
-        </div>
-      </section>
-      <section className="content-card profile-plan-card">
-        <div className="profile-plan-main"><span className="profile-plan-icon"><Icon name="check" size={19} /></span><div><span className="profile-plan-eyebrow">Gói đang sử dụng</span><h2>{plan?.name ?? "Dùng thử"}</h2><p>{plan?.description ?? "Gói miễn phí mặc định của iGen Baogia."}</p></div></div>
-        <div className="profile-plan-details"><span><small>Giá gói</small><strong>{plan?.monthlyPrice === null ? "Theo nhu cầu" : plan?.monthlyPrice ? `${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ / tháng` : "Miễn phí"}</strong></span><span><small>Báo giá</small><strong>{plan?.quoteLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt / tháng`}</strong></span><span><small>Mẫu báo giá</small><strong>{plan?.templateLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.templateLimit)} mẫu`}</strong></span></div>
-      </section>
-      <CompanyFiles onToast={onToast} confirm={confirm} />
-    </div>
-    <SubscriptionBillingPanel currentPlanCode={plan?.code ?? "free"} subscriptionExpiresAt={subscriptionExpiresAt} initialPlanCode={requestedPlanCode} onInitialPlanHandled={onInitialPlanHandled} onPaid={onBillingPaid} />
-    <CompanySettings onToast={onToast} confirm={confirm} />
-  </div>;
+function CopyTextButton({ text, label, onToast, title = "Sao chép" }: { text: string; label: string; onToast: Notify; title?: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    onToast(`Đã sao chép ${label}.`, "info");
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button type="button" className={`profile-copy-btn ${copied ? "is-copied" : ""}`} onClick={copy} title={title}>
+      <Icon name={copied ? "check" : "copy"} size={13} />
+      <span>{copied ? "Đã chép" : "Sao chép"}</span>
+    </button>
+  );
 }
 
-function SmtpSecurityDropdown({ secure, onChange }: { secure: boolean; onChange: (secure: boolean) => void }) {
-  const [open, setOpen] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  const options = [
-    { value: false, label: "STARTTLS (thường dùng cổng 587)" },
-    { value: true, label: "TLS (thường dùng cổng 465)" },
-  ];
+function AccountProfile({
+  user,
+  onToast,
+  onSignOut,
+  confirm,
+  usage,
+  subscriptionExpiresAt,
+  requestedPlanCode,
+  onInitialPlanHandled,
+  onBillingPaid,
+}: {
+  user: User;
+  onToast: Notify;
+  onSignOut: () => void;
+  confirm: (options: ConfirmOptions) => Promise<boolean>;
+  usage?: SubscriptionUsage | null;
+  subscriptionExpiresAt: string | null;
+  requestedPlanCode: string | null;
+  onInitialPlanHandled: () => void;
+  onBillingPaid: () => void;
+}) {
+  const plan = user.plan;
+  const quotesLimit = usage?.quotes.limit ?? plan?.quoteLimit ?? null;
+  const quotesUsed = usage?.quotes.used ?? 0;
+  const quotesPercent = quotesLimit ? Math.min(100, Math.round((quotesUsed / quotesLimit) * 100)) : null;
 
-  useEffect(() => {
-    if (!open) return;
-    const closeOutside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOutside);
-    root.current?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]')?.focus();
-    return () => document.removeEventListener("pointerdown", closeOutside);
-  }, [open]);
+  const templatesLimit = usage?.templates.limit ?? plan?.templateLimit ?? null;
+  const templatesUsed = usage?.templates.used ?? 0;
+  const templatesPercent = templatesLimit ? Math.min(100, Math.round((templatesUsed / templatesLimit) * 100)) : null;
 
-  return <div className={`smtp-security-dropdown ${open ? "is-open" : ""}`} ref={root} onKeyDown={(event) => {
-    if (event.key === "Escape" && open) { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
-    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
-      event.preventDefault();
-      if (!open) { setOpen(true); return; }
-      const items = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
-      const current = items.indexOf(document.activeElement as HTMLButtonElement);
-      items[(current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
-    }
-  }}>
-    <button ref={trigger} type="button" className="smtp-security-trigger" aria-label="Kiểu bảo mật" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-      <span>{options.find((option) => option.value === secure)?.label}</span>
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
-    </button>
-    {open && <div className="smtp-security-menu" role="listbox" aria-label="Kiểu bảo mật">
-      {options.map((option) => <button key={String(option.value)} type="button" role="option" aria-selected={secure === option.value} onClick={() => { onChange(option.value); setOpen(false); trigger.current?.focus(); }}>{option.label}</button>)}
-    </div>}
-  </div>;
+  return (
+    <div className="page-stack profile-page">
+      <section className="page-heading-row profile-heading-row">
+        <div>
+          <h1>Trang cá nhân &amp; Cài đặt</h1>
+        </div>
+        <button
+          type="button"
+          className="profile-signout-btn"
+          onClick={() =>
+            void confirm({
+              title: "Đăng xuất khỏi tài khoản?",
+              message: "Bạn sẽ cần đăng nhập lại để tiếp tục làm việc.",
+              confirmLabel: "Đăng xuất",
+              tone: "danger",
+              dismissWithClose: true,
+            }).then((accepted) => {
+              if (accepted) onSignOut();
+            })
+          }
+        >
+          <Icon name="logout" size={16} />
+          <span>Đăng xuất</span>
+        </button>
+      </section>
+
+      <div className="profile-dashboard-layout">
+        {/* CỘT TRÁI: THÔNG TIN HỒ SƠ & HẠN MỨC GÓI */}
+        <aside className="profile-sidebar-col">
+          {/* Card 1: Hồ sơ người dùng */}
+          <section className="content-card profile-user-card">
+            <div className="profile-user-cover" />
+            <div className="profile-user-body">
+              <div className="profile-avatar-wrapper">
+                <span className="profile-avatar-large">
+                  {user.name.trim().slice(0, 1).toLocaleUpperCase("vi") || "?"}
+                </span>
+                <span className="profile-status-online" title="Tài khoản đang hoạt động" />
+              </div>
+              <div className="profile-user-info">
+                <h2>{user.name}</h2>
+                <div className="profile-email-row">
+                  <Icon name="mail" size={14} />
+                  <span className="profile-email-text">{user.email}</span>
+                  <CopyTextButton text={user.email} label="email" onToast={onToast} title="Sao chép email" />
+                </div>
+                <div className="profile-role-tags">
+                  <span className="profile-badge-role">{roleLabels[user.role]}</span>
+                  <span className="profile-badge-active">Đang kích hoạt</span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* Card 2: Hạn mức & Tình trạng gói */}
+          <section className="content-card profile-quota-card">
+            <div className="profile-quota-header">
+              <div>
+                <span className="profile-card-eyebrow">GÓI ĐANG SỬ DỤNG</span>
+                <h3>{plan?.name ?? "Dùng thử"}</h3>
+              </div>
+              <span className="profile-plan-pill-active">ĐANG KÍCH HOẠT</span>
+            </div>
+
+            <p className="profile-quota-desc">{plan?.description ?? "Gói miễn phí mặc định của Giáo."}</p>
+
+            {subscriptionExpiresAt ? (
+              <div className="profile-expiry-banner">
+                <Icon name="clock" size={15} />
+                <span>Hiệu lực đến <strong>{formatDate(subscriptionExpiresAt)}</strong></span>
+              </div>
+            ) : (
+              <div className="profile-expiry-banner is-free">
+                <Icon name="check" size={15} />
+                <span>Gói dùng thử không giới hạn thời gian</span>
+              </div>
+            )}
+
+            <div className="profile-quota-metrics">
+              {/* Lượt tạo báo giá */}
+              <div className="profile-quota-row">
+                <div className="profile-quota-meta">
+                  <span className="quota-label">Lượt tạo báo giá tháng này</span>
+                  <strong className="quota-value">
+                    {quotesLimit === null
+                      ? `${quotesUsed.toLocaleString("vi-VN")} lượt (Không giới hạn)`
+                      : `${quotesUsed.toLocaleString("vi-VN")} / ${quotesLimit.toLocaleString("vi-VN")}`}
+                  </strong>
+                </div>
+                {quotesPercent !== null && (
+                  <div className="profile-progress-track">
+                    <div
+                      className={`profile-progress-bar ${quotesPercent >= 90 ? "is-critical" : quotesPercent >= 75 ? "is-warning" : ""}`}
+                      style={{ width: `${quotesPercent}%` }}
+                    />
+                  </div>
+                )}
+                {quotesLimit !== null && (
+                  <div className="profile-quota-subtext">
+                    <span>Còn lại: {Math.max(0, quotesLimit - quotesUsed).toLocaleString("vi-VN")} lượt</span>
+                    {quotesPercent !== null && <span>{quotesPercent}% đã dùng</span>}
+                  </div>
+                )}
+              </div>
+
+              {/* Mẫu báo giá */}
+              <div className="profile-quota-row">
+                <div className="profile-quota-meta">
+                  <span className="quota-label">Số mẫu báo giá đã lưu</span>
+                  <strong className="quota-value">
+                    {templatesLimit === null
+                      ? `${templatesUsed} mẫu (Không giới hạn)`
+                      : `${templatesUsed} / ${templatesLimit} mẫu`}
+                  </strong>
+                </div>
+                {templatesPercent !== null && (
+                  <div className="profile-progress-track">
+                    <div
+                      className={`profile-progress-bar ${templatesPercent >= 90 ? "is-critical" : templatesPercent >= 75 ? "is-warning" : ""}`}
+                      style={{ width: `${templatesPercent}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        </aside>
+
+        {/* CỘT PHẢI: NÂNG CẤP GÓI & TỆP DOANH NGHIỆP */}
+        <div className="profile-main-col">
+          <SubscriptionBillingPanel
+            currentPlanCode={plan?.code ?? "free"}
+            subscriptionExpiresAt={subscriptionExpiresAt}
+            initialPlanCode={requestedPlanCode}
+            onInitialPlanHandled={onInitialPlanHandled}
+            onPaid={onBillingPaid}
+            onToast={onToast}
+          />
+          <CompanyFiles onToast={onToast} confirm={confirm} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 interface BillingPayment {
@@ -1880,7 +2517,21 @@ interface BillingPayment {
   paidAt?: string | null;
 }
 
-function SubscriptionBillingPanel({ currentPlanCode, subscriptionExpiresAt, initialPlanCode, onInitialPlanHandled, onPaid }: { currentPlanCode: string; subscriptionExpiresAt: string | null; initialPlanCode: string | null; onInitialPlanHandled: () => void; onPaid: () => void }) {
+function SubscriptionBillingPanel({
+  currentPlanCode,
+  subscriptionExpiresAt,
+  initialPlanCode,
+  onInitialPlanHandled,
+  onPaid,
+  onToast,
+}: {
+  currentPlanCode: string;
+  subscriptionExpiresAt: string | null;
+  initialPlanCode: string | null;
+  onInitialPlanHandled: () => void;
+  onPaid: () => void;
+  onToast?: Notify;
+}) {
   const [plans, setPlans] = useState<SubscriptionPlanSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
@@ -1888,46 +2539,57 @@ function SubscriptionBillingPanel({ currentPlanCode, subscriptionExpiresAt, init
   const [payment, setPayment] = useState<BillingPayment | null>(null);
   const [checkingPayment, setCheckingPayment] = useState(false);
   const notify = useAppNotification();
+  const showToast = onToast ?? notify;
   const autoCheckoutStarted = useRef(false);
 
   useEffect(() => {
     let active = true;
-    api<{ plans: SubscriptionPlanSummary[] }>("/api/plans").then(({ plans: available }) => {
-      if (active) setPlans(available.filter((plan) => plan.monthlyPrice !== null && plan.monthlyPrice > 0));
-    }).catch((cause) => {
-      if (active) notify(cause instanceof Error ? cause.message : "Không tải được các gói dịch vụ.", "error");
-    }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [notify]);
-
-  const beginCheckout = useCallback(async (planCode: string) => {
-    setBusyPlan(planCode);
-    setTaskProgress({ label: "Đang tạo mã thanh toán", detail: "Đang chuẩn bị QR SePay cho gói đã chọn…" });
-    try {
-      const { payment: nextPayment } = await api<{ payment: BillingPayment }>("/api/billing/payments", {
-        method: "POST",
-        body: JSON.stringify({ planCode }),
+    api<{ plans: SubscriptionPlanSummary[] }>("/api/plans")
+      .then(({ plans: available }) => {
+        if (active) setPlans(available.filter((plan) => plan.monthlyPrice !== null && plan.monthlyPrice > 0));
+      })
+      .catch((cause) => {
+        if (active) showToast(cause instanceof Error ? cause.message : "Không tải được các gói dịch vụ.", "error");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
-      setPayment(nextPayment);
-      notify("Đã tạo mã thanh toán. Quét QR để hoàn tất đăng ký gói.", "info");
-    } catch (cause) {
-      notify(cause instanceof Error ? cause.message : "Không thể tạo yêu cầu thanh toán.", "error");
-    } finally {
-      setBusyPlan(null);
-      setTaskProgress(null);
-    }
-  }, [notify]);
+    return () => {
+      active = false;
+    };
+  }, [showToast]);
+
+  const beginCheckout = useCallback(
+    async (planCode: string) => {
+      setBusyPlan(planCode);
+      setTaskProgress({ label: "Đang tạo mã thanh toán", detail: "Đang chuẩn bị QR SePay cho gói đã chọn…" });
+      try {
+        const { payment: nextPayment } = await api<{ payment: BillingPayment }>("/api/billing/payments", {
+          method: "POST",
+          body: JSON.stringify({ planCode }),
+        });
+        setPayment(nextPayment);
+        showToast("Đã tạo mã thanh toán. Quét QR để hoàn tất đăng ký gói.", "info");
+      } catch (cause) {
+        showToast(cause instanceof Error ? cause.message : "Không thể tạo yêu cầu thanh toán.", "error");
+      } finally {
+        setBusyPlan(null);
+        setTaskProgress(null);
+      }
+    },
+    [showToast]
+  );
 
   useEffect(() => {
     if (!initialPlanCode || loading || autoCheckoutStarted.current) return;
     autoCheckoutStarted.current = true;
     onInitialPlanHandled();
     if (!plans.some((plan) => plan.code === initialPlanCode)) {
-      notify("Gói được chọn không còn khả dụng. Vui lòng chọn gói khác.", "error");
+      showToast("Gói được chọn không còn khả dụng. Vui lòng chọn gói khác.", "error");
       return;
     }
     void beginCheckout(initialPlanCode);
-  }, [beginCheckout, initialPlanCode, loading, notify, onInitialPlanHandled, plans]);
+  }, [beginCheckout, initialPlanCode, loading, showToast, onInitialPlanHandled, plans]);
 
   useEffect(() => {
     if (!payment || payment.status !== "pending") return;
@@ -1935,162 +2597,270 @@ function SubscriptionBillingPanel({ currentPlanCode, subscriptionExpiresAt, init
     let timer = 0;
     const poll = async () => {
       try {
-        const { payment: current } = await api<{ payment: BillingPayment }>(`/api/billing/payments/${encodeURIComponent(payment.id)}`);
+        const { payment: current } = await api<{ payment: BillingPayment }>(
+          `/api/billing/payments/${encodeURIComponent(payment.id)}`
+        );
         if (!active) return;
-        setPayment((existing) => existing?.id === current.id ? { ...existing, ...current, qrUrl: existing.qrUrl, bankCode: existing.bankCode, accountNumber: existing.accountNumber, accountName: existing.accountName } : existing);
+        setPayment((existing) =>
+          existing?.id === current.id
+            ? {
+              ...existing,
+              ...current,
+              qrUrl: existing.qrUrl,
+              bankCode: existing.bankCode,
+              accountNumber: existing.accountNumber,
+              accountName: existing.accountName,
+            }
+            : existing
+        );
         if (current.status === "paid") {
-          notify(`Đã xác nhận thanh toán gói ${current.planName}. Gói được kích hoạt tự động.`, "success");
+          showToast(`Đã xác nhận thanh toán gói ${current.planName}. Gói được kích hoạt tự động.`, "success");
           onPaid();
           return;
         }
-      } catch { /* Keep polling; the user can still use the manual refresh button. */ }
+      } catch {
+        /* Keep polling; the user can still use the manual refresh button. */
+      }
       if (active) timer = window.setTimeout(() => void poll(), 4000);
     };
     timer = window.setTimeout(() => void poll(), 2500);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [payment?.id, payment?.status, notify, onPaid]);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [payment?.id, payment?.status, showToast, onPaid]);
 
   const refreshPayment = async () => {
     if (!payment) return;
     setCheckingPayment(true);
     try {
-      const { payment: current } = await api<{ payment: BillingPayment }>(`/api/billing/payments/${encodeURIComponent(payment.id)}`);
-      setPayment((existing) => existing?.id === current.id ? { ...existing, ...current, qrUrl: existing.qrUrl, bankCode: existing.bankCode, accountNumber: existing.accountNumber, accountName: existing.accountName } : existing);
+      const { payment: current } = await api<{ payment: BillingPayment }>(
+        `/api/billing/payments/${encodeURIComponent(payment.id)}`
+      );
+      setPayment((existing) =>
+        existing?.id === current.id
+          ? {
+            ...existing,
+            ...current,
+            qrUrl: existing.qrUrl,
+            bankCode: existing.bankCode,
+            accountNumber: existing.accountNumber,
+            accountName: existing.accountName,
+          }
+          : existing
+      );
       if (current.status === "paid") {
-        notify(`Đã xác nhận thanh toán gói ${current.planName}. Gói được kích hoạt tự động.`, "success");
+        showToast(`Đã xác nhận thanh toán gói ${current.planName}. Gói được kích hoạt tự động.`, "success");
         onPaid();
-      } else notify("Chưa nhận được thanh toán. Hệ thống sẽ tự kiểm tra lại.", "info");
+      } else {
+        showToast("Chưa nhận được thanh toán. Hệ thống sẽ tự kiểm tra lại.", "info");
+      }
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : "Không kiểm tra được trạng thái thanh toán.", "error");
-    } finally { setCheckingPayment(false); }
+      showToast(cause instanceof Error ? cause.message : "Không kiểm tra được trạng thái thanh toán.", "error");
+    } finally {
+      setCheckingPayment(false);
+    }
   };
 
-  return <section className="content-card subscription-billing-card">
-    <div className="settings-card-heading"><div><span className="eyebrow">THANH TOÁN QUA SEPAY</span><h2>Chọn gói dịch vụ</h2><p className="muted">Gói được kích hoạt sau khi SePay xác nhận chuyển khoản.</p></div></div>
-    {taskProgress && <TaskProgress {...taskProgress} />}
-    {subscriptionExpiresAt && <p className="subscription-expiry">Gói hiện tại có hiệu lực đến {formatDate(subscriptionExpiresAt)}.</p>}
-    {loading ? <TaskProgress label="Đang tải các gói dịch vụ" /> : plans.length ? <div className="subscription-plan-grid">{plans.map((plan) => {
-      const current = plan.code === currentPlanCode;
-      const hasExpiry = Boolean(subscriptionExpiresAt);
-      return <article className={`subscription-plan-option ${current ? "is-current" : ""}`} key={plan.code}>
-        <div><strong>{plan.name}</strong><span>{plan.description}</span></div>
-        <b>{new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice ?? 0)}đ <small>/ tháng</small></b>
-        <p>{plan.quoteLimit == null ? "Không giới hạn báo giá" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} báo giá/tháng`} · {plan.templateLimit == null ? "Không giới hạn mẫu" : `${plan.templateLimit} mẫu`}</p>
-        <button type="button" className={`button ${current && !hasExpiry ? "button-soft" : "button-primary"}`} disabled={Boolean(busyPlan) || (current && !hasExpiry)} onClick={() => void beginCheckout(plan.code)}>
-          {busyPlan === plan.code ? "Đang tạo mã…" : current && !hasExpiry ? "Đang sử dụng" : current ? "Gia hạn gói" : currentPlanCode === "free" ? "Nâng cấp gói" : "Chọn gói"}
-        </button>
-      </article>;
-    })}</div> : <div className="empty-state"><p>Chưa có gói trả phí khả dụng.</p></div>}
-    {payment && <div className="billing-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPayment(null); }}>
-      <section className="billing-modal" role="dialog" aria-modal="true" aria-labelledby="billing-modal-title">
-        <button type="button" className="icon-button billing-modal-close" aria-label="Đóng" onClick={() => setPayment(null)}>×</button>
-        <span className="eyebrow">SEPAY · {payment.status === "paid" ? "ĐÃ THANH TOÁN" : payment.status === "superseded" ? "MÃ ĐÃ ĐƯỢC THAY THẾ" : "CHỜ THANH TOÁN"}</span>
-        <h2 id="billing-modal-title">Thanh toán gói {payment.planName}</h2>
-        {payment.status === "paid" ? <div className="billing-success"><span aria-hidden="true">✓</span><strong>Thanh toán thành công</strong><p>Gói dịch vụ đã được cập nhật tự động.</p></div> : payment.status === "superseded" ? <p>Mã thanh toán này đã được thay bằng yêu cầu mới. Hãy chọn gói để tạo mã khác.</p> : <>
-          {payment.qrUrl && <img className="billing-qr" src={payment.qrUrl} alt={`QR thanh toán ${payment.amount.toLocaleString("vi-VN")} đồng`} />}
-          <strong className="billing-amount">{new Intl.NumberFormat("vi-VN").format(payment.amount)}đ</strong>
-          <p className="billing-instruction">Quét QR bằng ứng dụng ngân hàng và giữ nguyên nội dung chuyển khoản.</p>
-          <dl className="billing-transfer-details"><div><dt>Ngân hàng</dt><dd>{payment.bankCode}</dd></div><div><dt>Tài khoản</dt><dd>{payment.accountNumber}</dd></div>{payment.accountName && <div><dt>Chủ tài khoản</dt><dd>{payment.accountName}</dd></div>}<div><dt>Nội dung</dt><dd>{payment.code}</dd></div></dl>
-          <p className="billing-pending-note">Đang tự kiểm tra thanh toán…</p>
-        </>}
-        <div className="billing-modal-actions"><button type="button" className="button button-soft" onClick={() => setPayment(null)}>Đóng</button>{payment.status === "pending" && <button type="button" className="button button-primary" disabled={checkingPayment} onClick={() => void refreshPayment()}>{checkingPayment ? "Đang kiểm tra…" : "Kiểm tra ngay"}</button>}</div>
-      </section>
-    </div>}
-  </section>;
-}
-
-function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
-  const [settings, setSettings] = useState<CompanyEmailSettings | null>(null);
-  const [form, setForm] = useState<CompanyEmailForm>({ host: "", port: "587", secure: false, user: "", password: "", from: "" });
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
-  const setError = useCallback((message: string) => { if (message) onToast(message, "error"); }, [onToast]);
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { settings: saved } = await api<{ settings: CompanyEmailSettings }>("/api/settings/email");
-      setSettings(saved);
-      setForm({ host: saved.host, port: String(saved.port), secure: saved.secure, user: saved.user, password: "", from: saved.from });
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không tải được cài đặt email.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-  const update = <K extends keyof CompanyEmailForm>(key: K, value: CompanyEmailForm[K]) => setForm((current) => ({ ...current, [key]: value }));
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setTaskProgress({ label: "Đang lưu cấu hình email", detail: "Đang cập nhật cài đặt máy chủ…" });
-    setError("");
-    try {
-      const { settings: saved } = await api<{ settings: CompanyEmailSettings }>("/api/settings/email", {
-        method: "PUT",
-        body: JSON.stringify({ ...form, port: Number(form.port) }),
-      });
-      setSettings(saved);
-      setForm((current) => ({ ...current, password: "" }));
-      onToast("Cài đặt email đã được lưu cho doanh nghiệp.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không lưu được cài đặt email.");
-    } finally {
-      setBusy(false);
-      setTaskProgress(null);
-    }
-  };
-  const testConnection = async () => {
-    setTesting(true);
-    setTaskProgress({ label: "Đang kiểm tra kết nối SMTP", detail: "Đang kết nối với máy chủ email…" });
-    setError("");
-    try {
-      await api("/api/settings/email/test", { method: "POST" });
-      onToast("Kết nối SMTP thành công.");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không kết nối được SMTP.");
-    } finally {
-      setTesting(false);
-      setTaskProgress(null);
-    }
-  };
-  const removeSettings = async () => {
-    if (!await confirm({ title: "Xóa cấu hình email?", message: "Doanh nghiệp sẽ không thể gửi báo giá qua SMTP cho đến khi cấu hình lại.", confirmLabel: "Xóa cấu hình", tone: "danger" })) return;
-    setBusy(true);
-    setTaskProgress({ label: "Đang xóa cấu hình email", detail: "Đang cập nhật cài đặt doanh nghiệp…" });
-    setError("");
-    try {
-      await api("/api/settings/email", { method: "DELETE" });
-      onToast("Đã xóa cấu hình email của doanh nghiệp.");
-      await load();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không xóa được cài đặt email.");
-    } finally {
-      setBusy(false);
-      setTaskProgress(null);
-    }
-  };
-  if (loading) return <div className="profile-settings-loading"><Loading /></div>;
-  return <div className="page-stack settings-page">
-    <section className="content-card email-settings-card profile-email-settings-card">
-      <div className="settings-card-heading"><div><h2>Email gửi báo giá</h2><p className="settings-hint">Cấu hình máy chủ SMTP để gửi báo giá.</p></div><span className={`settings-status ${settings?.configured ? "connected" : "not-connected"}`}>{settings?.configured ? "Đã cấu hình" : "Chưa cấu hình"}</span></div>
-    {taskProgress && <TaskProgress {...taskProgress} />}
-      <form className="email-settings-form" onSubmit={(event) => void save(event)}>
-        <label>Máy chủ SMTP<input type="text" value={form.host} onChange={(event) => update("host", event.target.value)} placeholder="smtp.congty.vn" autoComplete="off" required /></label>
-        <div className="email-settings-row">
-          <label>Cổng<input type="number" min="1" max="65535" value={form.port} onChange={(event) => update("port", event.target.value)} required /></label>
-          <div className="smtp-security-field"><span>Kiểu bảo mật</span><SmtpSecurityDropdown secure={form.secure} onChange={(secure) => update("secure", secure)} /></div>
+  return (
+    <section className="content-card profile-billing-card">
+      <div className="profile-section-header">
+        <div>
+          <h2>Nâng cấp hoặc gia hạn gói dịch vụ</h2>
         </div>
-        <label>Tên đăng nhập SMTP<input type="text" value={form.user} onChange={(event) => update("user", event.target.value)} placeholder="Có thể để trống nếu máy chủ không yêu cầu" autoComplete="username" /></label>
-        <label>Mật khẩu SMTP<input type="password" value={form.password} onChange={(event) => update("password", event.target.value)} placeholder={settings?.passwordSet ? "Để trống để giữ mật khẩu đã lưu" : "Nhập mật khẩu hoặc mật khẩu ứng dụng"} autoComplete="new-password" /></label>
-        <label>Tên/email người gửi<input type="text" value={form.from} onChange={(event) => update("from", event.target.value)} placeholder="Báo giá ABC <baogia@congty.vn>" required /></label>
-        <p className="settings-hint">Mật khẩu được mã hóa và không hiển thị lại. Dùng mật khẩu ứng dụng nếu nhà cung cấp yêu cầu.</p>
-        <div className="settings-actions"><div>{settings?.configured && <><button className="button button-soft" type="button" disabled={busy || testing} onClick={() => void testConnection()}>{testing ? "Đang kiểm tra…" : "Kiểm tra kết nối"}</button><button className="text-button settings-delete" type="button" disabled={busy || testing} onClick={() => void removeSettings()}>Xóa cấu hình</button></>}</div><button className="button button-primary" type="submit" disabled={busy || testing}>{busy ? "Đang lưu…" : "Lưu cấu hình"}</button></div>
-      </form>
+      </div>
+
+      {taskProgress && <TaskProgress {...taskProgress} />}
+
+      {loading ? (
+        <TaskProgress label="Đang tải các gói dịch vụ" />
+      ) : plans.length ? (
+        <div className="profile-pricing-grid">
+          {plans.map((plan) => {
+            const current = plan.code === currentPlanCode;
+            const hasExpiry = Boolean(subscriptionExpiresAt);
+            const isFeatured = plan.featured || plan.code === "pro";
+
+            return (
+              <article
+                className={`profile-plan-tile ${current ? "is-current-plan" : ""} ${isFeatured ? "is-featured-plan" : ""}`}
+                key={plan.code}
+              >
+                {isFeatured && <span className="profile-plan-featured-tag">ĐƯỢC CHỌN NHIỀU</span>}
+                {current && <span className="profile-plan-current-tag">GÓI ĐANG DÙNG</span>}
+
+                <div className="profile-plan-tile-header">
+                  <h3>{plan.name}</h3>
+                  <p>{plan.description}</p>
+                </div>
+
+                <div className="profile-plan-tile-price">
+                  <strong>{new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice ?? 0)}đ</strong>
+                  <span>/ tháng</span>
+                </div>
+
+                <ul className="profile-plan-features">
+                  <li>
+                    <Icon name="check" size={14} />
+                    <span>{plan.quoteLimit == null ? "Không giới hạn lượt báo giá" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt tạo báo giá / tháng`}</span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={14} />
+                    <span>{plan.templateLimit == null ? "Không giới hạn mẫu báo giá" : `${plan.templateLimit} mẫu báo giá doanh nghiệp`}</span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={14} />
+                    <span>AI đối chiếu chính xác theo bảng giá riêng</span>
+                  </li>
+                  <li>
+                    <Icon name="check" size={14} />
+                    <span>Xuất file Excel &amp; PDF chuẩn mẫu</span>
+                  </li>
+                </ul>
+
+                <button
+                  type="button"
+                  className={`button ${current && !hasExpiry ? "button-soft is-disabled-btn" : isFeatured ? "button-primary profile-btn-featured" : "button-primary"}`}
+                  disabled={Boolean(busyPlan) || (current && !hasExpiry)}
+                  onClick={() => void beginCheckout(plan.code)}
+                >
+                  {busyPlan === plan.code ? (
+                    "Đang tạo mã…"
+                  ) : current && !hasExpiry ? (
+                    "Đang sử dụng"
+                  ) : current ? (
+                    "Gia hạn gói này"
+                  ) : currentPlanCode === "free" ? (
+                    "Nâng cấp ngay"
+                  ) : (
+                    "Đổi sang gói này"
+                  )}
+                </button>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="empty-state">
+          <p>Chưa có gói trả phí khả dụng.</p>
+        </div>
+      )}
+
+      {/* MODAL THANH TOÁN SEPAY VỚI NÚT COPY TIỆN LỢI */}
+      {payment && (
+        <div
+          className="billing-modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPayment(null);
+          }}
+        >
+          <section className="billing-modal" role="dialog" aria-modal="true" aria-labelledby="billing-modal-title">
+            <button
+              type="button"
+              className="icon-button billing-modal-close"
+              aria-label="Đóng"
+              onClick={() => setPayment(null)}
+            >
+              ×
+            </button>
+            <span className="profile-card-eyebrow">
+              SEPAY · {payment.status === "paid" ? "ĐÃ THANH TOÁN" : payment.status === "superseded" ? "MÃ ĐÃ THAY THẾ" : "CHỜ THANH TOÁN"}
+            </span>
+            <h2 id="billing-modal-title">Thanh toán gói {payment.planName}</h2>
+
+            {payment.status === "paid" ? (
+              <div className="billing-success">
+                <span aria-hidden="true">✓</span>
+                <strong>Thanh toán thành công</strong>
+                <p>Gói dịch vụ đã được kích hoạt tự động trên tài khoản của bạn.</p>
+              </div>
+            ) : payment.status === "superseded" ? (
+              <p>Mã thanh toán này đã được thay bằng yêu cầu mới. Hãy chọn gói để tạo mã khác.</p>
+            ) : (
+              <>
+                {payment.qrUrl && (
+                  <div className="billing-qr-box">
+                    <img
+                      className="billing-qr"
+                      src={payment.qrUrl}
+                      alt={`QR thanh toán ${payment.amount.toLocaleString("vi-VN")} đồng`}
+                    />
+                  </div>
+                )}
+                <div className="billing-amount-banner">
+                  <small>Số tiền cần chuyển:</small>
+                  <strong className="billing-amount">{new Intl.NumberFormat("vi-VN").format(payment.amount)}đ</strong>
+                </div>
+
+                <p className="billing-instruction">Quét mã QR bằng app ngân hàng hoặc chuyển khoản theo thông tin bên dưới:</p>
+
+                <div className="billing-copy-grid">
+                  {payment.bankCode && (
+                    <div className="billing-copy-item">
+                      <div className="billing-copy-meta">
+                        <small>Ngân hàng:</small>
+                        <strong>{payment.bankCode}</strong>
+                      </div>
+                      <CopyTextButton text={payment.bankCode} label="ngân hàng" onToast={showToast} />
+                    </div>
+                  )}
+
+                  {payment.accountNumber && (
+                    <div className="billing-copy-item">
+                      <div className="billing-copy-meta">
+                        <small>Số tài khoản:</small>
+                        <strong className="billing-mono-value">{payment.accountNumber}</strong>
+                      </div>
+                      <CopyTextButton text={payment.accountNumber} label="số tài khoản" onToast={showToast} />
+                    </div>
+                  )}
+
+                  {payment.accountName && (
+                    <div className="billing-copy-item">
+                      <div className="billing-copy-meta">
+                        <small>Chủ tài khoản:</small>
+                        <strong>{payment.accountName}</strong>
+                      </div>
+                      <CopyTextButton text={payment.accountName} label="tên chủ tài khoản" onToast={showToast} />
+                    </div>
+                  )}
+
+                  <div className="billing-copy-item billing-copy-highlight">
+                    <div className="billing-copy-meta">
+                      <small>Nội dung chuyển khoản (bắt buộc):</small>
+                      <strong className="billing-code-value">{payment.code}</strong>
+                    </div>
+                    <CopyTextButton text={payment.code} label="nội dung chuyển khoản" onToast={showToast} />
+                  </div>
+                </div>
+
+                <div className="billing-pulse-row">
+                  <span className="billing-pulse-dot" />
+                  <span>Hệ thống đang tự động kiểm tra giao dịch…</span>
+                </div>
+              </>
+            )}
+
+            <div className="billing-modal-actions">
+              <button type="button" className="button button-soft" onClick={() => setPayment(null)}>
+                Đóng
+              </button>
+              {payment.status === "pending" && (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  disabled={checkingPayment}
+                  onClick={() => void refreshPayment()}
+                >
+                  {checkingPayment ? "Đang kiểm tra…" : "Kiểm tra ngay"}
+                </button>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
     </section>
-  </div>;
+  );
 }
 
 function CompanyFiles({ onToast, confirm }: { onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
@@ -2101,6 +2871,7 @@ function CompanyFiles({ onToast, confirm }: { onToast: Notify; confirm: (options
   const setError = useCallback((message: string) => { if (message) onToast(message, "error"); }, [onToast]);
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -2112,8 +2883,10 @@ function CompanyFiles({ onToast, confirm }: { onToast: Notify; confirm: (options
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [setError]);
+
   useEffect(() => { void load(); }, [load]);
+
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
@@ -2145,28 +2918,242 @@ function CompanyFiles({ onToast, confirm }: { onToast: Notify; confirm: (options
       setTaskProgress(null);
     }
   };
-  if (loading) return <section className="content-card email-settings-card company-files-card"><Loading /></section>;
-  return <section className="content-card email-settings-card company-files-card">
-    <div className="settings-card-heading"><div><h2>Tệp doanh nghiệp</h2><p className="settings-hint">Ảnh, PDF, CSV và Excel · tối đa 10 MB mỗi tệp</p></div><button className="button button-soft" type="button" disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? "Đang tải lên…" : "Tải tệp lên"}</button><input ref={fileInput} type="file" hidden accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.csv,.xlsx,.xls" onChange={(event) => void upload(event)} /></div>
-    {taskProgress && <TaskProgress {...taskProgress} />}
-    <div className="stored-files-section">
-      {files.length ? <div className="stored-files-list">{files.map((file) => <div className="stored-file-row" key={file._id ?? `${file.originalFilename}-${file.createdAt}`}><span className="stored-file-icon"><Icon name="file" size={16} /></span><span><strong>{file.originalFilename}</strong><small>{formatDate(file.createdAt)} · {(file.bytes / 1024).toFixed(0)} KB</small></span><button type="button" className="text-button" disabled={!file._id} onClick={() => setPreviewFile({ name: file.originalFilename, url: `/api/files/${file._id}/preview` })}>Xem trước</button></div>)}</div> : <p className="settings-hint stored-files-empty">Chưa có tệp nào được tải lên.</p>}
-    </div>
-    <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
-  </section>;
+
+  const getFileIconColor = (filename: string) => {
+    const ext = filename.split(".").pop()?.toLowerCase() ?? "";
+    if (ext === "xlsx" || ext === "xls" || ext === "csv") return "is-excel";
+    if (ext === "pdf") return "is-pdf";
+    if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) return "is-img";
+    return "is-file";
+  };
+
+  if (loading) return <section className="content-card profile-files-card"><Loading /></section>;
+
+  return (
+    <section className="content-card profile-files-card">
+      <div className="profile-section-header">
+        <div>
+          <h2>Tệp và tài liệu doanh nghiệp</h2>
+        </div>
+        <button
+          className="button button-primary profile-upload-btn"
+          type="button"
+          disabled={uploading}
+          onClick={() => fileInput.current?.click()}
+        >
+          <Icon name="plus" size={16} />
+          <span>{uploading ? "Đang tải lên…" : "Tải tệp mới"}</span>
+        </button>
+        <input
+          ref={fileInput}
+          type="file"
+          hidden
+          accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.csv,.xlsx,.xls"
+          onChange={(event) => void upload(event)}
+        />
+      </div>
+
+      {taskProgress && <TaskProgress {...taskProgress} />}
+
+      <div className="profile-files-container">
+        {files.length ? (
+          <div className="profile-files-table">
+            {files.map((file) => (
+              <div className="profile-file-item" key={file._id ?? `${file.originalFilename}-${file.createdAt}`}>
+                <span className={`profile-file-badge ${getFileIconColor(file.originalFilename)}`}>
+                  <Icon name="file" size={17} />
+                </span>
+                <div className="profile-file-details">
+                  <strong title={file.originalFilename}>{file.originalFilename}</strong>
+                  <span>Tải lên ngày {formatDate(file.createdAt)} · {(file.bytes / 1024).toFixed(0)} KB</span>
+                </div>
+                <button
+                  type="button"
+                  className="button button-soft profile-preview-btn"
+                  disabled={!file._id}
+                  onClick={() => setPreviewFile({ name: file.originalFilename, url: `/api/files/${file._id}/preview` })}
+                >
+                  <Icon name="eye" size={14} />
+                  <span>Xem</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="profile-files-empty">
+            <Icon name="file" size={32} />
+            <p>Chưa có tệp tài liệu nào được tải lên.</p>
+            <small>Các tệp tải lên tại đây có thể đính kèm vào báo giá gửi khách hàng.</small>
+          </div>
+        )}
+      </div>
+
+      <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
+    </section>
+  );
 }
-function QuoteCards({ quotes, onOpen, onDelete, emptyTitle, emptyText }: { quotes: Quote[]; onOpen: (id: string) => void; onDelete?: (quote: Quote) => void; emptyTitle: string; emptyText: string }) {
+function getCustomerInitials(name: string): string {
+  if (!name || !name.trim()) return "KH";
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const AVATAR_GRADIENTS = [
+  "linear-gradient(135deg, #0284c7 0%, #0369a1 100%)",
+  "linear-gradient(135deg, #0d9488 0%, #0f766e 100%)",
+  "linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)",
+  "linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)",
+  "linear-gradient(135deg, #ec4899 0%, #db2777 100%)",
+  "linear-gradient(135deg, #f59e0b 0%, #d97706 100%)",
+  "linear-gradient(135deg, #10b981 0%, #059669 100%)",
+];
+
+function getCustomerAvatarBg(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return AVATAR_GRADIENTS[Math.abs(hash) % AVATAR_GRADIENTS.length];
+}
+
+function QuoteCards({
+  quotes,
+  onOpen,
+  onDelete,
+  emptyTitle,
+  emptyText,
+}: {
+  quotes: Quote[];
+  onOpen: (id: string) => void;
+  onDelete?: (quote: Quote) => void;
+  emptyTitle: string;
+  emptyText: string;
+}) {
   if (!quotes.length) return <EmptyState title={emptyTitle} text={emptyText} />;
-  return <div className="quote-cards">{quotes.map((quote) => <div className="quote-card-entry" key={quote._id}><button type="button" className="quote-summary-card" onClick={() => onOpen(quote._id)}><span className="quote-summary-top"><strong className="quote-number">{quote.quoteNumber}</strong><StatusPill status={quote.status} /></span><span className="quote-summary-customer"><strong>{quote.customerName}</strong><span>{quote.customerEmail || "Chưa có email"}</span>{quote.customerPhone && <span>{quote.customerPhone}</span>}</span><span className="quote-summary-meta">Tạo {formatDate(quote.createdAt)} · {quote.lines.length} mặt hàng</span><span className="quote-summary-bottom"><span><small>Tổng tiền</small><strong>{formatMoney(quote.total, quote.currency)}</strong></span><Icon name="arrow" size={18} /></span></button>{onDelete && <button type="button" className="quote-card-delete" onClick={() => onDelete(quote)}><Icon name="trash" size={14} /> Xóa báo giá</button>}</div>)}</div>;
+
+  return (
+    <div className="quote-cards-grid">
+      {quotes.map((quote) => {
+        const initials = getCustomerInitials(quote.customerName);
+        const avatarBg = getCustomerAvatarBg(quote.customerName);
+
+        return (
+          <div
+            key={quote._id}
+            className={`quote-card-item status-${quote.status}`}
+            onClick={() => onOpen(quote._id)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpen(quote._id);
+              }
+            }}
+          >
+            {/* Top colored accent indicator */}
+            <div className={`quote-card-accent-bar status-bg-${quote.status}`} />
+
+            {/* Header: Quote Number & Status */}
+            <div className="quote-card-header">
+              <span className="quote-number-pill" title={`Mã báo giá: ${quote.quoteNumber}`}>
+                <Icon name="quote" size={13} />
+                <span className="quote-number-text">{quote.quoteNumber}</span>
+              </span>
+              <StatusPill status={quote.status} />
+            </div>
+
+            {/* Customer Information */}
+            <div className="quote-card-customer">
+              <div className="quote-avatar-circle" style={{ background: avatarBg }}>
+                <span>{initials}</span>
+              </div>
+              <div className="quote-customer-meta">
+                <h4 className="quote-customer-name" title={quote.customerName}>
+                  {quote.customerName}
+                </h4>
+                <div className="quote-contact-chips">
+                  {quote.customerPhone ? (
+                    <span className="quote-contact-chip" title={`Điện thoại: ${quote.customerPhone}`}>
+                      <Icon name="phone" size={11} />
+                      <span>{quote.customerPhone}</span>
+                    </span>
+                  ) : null}
+                  {quote.customerEmail ? (
+                    <span className="quote-contact-chip" title={`Email: ${quote.customerEmail}`}>
+                      <Icon name="mail" size={11} />
+                      <span>{quote.customerEmail}</span>
+                    </span>
+                  ) : (
+                    !quote.customerPhone && (
+                      <span className="quote-contact-chip is-empty">Chưa có liên hệ</span>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Details Meta Chips */}
+            <div className="quote-card-stats">
+              <span className="quote-stat-pill" title="Thời gian tạo">
+                <Icon name="clock" size={12} />
+                <span>{formatDate(quote.createdAt)}</span>
+              </span>
+              <span className="quote-stat-pill" title="Số lượng hạng mục sản phẩm">
+                <Icon name="box" size={12} />
+                <span>{quote.lines.length} hạng mục</span>
+              </span>
+            </div>
+
+            {/* Card Footer: Total Amount & Actions */}
+            <div className="quote-card-footer">
+              <div className="quote-card-total">
+                <span className="quote-total-label">Tổng giá trị</span>
+                <strong className="quote-total-amount">
+                  {formatMoney(quote.total, quote.currency)}
+                </strong>
+              </div>
+
+              <div className="quote-card-actions">
+                {onDelete && (
+                  <button
+                    type="button"
+                    className="quote-card-action-btn quote-card-btn-delete"
+                    title="Xóa bản báo giá"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(quote);
+                    }}
+                  >
+                    <Icon name="trash" size={14} />
+                  </button>
+                )}
+                <span className="quote-card-open-badge" title="Mở chi tiết báo giá">
+                  <span>Xem</span>
+                  <Icon name="arrow" size={13} />
+                </span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state quote-empty-state"><span className="empty-icon"><img src="/images/quote-empty-3d.svg" alt="" /></span><h3>{title}</h3>{text && <p>{text}</p>}</div>; }
 function Loading() { return <TaskProgress label="Đang tải dữ liệu" detail="Vui lòng chờ trong giây lát…" />; }
 
 function App() {
-  const path = window.location.pathname.replace(/\/+$/, "") || "/";
+  const [path, setPath] = useState(() => normalizedPath(window.location.pathname));
+  useEffect(() => {
+    const syncPath = () => setPath(normalizedPath(window.location.pathname));
+    window.addEventListener("popstate", syncPath);
+    return () => window.removeEventListener("popstate", syncPath);
+  }, []);
   if (path === "/quan-tri") return <AdminApp />;
-  if (path === "/dang-nhap" || path === "/dang-ky" || path === "/ung-dung") return <UserApp />;
+  if (path === "/dang-nhap" || path === "/dang-ky" || userRouteForPath(path)) return <UserApp />;
   if (path === "/") return <LandingPage />;
   return <main className="route-not-found"><div><span>404</span><h1>Không tìm thấy trang</h1><p>Đường dẫn này không tồn tại hoặc đã được thay đổi.</p><a href="/">Về trang chủ</a></div></main>;
 }

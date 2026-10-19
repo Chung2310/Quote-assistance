@@ -1067,6 +1067,12 @@ h3 {
   letter-spacing: 0;
 }
 
+.app-shell .nav-button,
+.app-shell .profile-button {
+  text-decoration: none;
+  cursor: pointer;
+}
+
 .app-shell .profile-copy strong {
   font-size: 14px;
 }
@@ -1734,13 +1740,109 @@ h3 {
 }
 
 #root .metric-card,
-#root .quote-summary-card {
+#root .quote-summary-card,
+#root .quote-card-item {
   color: inherit !important;
+}
+
+#root .quote-card-btn-delete {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+#root .quote-card-btn-delete:hover {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #ef4444 !important;
+}
+
+#root .quote-filter-tab {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #475569 !important;
+}
+
+#root .quote-filter-tab:hover {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+#root .quote-filter-tab.is-active {
+  background: #00ADFC !important;
+  border-color: #00ADFC !important;
+  color: #ffffff !important;
+}
+
+#root .quote-quota-upgrade-btn {
+  background: rgba(0, 173, 252, 0.08) !important;
+  border: 1px solid rgba(0, 173, 252, 0.28) !important;
+  color: #008fce !important;
+}
+
+#root .quote-quota-upgrade-btn:hover {
+  background: #00ADFC !important;
+  border-color: #00ADFC !important;
+  color: #ffffff !important;
+}
+
+#root .quote-quota-retry-link {
+  color: #008fce !important;
+  background: transparent !important;
+  border: none !important;
+}
+
+#root .quote-back-btn {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #475569 !important;
+}
+
+#root .quote-back-btn:hover {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+#root .quote-copy-badge {
+  background: #f8fafc !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+#root .quote-copy-badge:hover {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+#root .quote-delete-action {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  color: #64748b !important;
+}
+
+#root .quote-delete-action:hover {
+  background: #fef2f2 !important;
+  border-color: #fecaca !important;
+  color: #ef4444 !important;
+}
+
+#root .quote-reject-btn {
+  background: #fff1f2 !important;
+  border: 1px solid #fecdd3 !important;
+  color: #e11d48 !important;
+}
+
+#root .quote-reject-btn:hover {
+  background: #ffe4e6 !important;
+  border-color: #fda4af !important;
+  color: #be123c !important;
 }
 
 #root .button,
 #root .admin-button,
-#root .quote-back-btn,
 #root .login-submit-btn,
 #root .demo-fill-btn {
   background: #00ADFC !important;
@@ -1751,7 +1853,6 @@ h3 {
 
 #root .button:hover:not(:disabled),
 #root .admin-button:hover:not(:disabled),
-#root .quote-back-btn:hover,
 #root .login-submit-btn:hover:not(:disabled),
 #root .demo-fill-btn:hover {
   background: #008fce !important;
@@ -3078,377 +3179,773 @@ h3 {
   padding: 0;
 }
 
-/* Compact profile layout: account and files beside SMTP settings. */
+/* ==========================================================================
+   MODERN ACCOUNT PROFILE & SUBSCRIPTION BILLING LAYOUT
+   ========================================================================== */
 .app-shell .profile-page {
   width: 100%;
-  max-width: none;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-  align-items: start;
-  gap: 18px 24px;
+  max-width: 1120px;
+  margin: 0 auto;
+  gap: 24px;
 }
 
-.app-shell .profile-page > .page-heading-row {
-  grid-column: 1 / -1;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 2px;
-}
-
-.app-shell .profile-page > .page-heading-row > div {
-  flex: 1 1 280px;
-  min-width: 0;
-}
-
-.app-shell .profile-page > .page-heading-row h1 {
-  margin: 0;
-  line-height: 1.2;
-}
-
-.app-shell .profile-page > .page-heading-row .muted {
-  margin: 8px 0 0;
-  font-size: 14px;
-  line-height: 1.5;
-}
-
-#root .profile-page > .page-heading-row .muted {
-  color: #647b89 !important;
-}
-
-.app-shell .profile-page .settings-page {
-  display: contents;
-}
-
-.app-shell .profile-page .profile-left-column {
-  grid-column: 1;
-  grid-row: 2;
-  display: grid;
-  align-content: start;
-  gap: 18px;
-  min-width: 0;
-}
-
-.app-shell .profile-page .profile-overview {
-  min-height: 0;
-  flex-wrap: wrap;
-  padding: 20px;
-  gap: 14px;
-  border-color: #e1eaf0;
-  background: #fff;
-  box-shadow: 0 8px 28px rgba(22, 73, 104, 0.035);
-}
-
-.app-shell .profile-page .profile-identity {
-  flex: 1 1 220px;
-  gap: 12px;
-}
-
-.app-shell .profile-page .profile-overview-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 16px;
-  font-size: 21px;
-}
-
-.app-shell .profile-page .profile-overview-copy {
-  gap: 4px;
-}
-
-.app-shell .profile-page .profile-overview-copy strong {
-  font-size: 18px;
-}
-
-.app-shell .profile-page .profile-signout {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  min-height: 42px;
-  margin-left: auto;
-  padding: 0 16px;
-  border: 1px solid #d5e5ed;
-  border-radius: 9999px;
-  background: #fff;
-  box-shadow: none;
-  font-size: 13px;
-  cursor: pointer;
-}
-
-#root .profile-page .profile-signout {
-  border-color: #c83737 !important;
-  background: #c83737 !important;
-  color: #fff !important;
-}
-
-#root .profile-page .profile-signout:hover {
-  border-color: #aa2929 !important;
-  background: #aa2929 !important;
-}
-
-.app-shell .profile-page .profile-signout:focus-visible {
-  outline: 3px solid rgba(223, 77, 77, 0.24);
-  outline-offset: 2px;
-}
-
-.app-shell .profile-page .profile-email-settings-card,
-.app-shell .profile-page .company-files-card {
-  min-width: 0;
-  border-color: #e1eaf0;
-  border-radius: 16px;
-  box-shadow: 0 8px 28px rgba(22, 73, 104, 0.035);
-}
-
-.app-shell .profile-page .profile-email-settings-card {
-  grid-column: 2;
-  grid-row: 2;
-  padding: 22px 24px;
-}
-
-.app-shell .profile-page .company-files-card {
-  padding: 20px;
-}
-
-.app-shell .profile-page .settings-card-heading {
-  align-items: center;
-  padding-bottom: 14px;
-}
-
-.app-shell .profile-page .settings-card-heading h2 {
-  margin: 0;
-  font-size: 19px;
-  line-height: 1.3;
-}
-
-.app-shell .profile-page .settings-card-heading .settings-hint {
-  margin: 5px 0 0;
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-#root .profile-page .settings-card-heading .settings-hint,
-#root .profile-page .profile-email-settings-card > .email-settings-form .settings-hint {
-  color: #647b89 !important;
-}
-
-.app-shell .profile-page .profile-email-settings-card .inline-error {
-  margin-top: 14px;
-}
-
-.app-shell .profile-page .email-settings-form {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
-  padding-top: 18px;
-}
-
-.app-shell .profile-page .email-settings-form > label,
-.app-shell .profile-page .email-settings-form > .email-settings-row {
-  min-width: 0;
-}
-
-.app-shell .profile-page .email-settings-form > .email-settings-row {
-  grid-template-columns: minmax(85px, .42fr) minmax(0, 1fr);
-  gap: 12px;
-}
-
-.app-shell .profile-page .email-settings-form > label:last-of-type,
-.app-shell .profile-page .email-settings-form > .settings-hint,
-.app-shell .profile-page .email-settings-form > .settings-actions {
-  grid-column: 1 / -1;
-}
-
-.app-shell .profile-page .email-settings-form label {
-  min-width: 0;
-  font-size: 13px;
-}
-
-.app-shell .profile-page .email-settings-form input,
-.app-shell .profile-page .email-settings-form select {
-  min-width: 0;
-  height: 42px;
-  font-size: 13px;
-}
-
-.app-shell .profile-page .email-settings-form input[type="number"] {
-  appearance: textfield;
-  -moz-appearance: textfield;
-}
-
-.app-shell .profile-page .email-settings-form input[type="number"]::-webkit-inner-spin-button,
-.app-shell .profile-page .email-settings-form input[type="number"]::-webkit-outer-spin-button {
-  -webkit-appearance: none;
-  margin: 0;
-}
-
-.app-shell .profile-page .smtp-security-field {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-.app-shell .profile-page .smtp-security-dropdown {
-  position: relative;
-  min-width: 0;
-}
-
-.app-shell .profile-page .smtp-security-trigger {
+.profile-heading-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  width: 100%;
-  height: 42px;
-  padding: 0 12px;
-  border: 1px solid #dce7ec;
-  border-radius: 10px;
-  background: #fff;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
+  gap: 20px;
+  margin-bottom: 4px;
 }
 
-.app-shell .profile-page .smtp-security-trigger > span {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+.profile-heading-row h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  color: #163640;
 }
 
-.app-shell .profile-page .smtp-security-trigger svg {
-  flex: none;
-  transition: transform 160ms ease;
+.profile-heading-row .muted {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  color: #637d86 !important;
 }
 
-.app-shell .profile-page .smtp-security-dropdown.is-open .smtp-security-trigger svg {
-  transform: rotate(180deg);
-}
-
-.app-shell .profile-page .smtp-security-trigger:focus-visible,
-.app-shell .profile-page .smtp-security-dropdown.is-open .smtp-security-trigger {
-  outline: 0;
-  border-color: #00adfc;
-  box-shadow: 0 0 0 3px rgba(0, 173, 252, 0.13);
-}
-
-.app-shell .profile-page .smtp-security-menu {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 6px);
-  right: 0;
-  left: 0;
-  display: grid;
-  gap: 4px;
-  padding: 6px;
-  border: 1px solid #dce7ec;
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 14px 32px rgba(20, 40, 55, 0.13);
-}
-
-.app-shell .profile-page .smtp-security-menu [role="option"] {
+/* Nút Đăng xuất */
+.profile-signout-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   min-height: 40px;
-  padding: 9px 12px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
+  padding: 0 16px;
+  border: 1px solid #fed7d7;
+  border-radius: 10px;
+  background: #fff5f5;
+  color: #c53030 !important;
   font-size: 13px;
-  text-align: left;
+  font-weight: 700;
   cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.app-shell .profile-page .smtp-security-menu [role="option"]:hover,
-.app-shell .profile-page .smtp-security-menu [role="option"]:focus-visible,
-.app-shell .profile-page .smtp-security-menu [role="option"][aria-selected="true"] {
-  outline: 0;
-  background: #e7f7ff;
+.profile-signout-btn:hover {
+  background: #fed7d7;
+  border-color: #feb2b2;
+  color: #9b2c2c !important;
+  transform: translateY(-1px);
 }
 
-#root .profile-page .email-settings-form input::placeholder {
-  color: #94a6b1 !important;
-  opacity: 1;
+/* Bố cục 2 Cột Dashboard */
+.profile-dashboard-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
 }
 
-.app-shell .profile-page .button {
-  border-radius: 9999px;
+.profile-sidebar-col {
+  display: grid;
+  gap: 20px;
 }
 
-.app-shell .profile-page .email-settings-form > .settings-hint {
-  margin: -4px 0 0;
+.profile-main-col {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+/* Thẻ Hồ Sơ Người Dùng (User Card) */
+.profile-user-card {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid #dcecef;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 60, 72, 0.04);
+}
+
+.profile-user-cover {
+  height: 72px;
+  background: linear-gradient(135deg, #0891b2 0%, #06b6d4 50%, #38bdf8 100%);
+}
+
+.profile-user-body {
+  padding: 0 20px 22px;
+  margin-top: -36px;
+  position: relative;
+}
+
+.profile-avatar-wrapper {
+  position: relative;
+  display: inline-block;
+  margin-bottom: 12px;
+}
+
+.profile-avatar-large {
+  width: 68px;
+  height: 68px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #e0f7fa, #cff1f6);
+  border: 3px solid #ffffff;
+  box-shadow: 0 4px 12px rgba(8, 145, 178, 0.2);
+  color: #087d96;
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.profile-status-online {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 2px solid #ffffff;
+}
+
+.profile-user-info h2 {
+  margin: 0 0 6px;
+  font-size: 19px;
+  font-weight: 800;
+  color: #173b45;
+}
+
+.profile-email-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  color: #55727b;
+  font-size: 12.5px;
+}
+
+.profile-email-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Nút Copy nhỏ gọn */
+.profile-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid #d5eaef;
+  border-radius: 6px;
+  background: #f4fafb;
+  color: #087d96;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+  flex: none;
+}
+
+.profile-copy-btn:hover {
+  background: #e6f7fa;
+  border-color: #bee5ed;
+  color: #06697e;
+}
+
+.profile-copy-btn.is-copied {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #059669;
+}
+
+.profile-role-tags {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.profile-badge-role {
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: #eaf8fa;
+  border: 1px solid #c7edf2;
+  color: #087d96;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.profile-badge-active {
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #059669;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Thẻ Hạn Mức Gói Hiện Tại (Quota Card) */
+.profile-quota-card {
+  padding: 22px 20px;
+  border: 1px solid #dcecef;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 60, 72, 0.04);
+}
+
+.profile-quota-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.profile-card-eyebrow {
+  display: block;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  color: #0891b2;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.profile-quota-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #173b45;
+}
+
+.profile-plan-pill-active {
+  padding: 4px 8px;
+  border-radius: 20px;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #059669;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.profile-quota-desc {
+  margin: 0 0 14px;
+  color: #627e87;
   font-size: 12px;
   line-height: 1.5;
 }
 
-.app-shell .profile-page .settings-actions {
-  padding-top: 2px;
+.profile-expiry-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f0fafd;
+  border: 1px solid #d0eff4;
+  color: #087d96;
+  font-size: 12px;
+  margin-bottom: 16px;
 }
 
-.app-shell .profile-page .company-files-card .settings-card-heading {
+.profile-expiry-banner.is-free {
+  background: #f7fcfe;
+  border-color: #dcecef;
+  color: #55727b;
+}
+
+.profile-quota-metrics {
+  display: grid;
+  gap: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #ebf4f5;
+}
+
+.profile-quota-row {
+  display: grid;
+  gap: 6px;
+}
+
+.profile-quota-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.profile-quota-meta .quota-label {
+  color: #55727b;
+  font-weight: 600;
+}
+
+.profile-quota-meta .quota-value {
+  color: #1b3d46;
+  font-weight: 800;
+}
+
+.profile-progress-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  background: #eaf3f5;
+  overflow: hidden;
+}
+
+.profile-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #06b6d4, #0891b2);
+  transition: width 0.3s ease;
+}
+
+.profile-progress-bar.is-warning {
+  background: linear-gradient(90deg, #f59e0b, #d97706);
+}
+
+.profile-progress-bar.is-critical {
+  background: linear-gradient(90deg, #ef4444, #dc2626);
+}
+
+.profile-quota-subtext {
+  display: flex;
+  justify-content: space-between;
+  color: #829da4;
+  font-size: 10.5px;
+}
+
+/* Thẻ Bảng Giá Nâng Cấp (Billing Card) */
+.profile-billing-card,
+.profile-files-card {
+  padding: 24px;
+  border: 1px solid #dcecef;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 60, 72, 0.04);
+}
+
+.profile-section-header {
+  display: flex;
   align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #ebf4f5;
 }
 
-.app-shell .profile-page .company-files-card .settings-card-heading .button {
-  min-height: 36px;
-  padding: 0 12px;
+.profile-section-header h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 800;
+  color: #173b45;
+}
+
+.profile-section-header .muted {
+  margin: 0;
+  color: #68858e;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.profile-pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
+  gap: 16px;
+}
+
+.profile-plan-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 18px 20px;
+  border: 1px solid #dcecef;
+  border-radius: 14px;
+  background: #ffffff;
+  transition: all 0.2s ease;
+}
+
+.profile-plan-tile:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 24px rgba(15, 60, 72, 0.06);
+}
+
+.profile-plan-tile.is-featured-plan {
+  border: 2px solid #06b6d4;
+  background: linear-gradient(180deg, #f7fdff 0%, #ffffff 100%);
+  box-shadow: 0 10px 28px rgba(6, 182, 212, 0.12);
+}
+
+.profile-plan-tile.is-current-plan {
+  border-color: #a7f3d0;
+  background: #f9fefb;
+}
+
+.profile-plan-featured-tag,
+.profile-plan-current-tag {
+  position: absolute;
+  top: -11px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
   white-space: nowrap;
 }
 
-.app-shell .profile-page .company-files-card .stored-files-section {
+.profile-plan-featured-tag {
+  background: linear-gradient(135deg, #0891b2, #06b6d4);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(8, 145, 178, 0.25);
+}
+
+.profile-plan-current-tag {
+  background: #10b981;
+  color: #ffffff;
+}
+
+.profile-plan-tile-header h3 {
+  margin: 0 0 5px;
+  font-size: 17px;
+  font-weight: 800;
+  color: #173b45;
+}
+
+.profile-plan-tile-header p {
+  min-height: 36px;
+  margin: 0;
+  font-size: 11.5px;
+  color: #728f98;
+  line-height: 1.5;
+}
+
+.profile-plan-tile-price {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin: 12px 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #ecf3f4;
+}
+
+.profile-plan-tile-price strong {
+  font-size: 22px;
+  font-weight: 800;
+  color: #163842;
+  letter-spacing: -0.5px;
+}
+
+.profile-plan-tile-price span {
+  font-size: 11px;
+  color: #79949d;
+}
+
+.profile-plan-features {
+  flex: 1;
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-plan-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11.5px;
+  color: #55727b;
+  line-height: 1.45;
+}
+
+.profile-plan-features svg {
+  flex: none;
+  color: #0891b2;
+  margin-top: 2px;
+}
+
+.profile-plan-tile .button {
+  width: 100%;
+  min-height: 40px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 9px;
+}
+
+.profile-btn-featured {
+  background: linear-gradient(135deg, #0891b2 0%, #06b6d4 100%);
+  box-shadow: 0 4px 14px rgba(8, 145, 178, 0.25);
+}
+
+.is-disabled-btn {
+  opacity: 0.7;
+  cursor: default !important;
+}
+
+/* Modal SePay QR & Copy Buttons */
+.billing-qr-box {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0 12px;
+}
+
+.billing-qr {
+  width: min(220px, 80%);
+  height: auto;
+  border: 1px solid #dcecef;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(15, 60, 72, 0.08);
+}
+
+.billing-amount-banner {
+  display: grid;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f0fafd;
+  border: 1px solid #d0eff4;
+  margin-bottom: 12px;
+}
+
+.billing-amount-banner small {
+  font-size: 10.5px;
+  color: #637f88;
+}
+
+.billing-amount {
+  font-size: 24px;
+  font-weight: 800;
+  color: #087d96;
+}
+
+.billing-copy-grid {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.billing-copy-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid #e5f0f2;
+  border-radius: 9px;
+  background: #fafcfd;
+  text-align: left;
+}
+
+.billing-copy-highlight {
+  border-color: #bae6fd;
+  background: #f0f9ff;
+}
+
+.billing-copy-meta {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.billing-copy-meta small {
+  font-size: 10px;
+  color: #728e96;
+}
+
+.billing-copy-meta strong {
+  font-size: 13px;
+  color: #1a3c45;
+  overflow-wrap: anywhere;
+}
+
+.billing-mono-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13.5px !important;
+}
+
+.billing-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #0369a1 !important;
+  font-size: 14px !important;
+}
+
+.billing-pulse-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
   margin-top: 14px;
-  padding-top: 0;
-  border-top: 0;
+  color: #55727b;
+  font-size: 11.5px;
 }
 
-.app-shell .profile-page .company-files-card .stored-files-list {
-  margin-top: 0;
+.billing-pulse-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #06b6d4;
+  box-shadow: 0 0 0 3px #dcf8fc;
+  animation: pulse-soft 1.2s infinite alternate ease-in-out;
 }
 
-.app-shell .profile-page .profile-settings-loading {
-  grid-column: 2;
-  grid-row: 2;
+/* Thẻ Tệp Doanh Nghiệp (Files Card) */
+.profile-upload-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  font-size: 12.5px;
+  font-weight: 700;
+  border-radius: 8px;
+  white-space: nowrap;
 }
 
-@media (max-width: 1050px) {
-  .app-shell .profile-page {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.profile-files-table {
+  display: grid;
+  gap: 8px;
+}
 
-  .app-shell .profile-page > .page-heading-row,
-  .app-shell .profile-page .profile-left-column,
-  .app-shell .profile-page .profile-overview,
-  .app-shell .profile-page .profile-email-settings-card,
-  .app-shell .profile-page .company-files-card,
-  .app-shell .profile-page .profile-settings-loading {
-    grid-column: 1;
-    grid-row: auto;
+.profile-file-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid #e6f0f2;
+  border-radius: 10px;
+  background: #fafcfd;
+  transition: all 0.15s ease;
+}
+
+.profile-file-item:hover {
+  background: #f3fbfc;
+  border-color: #d0e8ee;
+}
+
+.profile-file-badge {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  flex: none;
+}
+
+.profile-file-badge.is-excel {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.profile-file-badge.is-pdf {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.profile-file-badge.is-img {
+  background: #f0f9ff;
+  color: #0284c7;
+}
+
+.profile-file-badge.is-file {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.profile-file-details {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-file-details strong {
+  font-size: 13px;
+  color: #1e3f48;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-file-details span {
+  font-size: 11px;
+  color: #7b949c;
+}
+
+.profile-preview-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 7px;
+  flex: none;
+}
+
+.profile-files-empty {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  padding: 32px 20px;
+  color: #8da4ac;
+}
+
+.profile-files-empty svg {
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.profile-files-empty p {
+  margin: 0 0 4px;
+  color: #3b5f69;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.profile-files-empty small {
+  color: #7b949c;
+  font-size: 11.5px;
+}
+
+/* Responsive Breakpoints */
+@media (max-width: 980px) {
+  .profile-dashboard-layout {
+    grid-template-columns: 1fr;
+    gap: 20px;
   }
 }
 
 @media (max-width: 640px) {
-  .app-shell .profile-page .email-settings-form {
-    grid-template-columns: minmax(0, 1fr);
+  .profile-heading-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
 
-  .app-shell .profile-page .email-settings-form > .email-settings-row {
-    grid-template-columns: minmax(85px, .42fr) minmax(0, 1fr);
+  .profile-signout-btn {
+    width: 100%;
+    justify-content: center;
   }
 
-  .app-shell .profile-page .profile-overview {
-    padding: 18px;
+  .profile-pricing-grid {
+    grid-template-columns: 1fr;
   }
 
-  .app-shell .profile-page .profile-signout {
-    width: auto;
-    margin-left: 0;
+  .profile-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .profile-upload-btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 
-@media (max-width: 420px) {
-  .app-shell .profile-page .email-settings-form > .email-settings-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
 
 .app-confirm-dialog.is-close-only {
   position: relative;

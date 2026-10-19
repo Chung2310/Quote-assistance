@@ -243,6 +243,11 @@ export async function connectDatabase() {
         db.collection("subscriptionPayments").createIndex({ companyId: 1, status: 1, createdAt: -1 }),
         db.collection("subscriptionPayments").createIndex({ companyId: 1 }, { unique: true, partialFilterExpression: { status: "pending" } }),
       ]);
+      // Remove encrypted credentials left by the retired SMTP feature.
+      await Promise.all([
+        db.collection("companies").updateMany({ smtpSettings: { $exists: true } }, { $unset: { smtpSettings: "" } }),
+        db.collection<{ _id: string }>("platformSettings").deleteOne({ _id: "smtp" }),
+      ]);
       await ensureSubscriptionPlans(db);
       const defaultCompany = await ensureCompany(db, config.defaultCompanyName);
       if (!defaultCompany._id) throw new Error("Default company record has no id");

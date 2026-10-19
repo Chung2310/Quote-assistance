@@ -4,15 +4,6 @@ export type UserRole = "user" | "admin";
 export type QuoteStatus = "draft" | "needs_info" | "pending_review" | "approved" | "rejected";
 export type MatchStatus = "matched" | "ambiguous" | "not_found";
 
-export interface CompanySmtpSettings {
-  host: string;
-  port: number;
-  secure: boolean;
-  user: string;
-  from: string;
-  passwordEncrypted?: string;
-}
-
 export interface CloudinaryConfig {
   cloudName: string;
   apiKey: string;
@@ -49,7 +40,6 @@ export interface Company extends Partial<CompanyProfileDetails> {
   name: string;
   normalizedName: string;
   legacyPartitionId?: string;
-  smtpSettings?: CompanySmtpSettings;
   quoteTemplateId?: string;
   createdAt: Date;
   updatedAt: Date;

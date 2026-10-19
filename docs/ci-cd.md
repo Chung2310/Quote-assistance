@@ -14,7 +14,7 @@ Tại **Settings → Secrets and variables → Actions**, chỉ cần:
 | Secret | SSH_PORT | Cổng SSH, ví dụ 22 |
 | Variable | ENV_FILE | Toàn bộ nội dung file .env, không phải đường dẫn |
 
-ENV_FILE chứa cấu hình ứng dụng, gồm MONGODB_URI và SESSION_SECRET ít nhất 32 ký tự. Các giá trị OPENROUTER_API_KEY, model, SMTP/storage hoặc cấu hình khác của ứng dụng cũng đặt trong file này theo .env.example. Không cần khai báo từng giá trị thành GitHub Secrets/Variables riêng.
+ENV_FILE chứa cấu hình ứng dụng, gồm MONGODB_URI và SESSION_SECRET ít nhất 32 ký tự. Các giá trị OPENROUTER_API_KEY, model, storage hoặc cấu hình khác của ứng dụng cũng đặt trong file này theo .env.example. Không cần khai báo từng giá trị thành GitHub Secrets/Variables riêng.
 
 Ví dụ cấu trúc ENV_FILE (thay bằng cấu hình thật):
 ```dotenv

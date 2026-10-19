@@ -49,7 +49,7 @@ Yêu cầu Node.js 20.19+ và một MongoDB có thể truy cập từ máy chạ
 
 ## Đường dẫn và SEO
 
-Trang giới thiệu dùng `/`; đăng nhập dùng `/dang-nhap`, đăng ký dùng `/dang-ky`, không gian doanh nghiệp dùng `/ung-dung` và quản trị dùng `/quan-tri`. Các đường dẫn cũ `/login`, `/app` và `/admin` được chuyển hướng sang URL mới. Chỉ trang giới thiệu được đưa vào sitemap; các trang tài khoản và URL không tồn tại được đánh dấu không lập chỉ mục. Khi triển khai, đặt `PUBLIC_SITE_URL` thành origin HTTPS chính thức để canonical và sitemap luôn dùng đúng tên miền.
+Trang giới thiệu dùng `/`; đăng nhập dùng `/dang-nhap`, đăng ký dùng `/dang-ky`, Tổng quan dùng `/tong-quan` và quản trị dùng `/quan-tri`. Trong không gian doanh nghiệp, Báo giá dùng `/bao-gia`, chi tiết báo giá dùng `/bao-gia/:id`, Mẫu báo giá dùng `/mau-bao-gia`, Bảng giá dùng `/bang-gia` và Trang cá nhân dùng `/tai-khoan`. Các đường dẫn cũ `/login`, `/app`, `/admin` và `/ung-dung` cùng các trang con được chuyển hướng sang URL mới. Chỉ trang giới thiệu được đưa vào sitemap; các trang tài khoản và URL không tồn tại được đánh dấu không lập chỉ mục. Khi triển khai, đặt `PUBLIC_SITE_URL` thành origin HTTPS chính thức để canonical và sitemap luôn dùng đúng tên miền.
 
 ## Nhập bảng giá
 
@@ -65,7 +65,7 @@ Khi tạo báo giá, hệ thống chụp các thuộc tính sản phẩm vào t�
 2. Popup tạo báo giá chọn mẫu (chọn sẵn mẫu mặc định) và nhận yêu cầu bằng văn bản hoặc file. File hỗ trợ TXT, PDF, DOCX, CSV, XLS, XLSX, tối đa 10 MB. AI đối chiếu yêu cầu với danh mục sản phẩm đã nhập; user xác nhận thông tin khách hàng và mặt hàng sau khi phân tích.
 3. Máy chủ đọc giá hiệu lực trong danh mục, chụp tên/mã/đơn vị/đơn giá và tính tạm tính, thuế, tổng tiền.
 4. Tài khoản doanh nghiệp chỉnh số lượng, chuyển báo giá sang chờ duyệt, rồi duyệt hoặc trả lại với lý do.
-5. Sau khi duyệt, tài khoản doanh nghiệp tải file đúng định dạng mẫu hoặc gửi file đó qua SMTP đã cấu hình. Báo giá cũ chưa gắn mẫu vẫn xuất PDF như trước.
+5. Sau khi duyệt, tài khoản doanh nghiệp tải file báo giá theo đúng định dạng mẫu. Có thể gửi file bằng ứng dụng email bên ngoài. Báo giá cũ chưa gắn mẫu vẫn xuất PDF như trước.
 
 ## Mẫu báo giá theo doanh nghiệp
 
@@ -73,7 +73,7 @@ Mỗi doanh nghiệp có một mẫu mặc định, hỗ trợ `.docx`, `.xlsx` 
 
 Doanh nghiệp tải mẫu đang dùng, không cần thêm placeholder, trường đặt tên sẵn hoặc khai báo số dòng sản phẩm. Upload chỉ kiểm tra định dạng và khả năng đọc file, không bắt mẫu có trường khách hàng/tổng tiền. Khi phân tích yêu cầu và tạo bản nháp, hệ thống gửi nội dung mẫu cho OpenRouter: Word/Excel dưới dạng XML giữ cấu trúc, định dạng và ô dữ liệu; PDF gửi nguyên file base64 cùng kích thước trang. Word/Excel giới hạn nội dung gửi AI ở 600.000 ký tự; mẫu lớn hơn vẫn lưu được nhưng bước AI sẽ báo không xử lý được trong một lần.
 
-AI xác định vị trí thay dữ liệu và cách bố trí các dòng sản phẩm dựa trên mẫu và dữ liệu báo giá. Giá/số lượng/tổng tiền vẫn do máy chủ tính và điền qua tham chiếu nội bộ, không lấy giá minh họa trong mẫu. Cách điền được kiểm tra và lưu cùng báo giá; tải file/gửi email sử dụng cách điền đã lưu, không gọi AI lại. Khi sửa số lượng, file dùng giá trị mới; nếu thay số dòng thì hệ thống xác định lại cách điền. Mẫu cũ và báo giá đã tạo trước thay đổi này vẫn được hỗ trợ.
+AI xác định vị trí thay dữ liệu và cách bố trí các dòng sản phẩm dựa trên mẫu và dữ liệu báo giá. Giá/số lượng/tổng tiền vẫn do máy chủ tính và điền qua tham chiếu nội bộ, không lấy giá minh họa trong mẫu. Cách điền được kiểm tra và lưu cùng báo giá; khi tải file, hệ thống dùng cách điền đã lưu, không gọi AI lại. Khi sửa số lượng, file dùng giá trị mới; nếu thay số dòng thì hệ thống xác định lại cách điền. Mẫu cũ và báo giá đã tạo trước thay đổi này vẫn được hỗ trợ.
 
 File đầu ra giữ định dạng gốc. Word/Excel áp dụng các thay đổi vào XML của file gốc; các phần logo, kiểu trình bày và tài nguyên khác được giữ trong file. PDF không cần AcroForm: AI chọn vùng để ghi dữ liệu lên trang nền, vùng dữ liệu minh họa cũ có thể được phủ nền trắng (không phải xóa/redact nội dung gốc). Nếu AI trả kết quả thiếu dữ liệu, sai cấu trúc, vị trí PDF chồng nhau hoặc không vừa trang thì hệ thống báo lỗi để thử lại, không trả nguyên mẫu như báo giá hoàn tất. Cần cấu hình `OPENROUTER_API_KEY` và model hỗ trợ structured outputs; xử lý PDF phụ thuộc khả năng đọc file/OCR của model/provider. Kiểm tra bố cục với mẫu thực tế trước khi gửi khách vì cách điền do AI xác định.
 
@@ -99,14 +99,6 @@ SEPAY_PAYMENT_PREFIX=BG
 
 Trong SePay, tạo webhook nhận **tiền vào** tại địa chỉ hiển thị trong trang **Thanh toán**, chọn xác thực **API Key** và nhập cùng khóa. Bật nhận diện mã thanh toán theo tiền tố đã cấu hình và hậu tố 10 ký tự chữ/số. QR chuyển khoản được tạo theo mã đơn, số tiền và nội dung riêng; ứng dụng không tự kích hoạt gói nếu thiếu webhook xác thực. Ngân hàng và số tài khoản dùng để nhận tiền phải thuộc tài khoản đã kết nối với webhook SePay. Không commit khóa webhook vào Git. Sau khi cấu hình, dùng tính năng gửi thử webhook của SePay rồi kiểm tra một giao dịch nhỏ trên môi trường staging trước khi nhận thanh toán thật.
 
-## Gửi báo giá qua email
-
-Tài khoản user của doanh nghiệp bấm biểu tượng người dùng ở thanh bên, mở trang cá nhân rồi vào phần cài đặt email và nhập thông tin SMTP riêng của doanh nghiệp: máy chủ, cổng, kiểu kết nối, tên đăng nhập, mật khẩu và địa chỉ người gửi. Mỗi bộ cấu hình được lưu riêng trong hồ sơ doanh nghiệp; mật khẩu được mã hóa AES-256-GCM trước khi lưu và không được trả về giao diện.
-
-Với cổng 587, chọn STARTTLS (`secure=false`); với cổng 465, chọn TLS (`secure=true`). Có thể lưu cấu hình rồi dùng nút kiểm tra kết nối trước khi gửi báo giá. Tài khoản doanh nghiệp có thể gửi báo giá đã duyệt tới email khách hàng; SMTP sẽ dùng cấu hình của doanh nghiệp sở hữu báo giá.
-
-Khóa mã hóa mật khẩu SMTP được dẫn xuất từ `SESSION_SECRET`. Khi thay khóa phiên, hãy nhập lại mật khẩu SMTP của doanh nghiệp để mã hóa lại bằng khóa mới.
-
 Trạng thái mẫu: `needs_info`, `draft`, `pending_review`, `approved`, `rejected`. Thuế lấy từ `DEFAULT_TAX_RATE` dưới dạng số thập phân (`0.08` là 8%); mặc định hiện tại là 0% cho tới khi đầu mối nghiệp vụ xác nhận mức áp dụng. Tính giá pilot hiện hỗ trợ đơn giá theo đơn vị và thuế; chưa có chiết khấu, phụ phí, bậc số lượng hay mẫu PDF theo thương hiệu.
 
 ## Triển khai staging
@@ -126,9 +118,9 @@ yarn start
 - Nội dung yêu cầu tự do được gửi tới OpenRouter khi bật AI. Mã, tên, mô tả và đơn vị của tối đa 40 sản phẩm ứng viên cũng được gửi để đối chiếu; email khách hàng và giá vốn không được gửi trong bước này. Nếu file bảng giá không có tiêu đề cột nhận diện được, các dòng dữ liệu gồm cả giá được gửi tới OpenRouter để trích xuất sản phẩm. File có tiêu đề cột nhận diện được xử lý tại máy chủ.
 - Dùng dữ liệu đã ẩn thông tin nhạy cảm trong pilot và xác nhận chính sách nhà cung cấp trước khi dùng yêu cầu thật. Không bật log nội dung yêu cầu.
 - Mỗi doanh nghiệp có hồ sơ trong collection `companies`; tài khoản đăng nhập lưu mã doanh nghiệp tham chiếu đến hồ sơ đó. Máy chủ lấy mã từ tài khoản đã xác thực và tự giới hạn truy vấn theo mã này; client không thể tự chọn doanh nghiệp trong API. Vẫn cần đánh giá bảo mật trước khi dùng production.
-- Nhật ký ghi các lần nhập giá, phân tích, tạo/sửa/gửi/duyệt/trả lại báo giá và thay đổi cài đặt SMTP. Mật khẩu SMTP được mã hóa trước khi lưu trong MongoDB.
+- Nhật ký ghi các lần nhập giá, phân tích, tạo/sửa/gửi/duyệt/trả lại báo giá.
 - PDF hiện là mẫu tối giản, chưa có logo, thông tin pháp nhân, điều khoản thương mại hay thời hạn hiệu lực do chưa có dữ liệu doanh nghiệp.
-- Ngoài phạm vi: ảnh đầu vào, gửi email tự động, CRM/ERP, nhiều cấp duyệt, bảng giá nhiều bậc, dựng mẫu tổng quát, phân tích giá mặt hàng chưa có và vận hành SaaS production.
+- Ngoài phạm vi: ảnh đầu vào, gửi email từ ứng dụng, CRM/ERP, nhiều cấp duyệt, bảng giá nhiều bậc, dựng mẫu tổng quát, phân tích giá mặt hàng chưa có và vận hành SaaS production.
 
 ## Lưu trữ tệp và ảnh trên Cloudinary
 
@@ -143,8 +135,7 @@ File bảng giá được lưu trong MongoDB làm tài liệu nguồn sau khi s�
 - `GET /api/admin/settings/sepay`, `PUT /api/admin/settings/sepay` (chỉ admin hệ thống)
 - `POST /api/quote-requests`, `POST /api/quote-requests/:id/analyze`
 - `POST /api/quotes`, `PATCH /api/quotes/:id`, `POST /api/quotes/:id/submit-review`
-- `POST /api/quotes/:id/approve`, `POST /api/quotes/:id/reject`, `GET /api/quotes/:id/pdf`, `POST /api/quotes/:id/email`
-- `GET /api/settings/email`, `PUT /api/settings/email`, `POST /api/settings/email/test`, `DELETE /api/settings/email`
+- `POST /api/quotes/:id/approve`, `POST /api/quotes/:id/reject`, `GET /api/quotes/:id/pdf`
 - `GET /api/settings/cloudinary`, `PUT /api/settings/cloudinary`, `DELETE /api/settings/cloudinary`, `GET /api/files`, `POST /api/files`
 
 Các API dữ liệu yêu cầu phiên đăng nhập; mọi truy vấn được giới hạn theo tenant của phiên. Webhook SePay là ngoại lệ: endpoint công khai nhưng bắt buộc xác thực API Key. Hai API tạo yêu cầu và báo giá yêu cầu `idempotencyKey` để gửi lại cùng thao tác không tạo dữ liệu trùng.
