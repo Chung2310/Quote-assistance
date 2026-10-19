@@ -49,6 +49,10 @@ const mongoUri = required("MONGODB_URI", "mongodb://localhost:27017/bao_gia_pilo
 const mongoUser = process.env.MONGODB_USER ?? "";
 const mongoPassword = process.env.MONGODB_PASSWORD ?? "";
 const port = Number(process.env.PORT ?? 3000);
+const sepayPaymentPrefix = (process.env.SEPAY_PAYMENT_PREFIX ?? "GQ").trim().toUpperCase();
+if (!/^[A-Z]{2,5}$/.test(sepayPaymentPrefix)) {
+  throw new Error("SEPAY_PAYMENT_PREFIX must contain between 2 and 5 letters");
+}
 
 export const config = {
   port,
@@ -75,6 +79,18 @@ export const config = {
     process.env.CLOUDINARY_CLOUD_NAME?.trim() &&
     process.env.CLOUDINARY_API_KEY?.trim() &&
     process.env.CLOUDINARY_API_SECRET?.trim()
+  ),
+  sepay: {
+    bankCode: process.env.SEPAY_BANK_CODE?.trim() ?? "",
+    accountNumber: process.env.SEPAY_ACCOUNT_NUMBER?.trim() ?? "",
+    accountName: process.env.SEPAY_ACCOUNT_NAME?.trim() ?? "",
+    webhookApiKey: process.env.SEPAY_WEBHOOK_API_KEY?.trim() ?? "",
+    paymentPrefix: sepayPaymentPrefix,
+  },
+  sepayConfigured: Boolean(
+    process.env.SEPAY_BANK_CODE?.trim() &&
+    /^[A-Za-z0-9]{1,19}$/.test(process.env.SEPAY_ACCOUNT_NUMBER?.trim() ?? "") &&
+    process.env.SEPAY_WEBHOOK_API_KEY?.trim()
   ),
   taxRate: Number(process.env.DEFAULT_TAX_RATE ?? 0),
   currency: process.env.CURRENCY ?? "VND",

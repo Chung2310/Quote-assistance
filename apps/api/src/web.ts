@@ -8,15 +8,156 @@ import { config } from "./config.js";
 const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
 const webDirectory = path.resolve(moduleDirectory, "../../web");
 
+const legacyRoutes: Record<string, string> = {
+  "/login": "/dang-nhap",
+  "/app": "/ung-dung",
+  "/admin": "/quan-tri",
+};
+
+const pageMetadata: Record<string, { title: string; description: string; robots: string }> = {
+  "/": {
+    title: "Giáo — Tạo báo giá chuyên nghiệp bằng AI",
+    description: "Tạo báo giá nhanh từ yêu cầu khách hàng và bảng giá doanh nghiệp. Quản lý mẫu, duyệt trước khi gửi và xuất Excel, PDF với Giáo.",
+    robots: "index,follow",
+  },
+  "/dang-nhap": {
+    title: "Đăng nhập — Giáo",
+    description: "Đăng nhập vào không gian tạo và quản lý báo giá của doanh nghiệp.",
+    robots: "noindex,nofollow",
+  },
+  "/dang-ky": {
+    title: "Đăng ký doanh nghiệp — Giáo",
+    description: "Tạo tài khoản doanh nghiệp để quản lý bảng giá, mẫu và quy trình báo giá.",
+    robots: "noindex,nofollow",
+  },
+  "/ung-dung": {
+    title: "Không gian báo giá — Giáo",
+    description: "Không gian làm việc báo giá của doanh nghiệp.",
+    robots: "noindex,nofollow",
+  },
+  "/quan-tri": {
+    title: "Quản trị — Giáo",
+    description: "Khu vực quản trị hệ thống Giáo.",
+    robots: "noindex,nofollow",
+  },
+};
+
+function siteOrigin(request: import("express").Request) {
+  const configuredUrl = process.env.PUBLIC_SITE_URL?.trim();
+  try {
+    if (configuredUrl) return new URL(configuredUrl).origin;
+    const forwardedProtocol = request.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+    const protocol = forwardedProtocol === "https" || request.protocol === "https" ? "https" : "http";
+    return new URL(`${protocol}://${request.get("host") ?? "localhost"}`).origin;
+  } catch {
+    return "http://localhost";
+  }
+}
+
+function escapeAttribute(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function replaceHeadTag(html: string, pattern: RegExp, replacement: string) {
+  return pattern.test(html)
+    ? html.replace(pattern, replacement)
+    : html.replace("</head>", `    ${replacement}\n  </head>`);
+}
+
+function pagePath(request: import("express").Request) {
+  return request.path.replace(/\/+$/, "") || "/";
+}
+
+function redirectOldOrTrailingPath(request: import("express").Request, response: import("express").Response) {
+  const pathname = pagePath(request);
+  let targetPath = legacyRoutes[pathname] ?? pathname;
+  const url = new URL(request.originalUrl, "http://local");
+  if (pathname === "/login" && url.searchParams.get("mode") === "register") targetPath = "/dang-ky";
+  if (targetPath === "/dang-nhap" || targetPath === "/dang-ky") url.searchParams.delete("mode");
+  if (targetPath === pathname && request.path !== pathname) targetPath = pathname;
+  const target = `${targetPath}${url.search}`;
+  if (target !== request.originalUrl) {
+    response.redirect(301, target);
+    return true;
+  }
+  return false;
+}
+
+function renderPageMetadata(html: string, request: import("express").Request) {
+  const pathname = pagePath(request);
+  const page = pageMetadata[pathname] ?? {
+    title: "Không tìm thấy trang — Giáo",
+    description: "Không tìm thấy trang bạn đang tìm.",
+    robots: "noindex,follow",
+  };
+  const canonical = pathname === "/" ? new URL("/", siteOrigin(request)).href : "";
+  const meta = (name: string, content: string) => `<meta name="${name}" content="${escapeAttribute(content)}" />`;
+  const property = (name: string, content: string) => `<meta property="${name}" content="${escapeAttribute(content)}" />`;
+  let result = html.replace(/<title>[\s\S]*?<\/title>/i, `<title>${page.title}</title>`);
+  result = replaceHeadTag(result, /<meta\s+name=["']description["'][^>]*\/?\s*>/i, meta("description", page.description));
+  result = replaceHeadTag(result, /<meta\s+name=["']robots["'][^>]*\/?\s*>/i, meta("robots", page.robots));
+  result = replaceHeadTag(result, /<meta\s+property=["']og:title["'][^>]*\/?\s*>/i, property("og:title", page.title));
+  result = replaceHeadTag(result, /<meta\s+property=["']og:description["'][^>]*\/?\s*>/i, property("og:description", page.description));
+  result = replaceHeadTag(result, /<meta\s+name=["']twitter:title["'][^>]*\/?\s*>/i, meta("twitter:title", page.title));
+  result = replaceHeadTag(result, /<meta\s+name=["']twitter:description["'][^>]*\/?\s*>/i, meta("twitter:description", page.description));
+  result = result.replace(/\s*<link\s+rel=["']canonical["'][^>]*\/?\s*>/gi, "");
+  result = result.replace(/\s*<meta\s+property=["']og:url["'][^>]*\/?\s*>/gi, "");
+  result = result.replace(/\s*<script\s+id=["']application-structured-data["'][\s\S]*?<\/script>/gi, "");
+  if (canonical) {
+    const canonicalTag = `<link rel="canonical" href="${escapeAttribute(canonical)}" />`;
+    result = result.replace("</head>", `    ${canonicalTag}\n    ${property("og:url", canonical)}\n  </head>`);
+    const structuredData = {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "Giáo",
+      description: page.description,
+      applicationCategory: "BusinessApplication",
+      operatingSystem: "Web",
+      url: canonical,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "VND" },
+    };
+    const json = JSON.stringify(structuredData).replace(/</g, "\\u003c");
+    result = result.replace("</head>", `    <script id="application-structured-data" type="application/ld+json">${json}</script>\n  </head>`);
+  }
+  return { html: result, status: pageMetadata[pathname] ? 200 : 404 };
+}
+
+function attachSeoEndpoints(app: Express) {
+  app.get("/robots.txt", (request, response) => {
+    const sitemap = new URL("/sitemap.xml", siteOrigin(request)).href;
+    response.type("text/plain").send(`User-agent: *\nAllow: /\nDisallow: /api/\nSitemap: ${sitemap}\n`);
+  });
+  app.get("/sitemap.xml", (request, response) => {
+    const location = new URL("/", siteOrigin(request)).href.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    response.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${location}</loc></url></urlset>`);
+  });
+}
+
+function isHtmlNavigation(request: import("express").Request) {
+  const accept = request.get("accept")?.toLowerCase() ?? "";
+  return request.method === "GET" && request.path !== "/api" && !request.path.startsWith("/api/") && accept.includes("text/html");
+}
+
 export async function attachWeb(app: Express, httpServer: HttpServer): Promise<() => Promise<void>> {
+  attachSeoEndpoints(app);
+  app.use((request, response, next) => {
+    if (!isHtmlNavigation(request)) return next();
+    if (redirectOldOrTrailingPath(request, response)) return;
+    next();
+  });
+
   if (config.nodeEnv === "production") {
     const buildDirectory = path.join(webDirectory, "dist");
-    app.use(express.static(buildDirectory));
-    app.use((request, response, next) => {
-      if (request.method !== "GET" || request.path === "/api" || request.path.startsWith("/api/")) return next();
-      response.sendFile(path.join(buildDirectory, "index.html"), (error) => {
-        if (error) next(error);
-      });
+    app.use(express.static(buildDirectory, { index: false }));
+    app.use(async (request, response, next) => {
+      if (!isHtmlNavigation(request)) return next();
+      try {
+        const template = await readFile(path.join(buildDirectory, "index.html"), "utf8");
+        const page = renderPageMetadata(template, request);
+        response.status(page.status).type("html").send(page.html);
+      } catch (error) {
+        next(error);
+      }
     });
     return async () => {};
   }
@@ -28,17 +169,18 @@ export async function attachWeb(app: Express, httpServer: HttpServer): Promise<(
     server: { middlewareMode: { server: httpServer } },
     appType: "custom",
   });
-  app.use(vite.middlewares);
   app.use(async (request, response, next) => {
-    if (request.method !== "GET" || request.path === "/api" || request.path.startsWith("/api/")) return next();
+    if (!isHtmlNavigation(request)) return next();
     try {
       const template = await readFile(path.join(webDirectory, "index.html"), "utf8");
-      const html = await vite.transformIndexHtml(request.originalUrl, template);
-      response.status(200).type("html").send(html);
+      const transformed = await vite.transformIndexHtml(request.originalUrl, template);
+      const page = renderPageMetadata(transformed, request);
+      response.status(page.status).type("html").send(page.html);
     } catch (error) {
       if (error instanceof Error) vite.ssrFixStacktrace(error);
       next(error);
     }
   });
+  app.use(vite.middlewares);
   return () => vite.close();
 }

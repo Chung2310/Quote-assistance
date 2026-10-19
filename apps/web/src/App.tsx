@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
-import { api, formatDate, formatMoney } from "./api";
-import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, User } from "./types";
+import { ApiError, api, apiUploadWithProgress, formatDate, formatMoney, responseBlobWithProgress } from "./api";
+import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
+import LandingPage from "./LandingPage";
 import PriceListPanel from "./PriceListPanel";
 import FilePreview, { type PreviewFile } from "./FilePreview";
 import { QuoteTemplatePanel, type TemplateDetails } from "./QuoteTemplate";
-import { NotificationToast, useConfirmation, useNotification, type ConfirmOptions, type Notify } from "./Feedback";
+import { NotificationProvider, NotificationToast, TaskProgress, useAppNotification, useConfirmation, useNotification, type ConfirmOptions, type Notify, type TaskProgressState } from "./Feedback";
 import "./settings.css";
 import "./quote-supplement.css";
 
@@ -13,7 +14,15 @@ type Section = "home" | "quotes" | "catalog" | "templates" | "profile";
 interface CompanyEmailSettings { configured: boolean; host: string; port: number; secure: boolean; user: string; from: string; passwordSet: boolean }
 interface CompanyEmailForm { host: string; port: string; secure: boolean; user: string; password: string; from: string }
 interface CompanyStoredFile { _id?: string; originalFilename: string; mimeType: string; bytes: number; createdAt: string }
+interface SubscriptionUsage {
+  plan: SubscriptionPlanSummary;
+  subscriptionExpiresAt: string | null;
+  quotes: { used: number; limit: number | null; remaining: number | null; periodStart: string; periodEnd: string };
+  templates: { used: number; limit: number | null; remaining: number | null };
+}
 interface SupplementalProductDraft { id: string; informationField?: string; name: string; description: string; unit: string; quantity: string; unitPrice: string }
+type ShippingMode = "unconfirmed" | "free" | "paid";
+type TaxMode = "unconfirmed" | "zero" | "rate";
 
 const statusLabels: Record<QuoteStatus, string> = { draft: "Bản nháp", needs_info: "Thiếu thông tin", pending_review: "Chờ duyệt", approved: "Đã duyệt", rejected: "Cần chỉnh sửa" };
 const statusStyles: Record<QuoteStatus, string> = { draft: "neutral", needs_info: "amber", pending_review: "blue", approved: "green", rejected: "rose" };
@@ -51,6 +60,7 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     copy: <><rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" /></>,
     clock: <><circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" /></>,
     edit: <><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></>,
+    trash: <><path d="M3 6h18M8 6V4h8v2m3 0-1 14H6L5 6m4 4v6m6-6v6" /></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.file}</svg>;
 }
@@ -100,15 +110,15 @@ function suggestedNameFromMissingField(field: string) {
   return /\b(san pham|mat hang|hang muc|ma hang)\b/i.test(normalizedMissingInformation(name)) && name.split(/\s+/).length <= 3 ? "" : name.slice(0, 250);
 }
 
-function createSupplementalProductDraft(informationField?: string, suggestion?: Partial<SuggestedProduct>): SupplementalProductDraft {
+function createSupplementalProductDraft(informationField?: string, suggestion?: Partial<SuggestedProduct>, useManualDefaults = true): SupplementalProductDraft {
   const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   return {
     id: `new-${id}`,
     ...(informationField ? { informationField } : {}),
     name: suggestion?.name?.trim() ?? (informationField ? suggestedNameFromMissingField(informationField) : ""),
     description: suggestion?.description?.trim() ?? "",
-    unit: normalizedSupplementalUnit(suggestion?.unit?.trim() || "cái"),
-    quantity: String(suggestion?.quantity && suggestion.quantity > 0 ? suggestion.quantity : 1),
+    unit: normalizedSupplementalUnit(suggestion?.unit?.trim() || (useManualDefaults ? "cái" : "")),
+    quantity: suggestion?.quantity && suggestion.quantity > 0 ? String(suggestion.quantity) : useManualDefaults ? "1" : "",
     unitPrice: "",
   };
 }
@@ -150,25 +160,104 @@ function UserApp() {
   const { notification, notify, dismiss } = useNotification();
   const { confirm, dialog: confirmationDialog } = useConfirmation();
   const [refreshKey, setRefreshKey] = useState(0);
+  const [usage, setUsage] = useState<SubscriptionUsage | null>(null);
+  const [requestedPlanCode, setRequestedPlanCode] = useState<string | null>(null);
+  const [usageLoading, setUsageLoading] = useState(true);
+  const [usageError, setUsageError] = useState<string | null>(null);
+  const deletingQuoteRef = useRef(false);
   useEffect(() => {
     api<{ user: User }>("/api/auth/me").then(({ user: signedIn }) => {
       if (signedIn.role === "admin") {
-        window.location.replace("/admin");
+        window.location.replace("/quan-tri");
         return;
       }
+      const requestedPlan = new URLSearchParams(window.location.search).get("plan");
+      const requestedPaidPlan = requestedPlan && requestedPlan !== "free" && /^[a-z][a-z0-9-]{0,60}$/i.test(requestedPlan) ? requestedPlan : null;
+      if (requestedPaidPlan) { setRequestedPlanCode(requestedPaidPlan); setSection("profile"); }
+      if (window.location.pathname !== "/ung-dung") window.history.replaceState(null, "", "/ung-dung");
       setUser(signedIn);
     }).catch(() => {
       setUser(null);
-      if (window.location.pathname !== "/") window.location.replace("/");
     }).finally(() => setCheckingSession(false));
   }, []);
+  const handleLogin = (signedIn: User, planCode?: string) => {
+    window.history.replaceState(null, "", "/ung-dung");
+    const requestedPaidPlan = planCode && planCode !== "free" && /^[a-z][a-z0-9-]{0,60}$/i.test(planCode) ? planCode : null;
+    setRequestedPlanCode(requestedPaidPlan);
+    if (requestedPaidPlan) setSection("profile");
+    setUser(signedIn);
+  };
   const refresh = useCallback(() => setRefreshKey((key) => key + 1), []);
+  const loadUsage = useCallback(async () => {
+    setUsageLoading(true);
+    try {
+      const result = await api<SubscriptionUsage>("/api/usage");
+      setUsage(result);
+      setUser((current) => current ? { ...current, plan: result.plan } : current);
+      setUsageError(null);
+    } catch (cause) {
+      setUsageError(cause instanceof Error ? cause.message : "Không thể kiểm tra hạn mức gói.");
+    } finally {
+      setUsageLoading(false);
+    }
+  }, []);
+  const handleBillingPaid = useCallback(() => { void loadUsage(); }, [loadUsage]);
+  const signedInUserId = user?.id;
+  useEffect(() => {
+    if (!signedInUserId) {
+      setUsage(null);
+      setUsageLoading(true);
+      setUsageError(null);
+      return;
+    }
+    void loadUsage();
+  }, [signedInUserId, refreshKey, loadUsage]);
+  const canCreateQuote = Boolean(usage && !usageLoading && !usageError && (usage.quotes.limit === null || (usage.quotes.remaining ?? 0) > 0));
+  const quoteBlockedMessage = usageLoading
+    ? "Đang kiểm tra hạn mức gói…"
+    : usageError
+      ? "Không thể kiểm tra hạn mức gói. Hãy tải lại để tiếp tục tạo báo giá."
+      : usage && usage.quotes.limit !== null && (usage.quotes.remaining ?? 0) <= 0
+        ? `Bạn đã dùng hết ${usage.quotes.limit.toLocaleString("vi-VN")} lượt tạo báo giá trong tháng này.`
+        : "Không thể xác định hạn mức gói hiện tại.";
+  const quoteUsageLabel = usage
+    ? usage.quotes.limit === null
+      ? `Đã tạo ${usage.quotes.used.toLocaleString("vi-VN")} báo giá tháng này · Không giới hạn`
+      : `Đã dùng ${usage.quotes.used.toLocaleString("vi-VN")} / ${usage.quotes.limit.toLocaleString("vi-VN")} lượt tháng này`
+    : "";
+  const createQuote = () => {
+    if (!canCreateQuote) {
+      notify(quoteBlockedMessage, "error");
+      return;
+    }
+    setCreatingQuote(true);
+  };
   const signOut = async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => undefined); setUser(null); setSection("home"); window.location.replace("/"); };
   if (checkingSession) return <div className="splash"><div className="brand-mark">G</div><span>Đang mở không gian làm việc…</span></div>;
-  if (!user) return <Login onLogin={setUser} onNotify={notify} />;
+  if (!user) return <NotificationProvider notify={notify}><><Login onLogin={handleLogin} onNotify={notify} />{notification && <NotificationToast notification={notification} onDismiss={dismiss} />}{confirmationDialog}</></NotificationProvider>;
   const openQuote = (id: string) => setQuoteId(id);
+  const removeQuote = async (quote: Quote) => {
+    if (deletingQuoteRef.current) return;
+    deletingQuoteRef.current = true;
+    try {
+      if (!await confirm({
+        title: "Xóa báo giá này?",
+        message: `${quote.quoteNumber} · ${quote.customerName}\nThao tác này không thể hoàn tác.`,
+        confirmLabel: "Xóa báo giá",
+        tone: "danger",
+      })) return;
+      await api(`/api/quotes/${quote._id}`, { method: "DELETE" });
+      setQuoteId(null);
+      refresh();
+      notify(`Đã xóa báo giá ${quote.quoteNumber}.`, "success");
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : "Không thể xóa báo giá. Vui lòng thử lại.", "error");
+    } finally {
+      deletingQuoteRef.current = false;
+    }
+  };
 
-  return <div className="app-shell">
+  return <NotificationProvider notify={notify}><div className="app-shell">
     <aside className="sidebar">
       <div className="brand-lockup"><div className="brand-mark">G</div><div><strong>giáo</strong><span>TRỢ LÝ BÁO GIÁ</span></div></div>
       <div className="nav-caption">KHÔNG GIAN LÀM VIỆC</div>
@@ -183,26 +272,27 @@ function UserApp() {
       </div>
     </aside>
     <div className="main-column">
-      <main className="main-content">{quoteId ? <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={() => setQuoteId(null)} onChanged={refresh} onToast={notify} confirm={confirm} /> : section === "home" ? <Dashboard key={refreshKey} canCreate canReview onOpen={openQuote} onCreate={() => setCreatingQuote(true)} onNavigate={setSection} /> : section === "quotes" ? <QuoteWorkspace key={refreshKey} canCreate onOpen={openQuote} onCreate={() => setCreatingQuote(true)} /> : section === "templates" ? <div className="page-stack templates-page"><section className="page-heading-row"><div><h1>Mẫu báo giá</h1><p className="muted">Khai báo và cập nhật mẫu mặc định của doanh nghiệp.</p></div></section><QuoteTemplatePanel canManage /></div> : section === "catalog" ? <PriceListPanel key={refreshKey} onToast={notify} /> : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} />}</main>
+      <main className="main-content">{quoteId ? <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={() => setQuoteId(null)} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} /> : section === "home" ? <Dashboard key={refreshKey} canCreate={canCreateQuote} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} canReview onOpen={openQuote} onCreate={createQuote} onNavigate={setSection} onDeleteQuote={(quote) => void removeQuote(quote)} /> : section === "quotes" ? <QuoteWorkspace key={refreshKey} canCreate={canCreateQuote} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} onOpen={openQuote} onCreate={createQuote} onDeleteQuote={(quote) => void removeQuote(quote)} /> : section === "templates" ? <div className="page-stack templates-page"><section className="page-heading-row"><div><h1>Mẫu báo giá</h1><p className="muted">Khai báo và cập nhật mẫu mặc định của doanh nghiệp.</p></div></section><QuoteTemplatePanel canManage templateUsage={usage?.templates ?? null} usageLoading={usageLoading} usageError={Boolean(usageError)} onRefreshUsage={() => void loadUsage()} onUsageChanged={() => void loadUsage()} /></div> : section === "catalog" ? <PriceListPanel key={refreshKey} onToast={notify} /> : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
-    {creatingQuote && <NewQuoteDialog canManageTemplate onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); setQuoteId(null); setSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); setSection("quotes"); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
+    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); setQuoteId(null); setSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); setSection("quotes"); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
     {confirmationDialog}
-  </div>;
+  </div></NotificationProvider>;
 }
 
 function NavButton({ icon, label, active, onClick }: { icon: string; label: string; active: boolean; onClick: () => void }) {
   return <button className={`nav-button ${active ? "active" : ""}`} onClick={onClick}><Icon name={icon} size={18} /><span>{label}</span></button>;
 }
 
-function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify: Notify }) {
-  const [mode, setMode] = useState<"login" | "register">("login");
+function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?: string) => void; onNotify: Notify }) {
+  const [mode, setMode] = useState<"login" | "register">(() => window.location.pathname === "/dang-ky" || new URLSearchParams(window.location.search).get("mode") === "register" ? "register" : "login");
+  const requestedPlanCode = new URLSearchParams(window.location.search).get("plan") ?? undefined;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [registration, setRegistration] = useState<RegistrationDraft>(emptyRegistration);
   const [showPassword, setShowPassword] = useState(false);
   const [showRegistrationPasswords, setShowRegistrationPasswords] = useState(false);
-  const [error, setError] = useState("");
+  const setError = (message: string) => { if (message) onNotify(message, "error"); };
   const [busy, setBusy] = useState(false);
 
   const submit = async (event: FormEvent) => {
@@ -216,10 +306,10 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
       });
       const sessionUser = await confirmSession(result.user);
       if (sessionUser.role === "admin") {
-        window.location.assign("/admin");
+        window.location.assign("/quan-tri");
         return;
       }
-      onLogin(sessionUser);
+      onLogin(sessionUser, requestedPlanCode);
       onNotify("Đăng nhập thành công.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể đăng nhập. Vui lòng thử lại.");
@@ -235,7 +325,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
     try {
       const details = { ...registration, email: registration.businessEmail, name: registration.representativeName };
       const { user } = await api<{ user: User }>("/api/auth/register", { method: "POST", body: JSON.stringify(details) });
-      onLogin(await confirmSession(user));
+      onLogin(await confirmSession(user), requestedPlanCode);
       onNotify("Tài khoản doanh nghiệp đã được tạo và đăng nhập.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không thể tạo tài khoản doanh nghiệp.");
@@ -256,6 +346,8 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
 
   const switchMode = (nextMode: "login" | "register") => {
     setMode(nextMode);
+    const nextPath = nextMode === "register" ? "/dang-ky" : "/dang-nhap";
+    window.history.replaceState(null, "", requestedPlanCode ? `${nextPath}?plan=${encodeURIComponent(requestedPlanCode)}` : nextPath);
     setShowRegistrationPasswords(false);
     setError("");
   };
@@ -360,34 +452,34 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User) => void; onNotify:
                 </div>
               </div>;
             })}
-            {error && <div className="login-error-alert register-field-wide" role="alert"><span className="error-icon"><Icon name="close" size={14} /></span><span>{error}</span></div>}
             <button className="login-submit-btn register-field-wide" type="submit" disabled={busy}>{busy ? <span className="login-spinner" /> : null}<span>{busy ? "Đang tạo tài khoản…" : "Tạo tài khoản doanh nghiệp"}</span>{!busy && <Icon name="arrow" size={17} />}</button>
           </form>}
-          {mode === "login" && error && <div className="login-error-alert" role="alert"><span className="error-icon"><Icon name="close" size={14} /></span><span>{error}</span></div>}
-          <a className="admin-login-link" href="/admin">Đăng nhập dành cho quản trị viên</a>
+          <a className="admin-login-link" href="/quan-tri">Đăng nhập dành cho quản trị viên</a>
         </div>
       </div>
     </div>
   );
 }
 
-function Dashboard({ onOpen, onCreate, onNavigate, canCreate, canReview }: { onOpen: (id: string) => void; onCreate: () => void; onNavigate: (section: Section) => void; canCreate: boolean; canReview: boolean }) {
-  const [data, setData] = useState<{ counts: { total: number; drafts: number; pending: number; approved: number }; recent: Quote[] } | null>(null); const [error, setError] = useState("");
-  useEffect(() => { api<typeof data>("/api/dashboard").then((value) => setData(value)).catch((cause) => setError(cause.message)); }, []);
+function Dashboard({ onOpen, onCreate, onNavigate, canCreate, quoteUsageLabel, createBlockedMessage, onRefreshUsage, showUsageError, canReview, onDeleteQuote }: { onOpen: (id: string) => void; onCreate: () => void; onNavigate: (section: Section) => void; canCreate: boolean; quoteUsageLabel: string; createBlockedMessage: string; onRefreshUsage: () => void; showUsageError: boolean; canReview: boolean; onDeleteQuote: (quote: Quote) => void }) {
+  const [data, setData] = useState<{ counts: { total: number; drafts: number; pending: number; approved: number }; recent: Quote[] } | null>(null);
+  const notify = useAppNotification();
+  useEffect(() => { api<typeof data>("/api/dashboard").then((value) => setData(value)).catch((cause) => notify(cause instanceof Error ? cause.message : "Không thể tải tổng quan báo giá.", "error")); }, [notify]);
   return <div className="page-stack dashboard-page">
     <section className="dashboard-banners" aria-label="Tạo và theo dõi báo giá">
       <article className="dashboard-banner dashboard-banner-primary">
         <img src="/images/quote-banner.png" alt="" />
         <div className="dashboard-banner-copy">
           <h1>Báo giá nhanh, rõ ràng</h1>
-          {canCreate && <button className="button button-primary" onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>}
+          <button className="button button-primary" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>
+          {quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}
+          {!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}
         </div>
       </article>
       <article className="dashboard-banner dashboard-banner-secondary">
         <img src="/images/approval-banner.png" alt="" />
       </article>
     </section>
-    {error && <div className="inline-error">{error}</div>}
     <section className="metric-grid">
       <Metric label="Tổng báo giá" value={data?.counts.total ?? "—"} icon="quote" tone="mint" />
       <Metric label="Bản nháp" value={data?.counts.drafts ?? "—"} icon="file" tone="sand" />
@@ -399,7 +491,7 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, canReview }: { onO
         <div><h2>Báo giá gần đây</h2></div>
         <button className="text-button" onClick={() => onNavigate("quotes")}>Xem tất cả <Icon name="arrow" size={15} /></button>
       </div>
-      <QuoteCards quotes={data?.recent ?? []} onOpen={onOpen} emptyTitle="Chưa có báo giá nào" emptyText="" />
+      <QuoteCards quotes={data?.recent ?? []} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Chưa có báo giá nào" emptyText="" />
     </section>
   </div>;
 }
@@ -408,11 +500,12 @@ function Metric({ label, value, icon, tone, action }: { label: string; value: nu
   return <button className={`metric-card tone-${tone} ${action ? "metric-action" : ""}`} onClick={action} disabled={!action}><span className="metric-top"><span>{label}</span><span className="metric-icon"><Icon name={icon} size={18} /></span></span><strong className="metric-value">{value}</strong></button>;
 }
 
-function QuoteWorkspace({ onOpen, onCreate, canCreate }: { onOpen: (id: string) => void; onCreate: () => void; canCreate: boolean }) {
-  const [quotes, setQuotes] = useState<Quote[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(""); const [reloadKey, setReloadKey] = useState(0); const [filter, setFilter] = useState("all");
-  useEffect(() => { setLoading(true); setError(""); api<{ quotes: Quote[] }>("/api/quotes").then((result) => setQuotes(result.quotes)).catch((cause) => setError(cause instanceof Error ? cause.message : "Không thể tải danh sách báo giá.")).finally(() => setLoading(false)); }, [reloadKey]);
+function QuoteWorkspace({ onOpen, onCreate, canCreate, quoteUsageLabel, createBlockedMessage, onRefreshUsage, showUsageError, onDeleteQuote }: { onOpen: (id: string) => void; onCreate: () => void; canCreate: boolean; quoteUsageLabel: string; createBlockedMessage: string; onRefreshUsage: () => void; showUsageError: boolean; onDeleteQuote: (quote: Quote) => void }) {
+  const [quotes, setQuotes] = useState<Quote[]>([]); const [loading, setLoading] = useState(true); const [loadFailed, setLoadFailed] = useState(false); const [reloadKey, setReloadKey] = useState(0); const [filter, setFilter] = useState("all");
+  const notify = useAppNotification();
+  useEffect(() => { setLoading(true); setLoadFailed(false); api<{ quotes: Quote[] }>("/api/quotes").then((result) => setQuotes(result.quotes)).catch((cause) => { setLoadFailed(true); notify(cause instanceof Error ? cause.message : "Không thể tải danh sách báo giá.", "error"); }).finally(() => setLoading(false)); }, [reloadKey, notify]);
   const filtered = filter === "all" ? quotes : quotes.filter((quote) => quote.status === filter);
-  return <div className="page-stack"><section className="page-heading-row"><div><h1>Báo giá</h1></div>{canCreate && <button className="button button-primary" onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá mới</button>}</section>{error && <div className="inline-error" role="alert">{error} <button className="text-button" onClick={() => setReloadKey((key) => key + 1)}>Thử lại</button></div>}<section className="content-card list-card"><div className="list-toolbar"><div className="filter-tabs">{[["all", "Tất cả"], ["draft", "Bản nháp"], ["pending_review", "Chờ duyệt"], ["approved", "Đã duyệt"], ["needs_info", "Cần bổ sung"], ["rejected", "Cần chỉnh sửa"]].map(([value, label]) => <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div><span className="row-count">{filtered.length} báo giá</span></div>{loading ? <Loading /> : error ? null : <QuoteCards quotes={filtered} onOpen={onOpen} emptyTitle="Không có báo giá trong mục này" emptyText="" />}</section></div>;
+  return <div className="page-stack"><section className="page-heading-row"><div><h1>Báo giá</h1>{quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}{!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}</div><div className="page-heading-actions">{loadFailed && <button type="button" className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button>}<button className="button button-primary" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá mới</button></div></section><section className="content-card list-card"><div className="list-toolbar"><div className="filter-tabs">{[["all", "Tất cả"], ["draft", "Bản nháp"], ["pending_review", "Chờ duyệt"], ["approved", "Đã duyệt"], ["needs_info", "Cần bổ sung"], ["rejected", "Cần chỉnh sửa"]].map(([value, label]) => <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div><span className="row-count">{filtered.length} báo giá</span></div>{loading ? <Loading /> : <QuoteCards quotes={filtered} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Không có báo giá trong mục này" emptyText="" />}</section></div>;
 }
 
 interface QuoteOptions { templates: TemplateDetails[]; defaultTemplateId: string | null; productsAvailable: boolean }
@@ -436,12 +529,14 @@ async function loadQuoteOptions(): Promise<QuoteOptions> {
   return { ...templates, productsAvailable };
 }
 
-function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplate }: { onClose: () => void; onCreated: (id: string) => void; canManageTemplate: boolean; onManageTemplate: () => void }) {
+function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplate, onQuotaExceeded }: { onClose: () => void; onCreated: (id: string) => void; canManageTemplate: boolean; onManageTemplate: () => void; onQuotaExceeded: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [options, setOptions] = useState<QuoteOptions>({ templates: [], defaultTemplateId: null, productsAvailable: false });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
+  const notify = useAppNotification();
+  const setError = useCallback((message: string) => { if (message) notify(message, "error"); }, [notify]);
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     const element = dialog.current!;
@@ -453,17 +548,17 @@ function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplat
   }, []);
   useEffect(() => {
     let active = true;
-    setLoading(true); setError("");
-    loadQuoteOptions().then((value) => { if (active) setOptions(value); }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Không tải được mẫu báo giá và danh mục sản phẩm."); }).finally(() => { if (active) setLoading(false); });
+    setLoading(true); setLoadFailed(false);
+    loadQuoteOptions().then((value) => { if (active) setOptions(value); }).catch((cause) => { if (active) { setLoadFailed(true); setError(cause instanceof Error ? cause.message : "Không tải được mẫu báo giá và danh mục sản phẩm."); } }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [reloadKey]);
+  }, [reloadKey, setError]);
   return <dialog ref={dialog} className="template-dialog quote-creation-dialog" aria-labelledby="new-quote-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
     <div className="settings-card-heading"><h2 id="new-quote-title">Tạo báo giá mới</h2><button type="button" autoFocus className="icon-button" aria-label="Đóng popup tạo báo giá" disabled={busy} onClick={onClose}><Icon name="close" /></button></div>
-    <div className="quote-creation-body" aria-busy={busy || loading}>{loading ? <Loading /> : error ? <div className="inline-error" role="alert">{error} <button className="text-button" onClick={() => setReloadKey((key) => key + 1)}>Thử lại</button></div> : <NewQuote options={options} canManageTemplate={canManageTemplate} onManageTemplate={onManageTemplate} onCreated={onCreated} onBusyChange={setBusy} />}</div>
+    <div className="quote-creation-body" aria-busy={busy || loading}>{loading ? <TaskProgress label="Đang tải mẫu và danh mục sản phẩm" detail="Chuẩn bị biểu mẫu tạo báo giá…" /> : loadFailed ? <div className="empty-state"><button className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div> : <NewQuote options={options} canManageTemplate={canManageTemplate} onManageTemplate={onManageTemplate} onCreated={onCreated} onBusyChange={setBusy} onQuotaExceeded={onQuotaExceeded} />}</div>
   </dialog>;
 }
 
-function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onBusyChange }: { onBusyChange: (busy: boolean) => void; onManageTemplate: () => void; canManageTemplate: boolean; options: QuoteOptions; onCreated: (id: string) => void }) {
+function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onBusyChange, onQuotaExceeded }: { onBusyChange: (busy: boolean) => void; onManageTemplate: () => void; onQuotaExceeded: () => void; canManageTemplate: boolean; options: QuoteOptions; onCreated: (id: string) => void }) {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [templateId, setTemplateId] = useState(options.templates.find((entry) => entry.id === options.defaultTemplateId)?.id ?? options.templates[0]?.id ?? "");
   const [requestFile, setRequestFile] = useState<File | null>(null);
@@ -480,7 +575,9 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   const [selected, setSelected] = useState<AnalysisItem[]>([]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
+  const notify = useAppNotification();
+  const setError = useCallback((message: string) => { if (message) notify(message, "error"); }, [notify]);
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
 
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
@@ -493,13 +590,21 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
     setBusy(true);
     setError("");
     setAnalysis(null);
+    setTaskProgress({ label: "Đang chuẩn bị phân tích", detail: "Chuẩn bị yêu cầu để đối chiếu với bảng giá…" });
     try {
       let id = requestId;
       if (!id) {
         if (requestFile && uploadedFile.current?.file !== requestFile) {
-          const { file } = await api<{ file: { id: string } }>("/api/request-files", { method: "POST", body: requestFile, headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(requestFile.name) } });
+          setTaskProgress({ label: "Đang tải file yêu cầu lên", detail: "Tiến độ gửi file" });
+          const { file } = await apiUploadWithProgress<{ file: { id: string } }>(
+            "/api/request-files",
+            requestFile,
+            { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(requestFile.name) },
+            (progress) => setTaskProgress({ label: "Đang tải file yêu cầu lên", progress, detail: "Tiến độ gửi file" }),
+          );
           uploadedFile.current = { file: requestFile, id: file.id };
         }
+        setTaskProgress({ label: "Đang lưu yêu cầu", detail: "Đang chuẩn bị nội dung và thông tin khách hàng…" });
         const { request } = await api<{ request: QuoteRequest }>("/api/quote-requests", {
           method: "POST",
           body: JSON.stringify({ requestText, customerName, customerEmail, customerPhone, templateId, requestFileId: requestFile ? uploadedFile.current?.id : undefined, idempotencyKey: requestIdempotencyKey }),
@@ -507,6 +612,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
         id = request._id;
         setRequestId(id);
       }
+      setTaskProgress({ label: "AI đang đối chiếu bảng giá", detail: "Đang phân tích yêu cầu và ghép các sản phẩm phù hợp…" });
       const { analysis: result, candidates } = await api<{ analysis: Analysis; candidates: CatalogItem[] }>(`/api/quote-requests/${id}/analyze`, { method: "POST" });
       setCatalog(candidates);
       setCustomerName((current) => current.trim() ? current : result.customerName ?? "");
@@ -514,9 +620,11 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
       setAnalysis(result);
       setSelected(result.items);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded();
       setError(cause instanceof Error ? cause.message : "Không thể phân tích yêu cầu.");
     } finally {
       setBusy(false);
+      setTaskProgress(null);
     }
   };
 
@@ -529,6 +637,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   const createQuote = async () => {
     setBusy(true);
     setError("");
+    setTaskProgress({ label: "Đang tạo bản nháp báo giá", detail: "Đang tính toán các dòng hàng và lưu báo giá…" });
     try {
       const { quote } = await api<{ quote: Quote }>("/api/quotes", {
         method: "POST",
@@ -543,9 +652,11 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
       });
       onCreated(quote._id);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded();
       setError(cause instanceof Error ? cause.message : "Không thể tạo báo giá.");
     } finally {
       setBusy(false);
+      setTaskProgress(null);
     }
   };
 
@@ -584,7 +695,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
             {!analysis && <button className="button button-primary analyze-button" type="submit" disabled={busy || !templateId || !options.productsAvailable || (!requestText.trim() && !requestFile)}>{busy ? <span className="spinner" /> : <Icon name="spark" size={17} />}{busy ? "Đang phân tích…" : "Phân tích yêu cầu"}<Icon name="arrow" size={16} /></button>}
             {requestId && <button type="button" className="text-button" disabled={busy} onClick={editRequest}>Chỉnh sửa yêu cầu</button>}
           </form>
-          {error && <div className="inline-error">{error}</div>}
+          {!analysis && taskProgress && <TaskProgress {...taskProgress} />}
         </section>
 
         {analysis && <section className="content-card analysis-card">
@@ -613,7 +724,8 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
             <label className="search-field"><Icon name="search" size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm thêm sản phẩm trong danh mục…" /></label>
             {query && <div className="search-results">{results.length ? results.map((item) => <button key={item._id} onClick={() => addCatalogItem(item)}><span><strong>{item.name}</strong><small>{item.sku} · {item.unit}</small>{Object.keys(item.attributes ?? {}).length > 0 && <small className="catalog-result-attributes">{Object.entries(item.attributes ?? {}).map(([key, value]) => `${key}: ${value}`).join(" · ")}</small>}</span><span className="result-price">{formatMoney(item.price, item.currency)}<Icon name="plus" size={15} /></span></button>) : <div className="search-empty">Không tìm thấy sản phẩm đang hoạt động.</div>}</div>}
           </div>
-          <div className="analysis-footer"><span>{selected.length + (analysis.suggestedProducts?.length ?? 0)} mặt hàng trong báo giá</span><button className="button button-primary" disabled={busy || !customerName.trim() || (selected.length === 0 && !analysis.suggestedProducts?.length)} onClick={() => void createQuote()}>{busy ? "Đang tạo bản nháp…" : "Tạo bản nháp"}<Icon name="arrow" size={16} /></button></div>
+          <div className="analysis-footer"><span>{selected.length + (analysis.suggestedProducts?.length ?? 0)} mặt hàng trong báo giá</span><button className="button button-primary" disabled={busy || !customerName.trim() || (selected.length === 0 && !analysis.suggestedProducts?.length)} onClick={() => void createQuote()}>{busy ? "Đang tạo bản nháp…" : "Tạo bản nháp"}{!busy && <Icon name="arrow" size={16} />}</button></div>
+          {busy && taskProgress && <TaskProgress {...taskProgress} />}
         </section>}
       </div>
       <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
@@ -621,19 +733,22 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   );
 }
 
-function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: string; user: User; onBack: () => void; onChanged: () => void; onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
+function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQuote }: { id: string; user: User; onBack: () => void; onChanged: () => void; onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean>; onDeleteQuote: (quote: Quote) => void }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [taxRateText, setTaxRateText] = useState("0");
   const [taxRateConfirmed, setTaxRateConfirmed] = useState(false);
+  const [taxMode, setTaxMode] = useState<TaxMode>("unconfirmed");
   const [shippingFeeText, setShippingFeeText] = useState("");
+  const [shippingMode, setShippingMode] = useState<ShippingMode>("unconfirmed");
   const [additionalInformation, setAdditionalInformation] = useState<Record<string, string>>({});
   const [supplementalProducts, setSupplementalProducts] = useState<SupplementalProductDraft[]>([]);
   const [validityDaysText, setValidityDaysText] = useState("");
   const [completionDateText, setCompletionDateText] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
+  const setError = (message: string) => { if (message) onToast(message, "error"); };
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState("");
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
@@ -645,6 +760,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   const canEdit = user.role === "user";
   const canApprove = user.role === "user";
   const editable = canEdit && Boolean(quote && ["draft", "needs_info", "pending_review", "rejected"].includes(quote.status));
+  const shippingFeeIsConfirmed = shippingMode === "free"
+    || (shippingMode === "paid" && shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) && Number(shippingFeeText) > 0);
 
   const load = useCallback(async () => {
     try {
@@ -655,8 +772,13 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
       setCustomerPhone(value.customerPhone ?? "");
       setQuantities(Object.fromEntries(value.lines.map((line) => [line.catalogItemId, line.quantity])));
       setTaxRateText(String(value.taxRate * 100));
-      setTaxRateConfirmed(value.taxRateConfirmed ?? !value.informationNeeded.some((field) => /vat|thuế/i.test(field)));
-      setShippingFeeText(value.shippingFeeConfirmed === false ? "" : String(value.shippingFee ?? 0));
+      const loadedTaxConfirmed = value.taxRateConfirmed ?? !value.informationNeeded.some(isTaxMissingInformation);
+      setTaxRateConfirmed(loadedTaxConfirmed);
+      setTaxMode(loadedTaxConfirmed ? value.taxRate === 0 ? "zero" : "rate" : "unconfirmed");
+      const loadedShippingConfirmed = value.shippingFeeConfirmed ?? (value.shippingFee != null || !value.informationNeeded.some(isShippingMissingInformation));
+      const loadedShippingFee = loadedShippingConfirmed ? value.shippingFee ?? 0 : null;
+      setShippingFeeText(loadedShippingFee === null ? "" : String(loadedShippingFee));
+      setShippingMode(loadedShippingFee === null ? "unconfirmed" : loadedShippingFee === 0 ? "free" : "paid");
       setAdditionalInformation(value.additionalInformation ?? {});
       const savedSupplemental = value.lines.filter((line) => line.source === "supplemental");
       const supplementalDrafts: SupplementalProductDraft[] = savedSupplemental.map((line) => ({
@@ -669,14 +791,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
         unitPrice: String(line.unitPrice),
       }));
       for (const suggestion of value.suggestedProducts ?? []) {
-        if (!suggestion.informationField || savedSupplemental.some((line) => line.supplementalFor === suggestion.informationField)) continue;
-        supplementalDrafts.push(createSupplementalProductDraft(suggestion.informationField, suggestion));
+        if (!suggestion.informationField || supplementalDrafts.some((product) => product.informationField === suggestion.informationField)) continue;
+        supplementalDrafts.push(createSupplementalProductDraft(suggestion.informationField, suggestion, false));
       }
       const draftedInformationFields = new Set(supplementalDrafts.map((product) => product.informationField).filter((field): field is string => Boolean(field)));
-      const unresolvedCatalogFields = value.informationNeeded.filter((field) =>
-        isSupplementalProductInformation(field) && !draftedInformationFields.has(field),
-      );
-      unresolvedCatalogFields.forEach((field) => supplementalDrafts.push(createSupplementalProductDraft(field)));
+      value.informationNeeded.filter((field) => isSupplementalProductInformation(field) && !draftedInformationFields.has(field))
+        .forEach((field) => supplementalDrafts.push(createSupplementalProductDraft(field, undefined, false)));
       setSupplementalProducts(supplementalDrafts);
       setValidityDaysText(value.validityDays == null ? "" : String(value.validityDays));
       setCompletionDateText(value.completionDate ?? "");
@@ -714,9 +834,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
       unitPrice: Number(product.unitPrice),
     })),
     taxRate: Number(taxRateText) / 100,
-    taxRateConfirmed: taxRateConfirmed && taxRateText.trim() !== "",
-    shippingFee: shippingFeeText.trim() === "" ? null : Number(shippingFeeText),
-    shippingFeeConfirmed: shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)),
+    taxRateConfirmed: taxMode !== "unconfirmed" && taxRateConfirmed && taxRateText.trim() !== "",
+    shippingFee: shippingMode === "unconfirmed" ? null : shippingMode === "free" ? 0 : shippingFeeText.trim() === "" ? null : Number(shippingFeeText),
+    shippingFeeConfirmed: shippingFeeIsConfirmed,
     validityDays: validityDaysText.trim() === "" ? null : Number(validityDaysText),
     completionDate: completionDateText || null,
     additionalInformation,
@@ -770,11 +890,31 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
     return Math.round((liveSubtotal * (Number(taxRateText) / 100) + Number.EPSILON) * 100) / 100;
   }, [quote, liveSubtotal, taxRateConfirmed, taxRateText]);
 
-  const liveShippingFee = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) && Number(shippingFeeText) >= 0 ? Number(shippingFeeText) : 0;
+  const liveShippingFee = shippingFeeIsConfirmed && shippingMode === "paid" ? Number(shippingFeeText) : 0;
 
   const liveTotal = useMemo(() => {
     return liveSubtotal + liveTaxAmount + liveShippingFee;
   }, [liveSubtotal, liveTaxAmount, liveShippingFee]);
+
+  const chooseShippingMode = (mode: ShippingMode) => {
+    setShippingMode(mode);
+    if (mode === "unconfirmed") setShippingFeeText("");
+    else if (mode === "free") setShippingFeeText("0");
+    else if (!(Number(shippingFeeText) > 0)) setShippingFeeText("");
+  };
+
+  const chooseTaxMode = (mode: TaxMode) => {
+    setTaxMode(mode);
+    if (mode === "unconfirmed") setTaxRateConfirmed(false);
+    else if (mode === "zero") {
+      setTaxRateText("0");
+      setTaxRateConfirmed(true);
+    } else if (Number(taxRateText) > 0) setTaxRateConfirmed(true);
+    else {
+      setTaxRateText("");
+      setTaxRateConfirmed(false);
+    }
+  };
 
   const copyText = (text: string, label: string) => {
     if (!text) return;
@@ -789,18 +929,15 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
     }
     if (quote) {
       let confirmation: ConfirmOptions | undefined;
-      if (url.endsWith("/submit-review")) confirmation = { title: "Gửi báo giá duyệt?", message: `Báo giá ${quote.quoteNumber} sẽ chuyển vào danh sách chờ duyệt.`, confirmLabel: "Gửi duyệt" };
-      else if (url.endsWith("/approve")) confirmation = { title: "Duyệt báo giá này?", message: `${quote.quoteNumber} · ${quote.customerName}\nTổng tiền: ${formatMoney(liveTotal, quote.currency)}\nSau khi duyệt, có thể xuất file theo mẫu và gửi cho khách hàng.`, confirmLabel: "Duyệt báo giá" };
+      if (url.endsWith("/approve")) confirmation = { title: "Duyệt báo giá này?", message: `${quote.quoteNumber} · ${quote.customerName}\nTổng tiền: ${formatMoney(liveTotal, quote.currency)}\nSau khi duyệt, có thể tải file chính thức và gửi cho khách hàng.`, confirmLabel: "Duyệt báo giá" };
       else if (url.endsWith("/reject")) confirmation = { title: "Trả báo giá để chỉnh sửa?", message: `${quote.quoteNumber} sẽ chuyển về trạng thái cần chỉnh sửa.\nLý do: ${typeof body === "object" && body && "reason" in body ? String(body.reason) : ""}`, confirmLabel: "Trả lại", tone: "danger" };
       else if (url.endsWith("/email")) confirmation = { title: "Gửi báo giá qua email?", message: `Báo giá đã duyệt sẽ được gửi tới ${quote.customerEmail || "khách hàng"}.`, confirmLabel: "Gửi email" };
       if (confirmation && !await confirm(confirmation)) return;
     }
-    if (url.endsWith("/submit-review") && quote && hasUnsavedChanges) {
-      setError("Lưu thay đổi và kiểm tra lại tổng tiền trước khi gửi duyệt.");
-      return;
-    }
     setBusy(true);
     setError("");
+    const taskLabel = url.endsWith("/approve") ? "Đang duyệt báo giá" : url.endsWith("/email") ? "Đang gửi báo giá qua email" : "Đang lưu báo giá";
+    setTaskProgress({ label: taskLabel, detail: "Đang cập nhật dữ liệu trên máy chủ…" });
     const saveBeforeApprove = url.endsWith("/approve") && editable && hasUnsavedChanges;
     try {
       if (saveBeforeApprove && quote) {
@@ -814,41 +951,66 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
       setError(cause instanceof Error ? cause.message : "Không thể cập nhật báo giá.");
     } finally {
       setBusy(false);
+      setTaskProgress(null);
     }
   };
 
   if (loading) return <Loading />;
-  if (!quote) return <div className="empty-state"><h2>Báo giá không khả dụng</h2><p>{error || "Không tìm thấy dữ liệu."}</p><button className="button button-soft" onClick={onBack}>Quay lại</button></div>;
+  if (!quote) return <div className="empty-state"><h2>Báo giá không khả dụng</h2><p>Vui lòng quay lại danh sách báo giá.</p><button className="button button-soft" onClick={onBack}>Quay lại</button></div>;
 
-  const shippingFeeIsConfirmed = shippingFeeText.trim() !== "" && Number.isFinite(Number(shippingFeeText)) && Number(shippingFeeText) >= 0;
-  const unresolvedInformation = quote.informationNeeded.filter((field) => isSupplementalProductInformation(field)
-    ? !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field)
-    : !canSupplementMissingInformation(field) || !quote.additionalInformation?.[field]?.trim(),
-  );
+  const unresolvedInformation = quote.informationNeeded.filter((field) => {
+    if (isTaxMissingInformation(field) || isShippingMissingInformation(field)) return false;
+    if (isSupplementalProductInformation(field)) {
+      return !supplementalProducts.some((product) => {
+        if (product.informationField !== field || !product.name.trim() || !product.unit.trim()) return false;
+        const quantity = Number(product.quantity);
+        const unitPrice = Number(product.unitPrice);
+        return Number.isFinite(quantity) && quantity > 0 && product.unitPrice.trim() !== "" && Number.isFinite(unitPrice) && unitPrice >= 0;
+      });
+    }
+    return !canSupplementMissingInformation(field) || !quote.additionalInformation?.[field]?.trim();
+  });
   const hasUnresolvedInformation = unresolvedInformation.length > 0 || !taxRateConfirmed || taxRateText.trim() === "" || !shippingFeeIsConfirmed;
-  const supplementalInformation = quote.informationNeeded;
-  const taxInformationInSupplement = supplementalInformation.some(isTaxMissingInformation);
-  const shippingInformationInSupplement = supplementalInformation.some(isShippingMissingInformation);
-  const hasUnresolvedProductInformation = quote.informationNeeded.some((field) => isSupplementalProductInformation(field)
-    && !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field),
-  );
+  const supplementalInformation = quote.informationNeeded.filter((field) => !isTaxMissingInformation(field) && !isShippingMissingInformation(field) && !isSupplementalProductInformation(field));
+  const unresolvedProductNeeds = unresolvedInformation.filter(isSupplementalProductInformation).map((field) => ({
+    field,
+    suggestion: quote.suggestedProducts?.find((product) => product.informationField === field),
+    draft: supplementalProducts.find((product) => product.informationField === field),
+  }));
+  const unresolvedOtherInformation = unresolvedInformation.filter((field) => !isSupplementalProductInformation(field));
+  const hasUnresolvedProductInformation = unresolvedProductNeeds.length > 0;
+  const missingSetupInformation = [
+    ...(!shippingFeeIsConfirmed ? ["Phí vận chuyển"] : []),
+    ...(!taxRateConfirmed || taxRateText.trim() === "" ? ["VAT"] : []),
+  ];
   const catalogLines = quote.lines.filter((line) => line.source !== "supplemental");
   const visibleLineCount = catalogLines.length + supplementalProducts.filter(hasSupplementalProductContent).length;
   const outputExtension = quote.template?.originalFilename.split(".").pop()?.toLowerCase() || "pdf";
   const canPreviewGeneratedFile = quote.status === "approved" || quote.status === "pending_review" || (editable && outputExtension === "xlsx");
+  const canExportDraftXlsx = editable && quote.status === "draft" && outputExtension === "xlsx";
+  const canDownloadQuote = quote.status === "approved" || canExportDraftXlsx;
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
   const downloadQuote = async () => {
     setBusy(true); setError("");
+    const fileLabel = canExportDraftXlsx ? "Đang xuất Excel nháp" : "Đang chuẩn bị file báo giá";
+    setTaskProgress({ label: fileLabel, detail: "Đang tạo file từ mẫu báo giá…" });
     try {
-      const response = await fetch(`/api/quotes/${quote._id}/export`, { credentials: "include" });
+      const draftQuery = canExportDraftXlsx ? "?draft=1" : "";
+      const response = await fetch(`/api/quotes/${quote._id}/export${draftQuery}`, { credentials: "include" });
       if (!response.ok) { const result = await response.json(); throw new Error(result.error || "Không tải được báo giá."); }
-      const url = URL.createObjectURL(await response.blob());
+      const blob = await responseBlobWithProgress(response, (progress) => setTaskProgress({
+        label: canExportDraftXlsx ? "Đang tải file Excel" : "Đang tải file báo giá",
+        progress,
+        detail: progress === null ? "Máy chủ đã tạo file. Đang tải xuống…" : "Tiến độ tải file",
+      }));
+      const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      link.href = url; link.download = `${quote.quoteNumber}.${quote.template?.originalFilename.split(".").pop()?.toLowerCase() || "pdf"}`;
+      link.href = url; link.download = `${quote.quoteNumber}${canExportDraftXlsx ? "-nhap" : ""}.${quote.template?.originalFilename.split(".").pop()?.toLowerCase() || "pdf"}`;
       link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      onToast("Đã tải file báo giá.", "success");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tải được báo giá."); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setTaskProgress(null); }
   };
 
   const customerInitials = (customerName || quote.customerName).trim().slice(0, 2).toLocaleUpperCase("vi") || "KH";
@@ -861,6 +1023,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
           <Icon name="back" size={16} /> Quay lại danh sách báo giá
         </button>
       </div>
+      {taskProgress && <TaskProgress {...taskProgress} />}
 
       {/* Main Header Card */}
       <header className="quote-detail-header-card">
@@ -899,27 +1062,25 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             </button>
           )}
 
-          {editable && quote.status === "draft" && (
-            <button
-              type="button"
-              className="button button-primary"
-              disabled={busy || hasUnresolvedInformation}
-              onClick={() => void perform(`/api/quotes/${quote._id}/submit-review`, {}, "POST", "Đã gửi báo giá vào hàng chờ duyệt.")}
-            >
-              <Icon name="arrow" size={16} /> Gửi duyệt báo giá
-            </button>
-          )}
+          <button
+            type="button"
+            className="button button-primary"
+            disabled={busy || !canDownloadQuote || hasUnresolvedInformation || hasUnsavedChanges}
+            title={hasUnresolvedInformation ? "Cần xử lý thông tin còn thiếu trước khi xuất file" : hasUnsavedChanges ? "Lưu thay đổi trước khi xuất file" : canExportDraftXlsx ? "Xuất Excel nháp trước khi duyệt" : quote.status === "approved" ? "Tải file báo giá chính thức" : "Chỉ có thể xuất Excel nháp hoặc tải file sau khi duyệt"}
+            onClick={() => void downloadQuote()}
+          >
+            <Icon name="download" size={16} />
+            {quote.status === "approved" ? "Tải file báo giá" : canExportDraftXlsx ? "Xuất Excel nháp" : "Xuất sau khi duyệt"}
+          </button>
 
-          {canApprove && quote.status === "pending_review" && (
+          {canApprove && (quote.status === "draft" || quote.status === "pending_review") && (
             <>
-              <button
+              {quote.status === "pending_review" && <button
                 type="button"
                 className="button button-soft"
                 disabled={busy}
                 onClick={() => setRejecting((prev) => !prev)}
-              >
-                Trả lại chỉnh sửa
-              </button>
+              >Trả lại chỉnh sửa</button>}
               <button
                 type="button"
                 className="button button-primary"
@@ -943,41 +1104,35 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             </button>
           )}
 
-          <button
-            type="button"
-            className="button button-primary"
-            disabled={busy || quote.status !== "approved" || hasUnresolvedInformation}
-            title={hasUnresolvedInformation ? "Cần xử lý thông tin còn thiếu trước khi xuất file" : quote.status === "approved" ? "Tải file báo giá chính thức" : "Báo giá cần được duyệt trước khi xuất file"}
-            onClick={() => void downloadQuote()}
-          >
-            <Icon name="download" size={16} />
-            {quote.status === "approved" ? "Tải file báo giá" : "Xuất sau khi duyệt"}
-          </button>
+          {canEdit && <button type="button" className="button button-soft quote-delete-action" disabled={busy} onClick={() => onDeleteQuote(quote)}>
+            <Icon name="trash" size={16} /> Xóa báo giá
+          </button>}
+
         </div>
       </header>
 
       {/* Stepper Pipeline */}
       <section className="quote-stepper-card" aria-label="Quy trình xử lý báo giá">
         <div className="quote-stepper">
-          <div className={`quote-step-item ${quote.status === "draft" ? "is-current" : quote.status === "needs_info" ? "is-alert" : "is-done"}`}>
+          <div className={`quote-step-item ${quote.status === "needs_info" ? "is-alert" : "is-done"}`}>
             <span className="quote-step-icon">
-              {quote.status === "draft" ? "1" : quote.status === "needs_info" ? "!" : <Icon name="check" size={15} />}
+              {quote.status === "needs_info" ? "!" : <Icon name="check" size={15} />}
             </span>
             <div className="quote-step-copy">
               <strong>1. Soạn thảo nháp</strong>
-              <span>{quote.status === "draft" ? "Đang soạn thảo" : quote.status === "needs_info" ? "Cần bổ sung tin" : "Đã hoàn thành"}</span>
+              <span>{quote.status === "needs_info" ? "Cần bổ sung tin" : "Đã tạo bản nháp"}</span>
             </div>
           </div>
 
-          <div className={`quote-step-line ${quote.status !== "draft" && quote.status !== "needs_info" ? "is-done" : ""}`} />
+          <div className={`quote-step-line ${quote.status !== "needs_info" ? "is-done" : ""}`} />
 
-          <div className={`quote-step-item ${quote.status === "rejected" ? "is-alert" : quote.status === "pending_review" ? "is-current" : quote.status === "approved" ? "is-done" : "is-upcoming"}`}>
+          <div className={`quote-step-item ${quote.status === "rejected" ? "is-alert" : quote.status === "draft" || quote.status === "pending_review" ? "is-current" : quote.status === "approved" ? "is-done" : "is-upcoming"}`}>
             <span className="quote-step-icon">
               {quote.status === "rejected" ? "!" : quote.status === "pending_review" ? <Icon name="clock" size={15} /> : quote.status === "approved" ? <Icon name="check" size={15} /> : "2"}
             </span>
             <div className="quote-step-copy">
               <strong>2. Phê duyệt báo giá</strong>
-              <span>{quote.status === "rejected" ? "Cần chỉnh sửa" : quote.status === "pending_review" ? "Đang chờ duyệt" : quote.status === "approved" ? "Đã duyệt" : "Chưa gửi duyệt"}</span>
+              <span>{quote.status === "rejected" ? "Cần chỉnh sửa" : quote.status === "pending_review" ? "Đang chờ duyệt" : quote.status === "approved" ? "Đã duyệt" : quote.status === "draft" ? "Sẵn sàng duyệt" : "Cần bổ sung thông tin"}</span>
             </div>
           </div>
 
@@ -989,14 +1144,13 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             </span>
             <div className="quote-step-copy">
               <strong>3. Xuất & Gửi khách hàng</strong>
-              <span>{quote.status === "approved" ? "Sẵn sàng xuất file" : "Chờ duyệt xong"}</span>
+              <span>{quote.status === "approved" ? "Sẵn sàng xuất file" : canExportDraftXlsx ? "Có thể xuất Excel nháp" : "Chờ duyệt xong"}</span>
             </div>
           </div>
         </div>
       </section>
 
       {/* Errors & Alerts */}
-      {error && <div className="inline-error" role="alert">{error}</div>}
 
       {/* Pending Review Action Banner */}
       {quote.status === "pending_review" && (
@@ -1047,18 +1201,42 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
             <span className="banner-icon"><Icon name="spark" size={20} /></span>
             <div className="banner-text-box">
               <h3>Còn thông tin cần bổ sung</h3>
-              <p>{unresolvedInformation.length ? unresolvedInformation.join(" · ") : "Hãy xác nhận VAT và phí vận chuyển trong mục Chi phí và điều khoản."}</p>
+              <p>{[
+                ...unresolvedOtherInformation,
+                ...missingSetupInformation.map((field) => `${field}: chưa xác nhận`),
+              ].join(" · ") || "Cần hoàn tất các hạng mục bên dưới."}</p>
             </div>
           </div>
-          <p className="field-hint">Báo giá chưa thể gửi duyệt khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.</p>
-          {hasUnresolvedProductInformation && <p className="field-hint">Bổ sung từng sản phẩm hoặc hạng mục ở phần Thông tin bổ sung bên dưới. Nhập tên, đơn vị tính, số lượng và đơn giá để hệ thống tính thành tiền.</p>}
+          <p className="field-hint">Cần chốt các mục này trước khi gửi duyệt.</p>
+          {hasUnresolvedProductInformation && <div className="quote-missing-product-list" aria-label="Hạng mục chưa ghép được">
+            {unresolvedProductNeeds.map(({ field, suggestion, draft }) => {
+              const name = draft ? draft.name.trim() : suggestion?.name?.trim() ?? "";
+              const label = name || suggestedNameFromMissingField(field) || field;
+              const unit = draft ? draft.unit.trim() : suggestion?.unit.trim() ?? "";
+              const quantity = draft ? Number(draft.quantity) : suggestion?.quantity ?? 0;
+              const quantityLabel = Number.isFinite(quantity) && quantity > 0 && unit
+                ? `${quantity} ${normalizedSupplementalUnit(unit)}`
+                : "Chưa có số lượng / đơn vị";
+              const unitPriceText = draft?.unitPrice ?? "";
+              const unitPrice = Number(unitPriceText);
+              const missingFields = [
+                ...(!name ? ["tên hạng mục"] : []),
+                ...(!unit ? ["đơn vị"] : []),
+                ...(!Number.isFinite(quantity) || quantity <= 0 ? ["số lượng"] : []),
+                ...(!unitPriceText.trim() || !Number.isFinite(unitPrice) || unitPrice < 0 ? ["đơn giá"] : []),
+              ];
+              return <div className="quote-missing-product" key={field}>
+                <div><strong>{label}</strong><span>{quantityLabel} · Bảng giá chưa có mã phù hợp; cần bổ sung: {missingFields.join(", ") || "thông tin xác nhận"}.</span></div>
+              </div>;
+            })}
+          </div>}
         </div>
       )}
 
       {(editable || supplementalInformation.length > 0 || supplementalProducts.length > 0) && (
         <section className="content-card quote-supplement-card">
           <div className="section-title quote-terms-heading">
-            <div><h2>Thông tin bổ sung</h2><p>Thêm sản phẩm hoặc hạng mục còn thiếu bằng các ô bên dưới. Thành tiền và tổng báo giá được tính tự động.</p></div>
+            <div><h2>Thông tin bổ sung</h2></div>
           </div>
           {supplementalInformation.length > 0 && <div className="quote-supplement-fields">
             {supplementalInformation.map((field, index) => (
@@ -1066,25 +1244,14 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                 <label className="quote-supplement-field-heading" htmlFor={`supplement-${quote._id}-${index}`}>
                   {field}
                   {isSupplementalProductInformation(field) ? <small>Nhập thành dòng sản phẩm bên dưới</small>
-                    : isTaxMissingInformation(field) ? <small>{taxRateConfirmed ? "Đã xác nhận" : "Cần xác nhận"}</small>
-                      : isShippingMissingInformation(field) ? <small>{shippingFeeIsConfirmed ? "Đã xác nhận" : "Cần xác nhận"}</small>
-                        : Boolean((quote.additionalInformation?.[field] ?? "").trim()) && (quote.additionalInformation?.[field] ?? "").trim() === (additionalInformation[field] ?? "").trim() && <small>Đã lưu</small>}
+                    : Boolean((quote.additionalInformation?.[field] ?? "").trim()) && (quote.additionalInformation?.[field] ?? "").trim() === (additionalInformation[field] ?? "").trim() && <small>Đã lưu</small>}
                 </label>
-                {isTaxMissingInformation(field) ? (
-                  <div className="quote-supplement-structured-control">
-                    <input id={`supplement-${quote._id}-${index}`} type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} aria-label="Thuế suất VAT (%)" onChange={(event) => { setTaxRateText(event.target.value); if (!event.target.value.trim()) setTaxRateConfirmed(false); }} />
-                    <label className="quote-supplement-confirm"><input type="checkbox" checked={taxRateConfirmed} disabled={!editable || busy || taxRateText.trim() === ""} onChange={(event) => setTaxRateConfirmed(event.target.checked)} /> Xác nhận thuế suất VAT</label>
-                  </div>
-                ) : isShippingMissingInformation(field) ? (
-                  <input id={`supplement-${quote._id}-${index}`} className="quote-supplement-number" type="number" min="0" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder="Nhập số tiền, hoặc 0 nếu miễn phí" aria-label={`Phí vận chuyển (${quote.currency})`} onChange={(event) => setShippingFeeText(event.target.value)} />
-                ) : isSupplementalProductInformation(field) ? (
+                {isSupplementalProductInformation(field) ? (
                   <small>Điền tên sản phẩm, quy cách, đơn vị, số lượng và đơn giá ở bảng sản phẩm bổ sung.</small>
                 ) : (
                   <textarea id={`supplement-${quote._id}-${index}`} rows={2} maxLength={2000} value={additionalInformation[field] ?? ""} disabled={!editable || busy} placeholder="Nhập thông tin đã xác nhận…" onChange={(event) => setAdditionalInformation((current) => ({ ...current, [field]: event.target.value }))} />
                 )}
-                {isTaxMissingInformation(field) ? <small>{taxRateConfirmed ? "Thuế suất VAT sẽ được cộng vào tổng tiền sau khi lưu." : "Nhập tỷ lệ và xác nhận trước khi gửi duyệt."}</small>
-                  : isShippingMissingInformation(field) ? <small>{shippingFeeText.trim() === "" ? "Nhập số tiền hoặc 0 nếu miễn phí." : "Phí vận chuyển sẽ được cộng vào tổng tiền sau khi lưu."}</small>
-                    : !isSupplementalProductInformation(field) && <small>{(additionalInformation[field] ?? "").length}/2.000 ký tự</small>}
+                {!isSupplementalProductInformation(field) && <small>{(additionalInformation[field] ?? "").length}/2.000 ký tự</small>}
               </div>
             ))}
           </div>}
@@ -1101,11 +1268,17 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                   const quantity = Number(product.quantity);
                   const unitPrice = Number(product.unitPrice);
                   const hasUnitPrice = product.unitPrice.trim() !== "" && Number.isFinite(unitPrice) && unitPrice >= 0;
+                  const missingProductFields = [
+                    ...(!product.name.trim() ? ["tên hạng mục"] : []),
+                    ...(!product.unit.trim() ? ["đơn vị"] : []),
+                    ...(!product.quantity.trim() || !Number.isFinite(quantity) || quantity <= 0 ? ["số lượng"] : []),
+                    ...(!hasUnitPrice ? ["đơn giá"] : []),
+                  ];
                   const lineTotal = Number.isFinite(quantity) && quantity > 0 && hasUnitPrice ? Math.round((quantity * unitPrice + Number.EPSILON) * 100) / 100 : 0;
                   const unitOptions = supplementalUnitOptions.includes(product.unit) ? supplementalUnitOptions : [product.unit, ...supplementalUnitOptions];
                   const updateProduct = (patch: Partial<SupplementalProductDraft>) => setSupplementalProducts((current) => current.map((row) => row.id === product.id ? { ...row, ...patch } : row));
                   return <tr key={product.id}>
-                    <td><input value={product.name} maxLength={250} disabled={!editable || busy} placeholder="Tên sản phẩm / hạng mục" aria-label="Tên sản phẩm bổ sung" onChange={(event) => updateProduct({ name: event.target.value })} /><input value={product.description} maxLength={2000} disabled={!editable || busy} placeholder="Quy cách / mô tả" aria-label="Quy cách sản phẩm bổ sung" onChange={(event) => updateProduct({ description: event.target.value })} />{product.informationField && <small>Bổ sung cho: {product.informationField}</small>}</td>
+                    <td><input value={product.name} maxLength={250} disabled={!editable || busy} placeholder="Tên sản phẩm / hạng mục" aria-label="Tên sản phẩm bổ sung" onChange={(event) => updateProduct({ name: event.target.value })} /><input value={product.description} maxLength={2000} disabled={!editable || busy} placeholder="Quy cách / mô tả" aria-label="Quy cách sản phẩm bổ sung" onChange={(event) => updateProduct({ description: event.target.value })} />{product.informationField && <small>Bổ sung cho: {product.informationField}</small>}{missingProductFields.length > 0 && <small className="quote-supplement-row-missing">Cần bổ sung: {missingProductFields.join(", ")}</small>}</td>
                     <td><select value={product.unit} disabled={!editable || busy} aria-label="Đơn vị tính" onChange={(event) => updateProduct({ unit: event.target.value })}>{unitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></td>
                     <td><input type="number" min="0.01" step="any" value={product.quantity} disabled={!editable || busy} placeholder="0" aria-label="Số lượng" onChange={(event) => updateProduct({ quantity: event.target.value })} /></td>
                     <td><input type="number" min="0" step="any" value={product.unitPrice} disabled={!editable || busy} placeholder="0" aria-label="Đơn giá" onChange={(event) => updateProduct({ unitPrice: event.target.value })} /></td>
@@ -1114,7 +1287,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                   </tr>;
                 })}</tbody>
               </table>
-            </div> : <p className="quote-supplement-empty">Chưa có dòng bổ sung. Bấm “Thêm dòng” để nhập sản phẩm hoặc hạng mục mới.</p>}
+            </div> : <p className="quote-supplement-empty">Chưa có dòng bổ sung. Bấm “Thêm dòng” để nhập hạng mục mới.</p>}
           </div>
           {editable && hasUnsavedChanges && <div className="quote-supplement-actions">
             <button type="button" className="button button-primary" disabled={busy} onClick={() => void save()}>
@@ -1177,21 +1350,27 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
           </section>
 
           <section className="content-card quote-terms-panel">
-            <div className="section-title quote-terms-heading"><div><h2>Chi phí và điều khoản</h2><p>Khoản chưa xác nhận sẽ chưa được cộng vào tổng tiền.</p></div></div>
+            <div className="section-title quote-terms-heading"><div><h2>Chi phí & điều khoản</h2><p>Chưa chốt sẽ chưa vào tổng.</p></div></div>
             <div className="quote-terms-grid">
-              {!shippingInformationInSupplement && <label>Phí vận chuyển ({quote.currency})
-                <input type="number" min="0" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder="Nhập số tiền, hoặc 0 nếu miễn phí" onChange={(event) => setShippingFeeText(event.target.value)} />
-                <small>{shippingFeeText.trim() === "" ? "Chưa xác nhận phí vận chuyển." : "Sẽ được cộng vào tổng tiền sau khi lưu."}</small>
-              </label>}
-              {!taxInformationInSupplement && <label>Thuế VAT (%)
-                <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} onChange={(event) => { setTaxRateText(event.target.value); if (!event.target.value.trim()) setTaxRateConfirmed(false); }} />
-                <small>{taxRateConfirmed ? "Thuế suất đã được xác nhận." : "Cần xác nhận thuế suất trước khi gửi duyệt."}</small>
-              </label>}
-              {!taxInformationInSupplement && <label className="quote-term-confirm">
-                <span>Xác nhận thuế suất VAT</span>
-                <input type="checkbox" checked={taxRateConfirmed} disabled={!editable || busy || taxRateText.trim() === ""} onChange={(event) => setTaxRateConfirmed(event.target.checked)} />
-              </label>}
-              <label>Hiệu lực báo giá (ngày)
+              <div className="quote-fee-control">
+                <label className="quote-fee-label" htmlFor={`shipping-mode-${quote._id}`}>Vận chuyển</label>
+                <div className="quote-fee-row">
+                  <select id={`shipping-mode-${quote._id}`} value={shippingMode} disabled={!editable || busy} onChange={(event) => chooseShippingMode(event.target.value as ShippingMode)}>
+                    <option value="unconfirmed">Chưa chốt</option><option value="free">Miễn phí</option><option value="paid">Tính phí</option>
+                  </select>
+                  {shippingMode === "paid" && <input type="number" min="0.01" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder={quote.currency} aria-label={`Phí vận chuyển (${quote.currency})`} onChange={(event) => setShippingFeeText(event.target.value)} />}
+                </div>
+              </div>
+              <div className="quote-fee-control">
+                <label className="quote-fee-label" htmlFor={`tax-mode-${quote._id}`}>Thuế VAT</label>
+                <div className="quote-fee-row">
+                  <select id={`tax-mode-${quote._id}`} value={taxMode} disabled={!editable || busy} onChange={(event) => chooseTaxMode(event.target.value as TaxMode)}>
+                    <option value="unconfirmed">Chưa chốt</option><option value="zero">0%</option><option value="rate">Tính VAT</option>
+                  </select>
+                  {taxMode === "rate" && <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} placeholder="%" aria-label="Thuế suất VAT (%)" onChange={(event) => { setTaxRateText(event.target.value); setTaxRateConfirmed(event.target.value.trim() !== "" && Number.isFinite(Number(event.target.value)) && Number(event.target.value) >= 0); }} />}
+                </div>
+              </div>
+              <label>Hiệu lực (ngày)
                 <input type="number" min="1" max="3650" step="1" value={validityDaysText} disabled={!editable || busy} placeholder="Ví dụ: 30" onChange={(event) => setValidityDaysText(event.target.value)} />
               </label>
               <label>Hạn hoàn thành
@@ -1319,7 +1498,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                 </div>
                 <div className="quote-total-row">
                   <span>Phí vận chuyển:</span>
-                  <strong>{shippingFeeText.trim() === "" ? "Chưa xác nhận" : formatMoney(liveShippingFee, quote.currency)}</strong>
+                  <strong>{shippingFeeIsConfirmed ? formatMoney(liveShippingFee, quote.currency) : "Chưa xác nhận"}</strong>
                 </div>
                 <div className="quote-grand-total-row">
                   <span>Tổng tiền thanh toán:</span>
@@ -1537,8 +1716,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
                   <div className="quote-doc-left">
                     <span className="quote-doc-icon"><Icon name="eye" size={16} /></span>
                     <div className="quote-doc-info">
-                      <strong>{quote.status === "approved" ? "Bản báo giá điền hoàn chỉnh" : "Xem trước file báo giá"}</strong>
-                      <span>{quote.status === "approved" ? "File chính thức đã duyệt" : quote.status === "pending_review" ? "Bản xem trước phê duyệt" : "File Excel được tạo từ báo giá"}</span>
+                      <strong>{quote.status === "approved" ? "Bản báo giá điền hoàn chỉnh" : canExportDraftXlsx ? "File Excel nháp" : "Xem trước file báo giá"}</strong>
+                      <span>{quote.status === "approved" ? "File chính thức đã duyệt" : quote.status === "pending_review" ? "Bản xem trước phê duyệt" : canExportDraftXlsx ? "Có thể tải trước khi duyệt" : "File Excel được tạo từ báo giá"}</span>
                     </div>
                   </div>
                   <div className="quote-doc-actions">
@@ -1582,10 +1761,6 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
               </div>
             </div>
 
-            <div className="quote-price-guarantee-note">
-              <Icon name="shield" size={16} />
-              <span>Đơn giá được chốt cố định theo thời điểm lập báo giá, không bị thay đổi khi bảng giá hệ thống cập nhật.</span>
-            </div>
           </section>
         </aside>
       </div>
@@ -1595,7 +1770,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm }: { id: st
   );
 }
 
-function AccountProfile({ user, onToast, onSignOut, confirm }: { user: User; onToast: Notify; onSignOut: () => void; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
+function AccountProfile({ user, onToast, onSignOut, confirm, subscriptionExpiresAt, requestedPlanCode, onInitialPlanHandled, onBillingPaid }: { user: User; onToast: Notify; onSignOut: () => void; confirm: (options: ConfirmOptions) => Promise<boolean>; subscriptionExpiresAt: string | null; requestedPlanCode: string | null; onInitialPlanHandled: () => void; onBillingPaid: () => void }) {
+  const plan = user.plan;
   return <div className="page-stack profile-page">
     <section className="page-heading-row"><div><h1>Trang cá nhân</h1></div></section>
     <section className="content-card profile-overview">
@@ -1605,8 +1781,147 @@ function AccountProfile({ user, onToast, onSignOut, confirm }: { user: User; onT
       </div>
       <button className="button profile-signout" onClick={() => void confirm({ title: "Đăng xuất khỏi tài khoản?", message: "Bạn sẽ cần đăng nhập lại để tiếp tục làm việc.", confirmLabel: "Đăng xuất" }).then((accepted) => { if (accepted) onSignOut(); })}><Icon name="logout" size={17} />Đăng xuất</button>
     </section>
+    <section className="content-card profile-plan-card">
+      <div className="profile-plan-main"><span className="profile-plan-icon"><Icon name="check" size={19} /></span><div><span className="profile-plan-eyebrow">GÓI ĐANG SỬ DỤNG</span><h2>{plan?.name ?? "Dùng thử"}</h2><p>{plan?.description ?? "Gói miễn phí mặc định của Giáo."}</p></div></div>
+      <div className="profile-plan-details"><span><small>Giá gói</small><strong>{plan?.monthlyPrice === null ? "Theo nhu cầu" : plan?.monthlyPrice ? `${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ / tháng` : "Miễn phí"}</strong></span><span><small>Báo giá</small><strong>{plan?.quoteLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt / tháng`}</strong></span><span><small>Mẫu báo giá</small><strong>{plan?.templateLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.templateLimit)} mẫu`}</strong></span></div>
+    </section>
+    <SubscriptionBillingPanel currentPlanCode={plan?.code ?? "free"} subscriptionExpiresAt={subscriptionExpiresAt} initialPlanCode={requestedPlanCode} onInitialPlanHandled={onInitialPlanHandled} onPaid={onBillingPaid} />
     <CompanySettings onToast={onToast} confirm={confirm} />
   </div>;
+}
+
+interface BillingPayment {
+  id: string;
+  code: string;
+  amount: number;
+  planCode: string;
+  planName: string;
+  status: "pending" | "paid" | "superseded";
+  qrUrl?: string;
+  bankCode?: string;
+  accountNumber?: string;
+  accountName?: string;
+  createdAt: string;
+  paidAt?: string | null;
+}
+
+function SubscriptionBillingPanel({ currentPlanCode, subscriptionExpiresAt, initialPlanCode, onInitialPlanHandled, onPaid }: { currentPlanCode: string; subscriptionExpiresAt: string | null; initialPlanCode: string | null; onInitialPlanHandled: () => void; onPaid: () => void }) {
+  const [plans, setPlans] = useState<SubscriptionPlanSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyPlan, setBusyPlan] = useState<string | null>(null);
+  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
+  const [payment, setPayment] = useState<BillingPayment | null>(null);
+  const [checkingPayment, setCheckingPayment] = useState(false);
+  const notify = useAppNotification();
+  const autoCheckoutStarted = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    api<{ plans: SubscriptionPlanSummary[] }>("/api/plans").then(({ plans: available }) => {
+      if (active) setPlans(available.filter((plan) => plan.monthlyPrice !== null && plan.monthlyPrice > 0));
+    }).catch((cause) => {
+      if (active) notify(cause instanceof Error ? cause.message : "Không tải được các gói dịch vụ.", "error");
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [notify]);
+
+  const beginCheckout = useCallback(async (planCode: string) => {
+    setBusyPlan(planCode);
+    setTaskProgress({ label: "Đang tạo mã thanh toán", detail: "Đang chuẩn bị QR SePay cho gói đã chọn…" });
+    try {
+      const { payment: nextPayment } = await api<{ payment: BillingPayment }>("/api/billing/payments", {
+        method: "POST",
+        body: JSON.stringify({ planCode }),
+      });
+      setPayment(nextPayment);
+      notify("Đã tạo mã thanh toán. Quét QR để hoàn tất đăng ký gói.", "info");
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : "Không thể tạo yêu cầu thanh toán.", "error");
+    } finally {
+      setBusyPlan(null);
+      setTaskProgress(null);
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    if (!initialPlanCode || loading || autoCheckoutStarted.current) return;
+    autoCheckoutStarted.current = true;
+    onInitialPlanHandled();
+    if (!plans.some((plan) => plan.code === initialPlanCode)) {
+      notify("Gói được chọn không còn khả dụng. Vui lòng chọn gói khác.", "error");
+      return;
+    }
+    void beginCheckout(initialPlanCode);
+  }, [beginCheckout, initialPlanCode, loading, notify, onInitialPlanHandled, plans]);
+
+  useEffect(() => {
+    if (!payment || payment.status !== "pending") return;
+    let active = true;
+    let timer = 0;
+    const poll = async () => {
+      try {
+        const { payment: current } = await api<{ payment: BillingPayment }>(`/api/billing/payments/${encodeURIComponent(payment.id)}`);
+        if (!active) return;
+        setPayment((existing) => existing?.id === current.id ? { ...existing, ...current, qrUrl: existing.qrUrl, bankCode: existing.bankCode, accountNumber: existing.accountNumber, accountName: existing.accountName } : existing);
+        if (current.status === "paid") {
+          notify(`Đã xác nhận thanh toán gói ${current.planName}. Gói được kích hoạt tự động.`, "success");
+          onPaid();
+          return;
+        }
+      } catch { /* Keep polling; the user can still use the manual refresh button. */ }
+      if (active) timer = window.setTimeout(() => void poll(), 4000);
+    };
+    timer = window.setTimeout(() => void poll(), 2500);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [payment?.id, payment?.status, notify, onPaid]);
+
+  const refreshPayment = async () => {
+    if (!payment) return;
+    setCheckingPayment(true);
+    try {
+      const { payment: current } = await api<{ payment: BillingPayment }>(`/api/billing/payments/${encodeURIComponent(payment.id)}`);
+      setPayment((existing) => existing?.id === current.id ? { ...existing, ...current, qrUrl: existing.qrUrl, bankCode: existing.bankCode, accountNumber: existing.accountNumber, accountName: existing.accountName } : existing);
+      if (current.status === "paid") {
+        notify(`Đã xác nhận thanh toán gói ${current.planName}. Gói được kích hoạt tự động.`, "success");
+        onPaid();
+      } else notify("Chưa nhận được thanh toán. Hệ thống sẽ tự kiểm tra lại.", "info");
+    } catch (cause) {
+      notify(cause instanceof Error ? cause.message : "Không kiểm tra được trạng thái thanh toán.", "error");
+    } finally { setCheckingPayment(false); }
+  };
+
+  return <section className="content-card subscription-billing-card">
+    <div className="settings-card-heading"><div><span className="eyebrow">THANH TOÁN QUA SEPAY</span><h2>Chọn gói dịch vụ</h2><p className="muted">Gói được kích hoạt sau khi SePay xác nhận chuyển khoản.</p></div></div>
+    {taskProgress && <TaskProgress {...taskProgress} />}
+    {subscriptionExpiresAt && <p className="subscription-expiry">Gói hiện tại có hiệu lực đến {formatDate(subscriptionExpiresAt)}.</p>}
+    {loading ? <TaskProgress label="Đang tải các gói dịch vụ" /> : plans.length ? <div className="subscription-plan-grid">{plans.map((plan) => {
+      const current = plan.code === currentPlanCode;
+      const hasExpiry = Boolean(subscriptionExpiresAt);
+      return <article className={`subscription-plan-option ${current ? "is-current" : ""}`} key={plan.code}>
+        <div><strong>{plan.name}</strong><span>{plan.description}</span></div>
+        <b>{new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice ?? 0)}đ <small>/ tháng</small></b>
+        <p>{plan.quoteLimit == null ? "Không giới hạn báo giá" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} báo giá/tháng`} · {plan.templateLimit == null ? "Không giới hạn mẫu" : `${plan.templateLimit} mẫu`}</p>
+        <button type="button" className={`button ${current && !hasExpiry ? "button-soft" : "button-primary"}`} disabled={Boolean(busyPlan) || (current && !hasExpiry)} onClick={() => void beginCheckout(plan.code)}>
+          {busyPlan === plan.code ? "Đang tạo mã…" : current && !hasExpiry ? "Đang sử dụng" : current ? "Gia hạn gói" : currentPlanCode === "free" ? "Nâng cấp gói" : "Chọn gói"}
+        </button>
+      </article>;
+    })}</div> : <div className="empty-state"><p>Chưa có gói trả phí khả dụng.</p></div>}
+    {payment && <div className="billing-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setPayment(null); }}>
+      <section className="billing-modal" role="dialog" aria-modal="true" aria-labelledby="billing-modal-title">
+        <button type="button" className="icon-button billing-modal-close" aria-label="Đóng" onClick={() => setPayment(null)}>×</button>
+        <span className="eyebrow">SEPAY · {payment.status === "paid" ? "ĐÃ THANH TOÁN" : payment.status === "superseded" ? "MÃ ĐÃ ĐƯỢC THAY THẾ" : "CHỜ THANH TOÁN"}</span>
+        <h2 id="billing-modal-title">Thanh toán gói {payment.planName}</h2>
+        {payment.status === "paid" ? <div className="billing-success"><span aria-hidden="true">✓</span><strong>Thanh toán thành công</strong><p>Gói dịch vụ đã được cập nhật tự động.</p></div> : payment.status === "superseded" ? <p>Mã thanh toán này đã được thay bằng yêu cầu mới. Hãy chọn gói để tạo mã khác.</p> : <>
+          {payment.qrUrl && <img className="billing-qr" src={payment.qrUrl} alt={`QR thanh toán ${payment.amount.toLocaleString("vi-VN")} đồng`} />}
+          <strong className="billing-amount">{new Intl.NumberFormat("vi-VN").format(payment.amount)}đ</strong>
+          <p className="billing-instruction">Quét QR bằng ứng dụng ngân hàng và giữ nguyên nội dung chuyển khoản.</p>
+          <dl className="billing-transfer-details"><div><dt>Ngân hàng</dt><dd>{payment.bankCode}</dd></div><div><dt>Tài khoản</dt><dd>{payment.accountNumber}</dd></div>{payment.accountName && <div><dt>Chủ tài khoản</dt><dd>{payment.accountName}</dd></div>}<div><dt>Nội dung</dt><dd>{payment.code}</dd></div></dl>
+          <p className="billing-pending-note">Đang tự kiểm tra thanh toán…</p>
+        </>}
+        <div className="billing-modal-actions"><button type="button" className="button button-soft" onClick={() => setPayment(null)}>Đóng</button>{payment.status === "pending" && <button type="button" className="button button-primary" disabled={checkingPayment} onClick={() => void refreshPayment()}>{checkingPayment ? "Đang kiểm tra…" : "Kiểm tra ngay"}</button>}</div>
+      </section>
+    </div>}
+  </section>;
 }
 
 function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
@@ -1615,7 +1930,8 @@ function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (opti
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
-  const [error, setError] = useState("");
+  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
+  const setError = useCallback((message: string) => { if (message) onToast(message, "error"); }, [onToast]);
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -1634,6 +1950,7 @@ function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (opti
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true);
+    setTaskProgress({ label: "Đang lưu cấu hình email", detail: "Đang cập nhật cài đặt máy chủ…" });
     setError("");
     try {
       const { settings: saved } = await api<{ settings: CompanyEmailSettings }>("/api/settings/email", {
@@ -1647,10 +1964,12 @@ function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (opti
       setError(cause instanceof Error ? cause.message : "Không lưu được cài đặt email.");
     } finally {
       setBusy(false);
+      setTaskProgress(null);
     }
   };
   const testConnection = async () => {
     setTesting(true);
+    setTaskProgress({ label: "Đang kiểm tra kết nối SMTP", detail: "Đang kết nối với máy chủ email…" });
     setError("");
     try {
       await api("/api/settings/email/test", { method: "POST" });
@@ -1659,11 +1978,13 @@ function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (opti
       setError(cause instanceof Error ? cause.message : "Không kết nối được SMTP.");
     } finally {
       setTesting(false);
+      setTaskProgress(null);
     }
   };
   const removeSettings = async () => {
     if (!await confirm({ title: "Xóa cấu hình email?", message: "Doanh nghiệp sẽ không thể gửi báo giá qua SMTP cho đến khi cấu hình lại.", confirmLabel: "Xóa cấu hình", tone: "danger" })) return;
     setBusy(true);
+    setTaskProgress({ label: "Đang xóa cấu hình email", detail: "Đang cập nhật cài đặt doanh nghiệp…" });
     setError("");
     try {
       await api("/api/settings/email", { method: "DELETE" });
@@ -1673,12 +1994,13 @@ function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (opti
       setError(cause instanceof Error ? cause.message : "Không xóa được cài đặt email.");
     } finally {
       setBusy(false);
+      setTaskProgress(null);
     }
   };
   if (loading) return <Loading />;
   return <div className="page-stack settings-page">
     <section className="page-heading-row"><div><h1>Email gửi báo giá</h1></div></section>
-    {error && <div className="inline-error">{error}</div>}
+    {taskProgress && <TaskProgress {...taskProgress} />}
     <section className="content-card email-settings-card">
       <div className="settings-card-heading"><div><span className="eyebrow">MÁY CHỦ SMTP</span><h2>Thông tin kết nối</h2></div><span className={`settings-status ${settings?.configured ? "connected" : "not-connected"}`}>{settings?.configured ? "Đã cấu hình" : "Chưa cấu hình"}</span></div>
       <form className="email-settings-form" onSubmit={(event) => void save(event)}>
@@ -1702,7 +2024,8 @@ function CompanyFiles({ onToast, confirm }: { onToast: Notify; confirm: (options
   const [files, setFiles] = useState<CompanyStoredFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState("");
+  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
+  const setError = useCallback((message: string) => { if (message) onToast(message, "error"); }, [onToast]);
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const load = useCallback(async () => {
@@ -1730,45 +2053,49 @@ function CompanyFiles({ onToast, confirm }: { onToast: Notify; confirm: (options
     if (!await confirm({ title: "Tải tệp lên?", message: `${file.name}\nDung lượng: ${(file.size / 1024 / 1024).toFixed(2)} MB`, confirmLabel: "Tải lên" })) return;
     setUploading(true);
     setError("");
+    setTaskProgress({ label: "Đang tải tệp lên", detail: file.name });
     try {
-      await api<{ file: CompanyStoredFile }>("/api/files", {
-        method: "POST",
-        body: file,
-        headers: {
-          "Content-Type": "application/octet-stream",
-          "X-File-Name": encodeURIComponent(file.name),
-          "X-File-Type": file.type || "application/octet-stream",
-        },
-      });
+      await apiUploadWithProgress<{ file: CompanyStoredFile }>("/api/files", file, {
+        "Content-Type": "application/octet-stream",
+        "X-File-Name": encodeURIComponent(file.name),
+        "X-File-Type": file.type || "application/octet-stream",
+      }, (progress) => setTaskProgress(progress >= 100
+        ? { label: "Đang lưu tệp", detail: "Đang xử lý file trên máy chủ…" }
+        : { label: "Đang tải tệp lên", progress, detail: file.name }));
+      setTaskProgress({ label: "Đang cập nhật danh sách tệp", detail: "Đang hoàn tất…" });
       await load();
       onToast("Tệp đã được lưu.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Không tải được tệp lên.");
     } finally {
       setUploading(false);
+      setTaskProgress(null);
     }
   };
   if (loading) return <section className="content-card email-settings-card"><Loading /></section>;
   return <section className="content-card email-settings-card company-files-card">
     <div className="settings-card-heading"><div><span className="eyebrow">TỆP VÀ ẢNH</span><h2>Tệp doanh nghiệp</h2></div></div>
-    {error && <div className="inline-error" role="alert">{error}</div>}
     <div className="stored-files-section"><div className="stored-files-heading"><div><p className="settings-hint">Ảnh, PDF, CSV và Excel · tối đa 10 MB mỗi tệp</p></div><button className="button button-soft" type="button" disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? "Đang tải lên…" : "Tải tệp hoặc ảnh"}</button><input ref={fileInput} type="file" hidden accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.csv,.xlsx,.xls" onChange={(event) => void upload(event)} /></div>
+    {taskProgress && <TaskProgress {...taskProgress} />}
       {files.length ? <div className="stored-files-list">{files.map((file) => <div className="stored-file-row" key={file._id ?? `${file.originalFilename}-${file.createdAt}`}><span className="stored-file-icon"><Icon name="file" size={16} /></span><span><strong>{file.originalFilename}</strong><small>{formatDate(file.createdAt)} · {(file.bytes / 1024).toFixed(0)} KB</small></span><button type="button" className="text-button" disabled={!file._id} onClick={() => setPreviewFile({ name: file.originalFilename, url: `/api/files/${file._id}/preview` })}>Xem trước</button></div>)}</div> : <p className="settings-hint stored-files-empty">Chưa có tệp nào được tải lên.</p>}
     </div>
     <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
   </section>;
 }
-function QuoteCards({ quotes, onOpen, emptyTitle, emptyText }: { quotes: Quote[]; onOpen: (id: string) => void; emptyTitle: string; emptyText: string }) {
+function QuoteCards({ quotes, onOpen, onDelete, emptyTitle, emptyText }: { quotes: Quote[]; onOpen: (id: string) => void; onDelete?: (quote: Quote) => void; emptyTitle: string; emptyText: string }) {
   if (!quotes.length) return <EmptyState title={emptyTitle} text={emptyText} />;
-  return <div className="quote-cards">{quotes.map((quote) => <button type="button" className="quote-summary-card" key={quote._id} onClick={() => onOpen(quote._id)}><span className="quote-summary-top"><strong className="quote-number">{quote.quoteNumber}</strong><StatusPill status={quote.status} /></span><span className="quote-summary-customer"><strong>{quote.customerName}</strong><span>{quote.customerEmail || "Chưa có email"}</span>{quote.customerPhone && <span>{quote.customerPhone}</span>}</span><span className="quote-summary-meta">Tạo {formatDate(quote.createdAt)} · {quote.lines.length} mặt hàng</span><span className="quote-summary-bottom"><span><small>Tổng tiền</small><strong>{formatMoney(quote.total, quote.currency)}</strong></span><Icon name="arrow" size={18} /></span></button>)}</div>;
+  return <div className="quote-cards">{quotes.map((quote) => <div className="quote-card-entry" key={quote._id}><button type="button" className="quote-summary-card" onClick={() => onOpen(quote._id)}><span className="quote-summary-top"><strong className="quote-number">{quote.quoteNumber}</strong><StatusPill status={quote.status} /></span><span className="quote-summary-customer"><strong>{quote.customerName}</strong><span>{quote.customerEmail || "Chưa có email"}</span>{quote.customerPhone && <span>{quote.customerPhone}</span>}</span><span className="quote-summary-meta">Tạo {formatDate(quote.createdAt)} · {quote.lines.length} mặt hàng</span><span className="quote-summary-bottom"><span><small>Tổng tiền</small><strong>{formatMoney(quote.total, quote.currency)}</strong></span><Icon name="arrow" size={18} /></span></button>{onDelete && <button type="button" className="quote-card-delete" onClick={() => onDelete(quote)}><Icon name="trash" size={14} /> Xóa báo giá</button>}</div>)}</div>;
 }
 
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span className="empty-icon"><Icon name="file" size={21} /></span><h3>{title}</h3>{text && <p>{text}</p>}</div>; }
-function Loading() { return <div className="loading-state"><span className="spinner spinner-dark" />Đang tải dữ liệu…</div>; }
+function Loading() { return <TaskProgress label="Đang tải dữ liệu" detail="Vui lòng chờ trong giây lát…" />; }
 
 function App() {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
-  return path === "/admin" ? <AdminApp /> : <UserApp />;
+  if (path === "/quan-tri") return <AdminApp />;
+  if (path === "/dang-nhap" || path === "/dang-ky" || path === "/ung-dung") return <UserApp />;
+  if (path === "/") return <LandingPage />;
+  return <main className="route-not-found"><div><span>404</span><h1>Không tìm thấy trang</h1><p>Đường dẫn này không tồn tại hoặc đã được thay đổi.</p><a href="/">Về trang chủ</a></div></main>;
 }
 
 export default App;

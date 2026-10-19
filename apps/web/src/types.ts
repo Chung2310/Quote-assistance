@@ -2,12 +2,25 @@ export type UserRole = "user" | "admin";
 export type QuoteStatus = "draft" | "needs_info" | "pending_review" | "approved" | "rejected";
 export type MatchStatus = "matched" | "ambiguous" | "not_found";
 
+export interface SubscriptionPlanSummary {
+  code: string;
+  name: string;
+  description: string;
+  monthlyPrice: number | null;
+  quoteLimit: number | null;
+  templateLimit: number | null;
+  active: boolean;
+  featured: boolean;
+  displayOrder: number;
+}
+
 export interface User {
   id: string;
   email: string;
   name: string;
   role: UserRole;
   companyId?: string;
+  plan?: SubscriptionPlanSummary | null;
 }
 
 export interface CatalogItem {

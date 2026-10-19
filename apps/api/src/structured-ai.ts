@@ -49,19 +49,19 @@ export function parseJsonResponse(content: string): unknown {
 }
 
 export async function requestStructuredAi<T>(options: StructuredAiOptions<T>): Promise<T> {
-  const retryMessage: AiChatMessage = {
-    role: "user",
-    content: "Định dạng phản hồi trước đó không hợp lệ. Hãy phân tích lại dữ liệu ban đầu và trả về duy nhất một đối tượng JSON hợp lệ, đúng hoàn toàn theo JSON schema đã cung cấp. Không thêm markdown hay nội dung bên ngoài JSON.",
-  };
-
+  let lastDecodeError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const messages = attempt === 0 ? options.messages : [...options.messages, retryMessage];
+    const messages = attempt === 0 ? options.messages : [...options.messages, {
+      role: "user" as const,
+      content: "Định dạng phản hồi trước đó không hợp lệ. Hãy sửa lỗi này và trả về duy nhất một đối tượng JSON đúng theo schema. Lỗi kiểm tra: " + (lastDecodeError instanceof Error ? lastDecodeError.message.slice(0, 300) : "cấu trúc dữ liệu không hợp lệ."),
+    }];
     const response = await options.send(messages);
     if (!response.ok) await options.onHttpError(response);
     try {
       return await options.decode(response);
     } catch (error) {
       if (attempt === 1) throw new Error(options.invalidResponseMessage, { cause: error });
+      lastDecodeError = error;
     }
   }
 
