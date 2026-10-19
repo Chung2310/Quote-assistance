@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="104" height="104" viewBox="0 0 104 104" fill="none">
+  <defs>
+    <linearGradient id="back" x1="35" y1="17" x2="80" y2="77" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#8cddff"/>
+      <stop offset="1" stop-color="#168ed5"/>
+    </linearGradient>
+    <linearGradient id="edge" x1="25" y1="75" x2="75" y2="83" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#007bc7"/>
+      <stop offset="1" stop-color="#005c9d"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="22" y1="23" x2="72" y2="79" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#d9f4ff"/>
+    </linearGradient>
+    <linearGradient id="fold" x1="59" y1="19" x2="72" y2="33" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#caf0ff"/>
+      <stop offset="1" stop-color="#70d2ff"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="62" y1="55" x2="84" y2="79" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#48c9ff"/>
+      <stop offset="1" stop-color="#00adfc"/>
+    </linearGradient>
+    <filter id="shadow" x="7" y="12" width="88" height="85" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="4"/>
+    </filter>
+  </defs>
+  <ellipse cx="53" cy="87" rx="34" ry="7" fill="#007bc7" opacity=".15" filter="url(#shadow)"/>
+  <path d="M38 15 68 20c2 .3 3.5 2 3.9 4L79 70c.5 3-1.1 5-4 5.5l-29 5L36 20c-.5-3 0-4 2-5Z" fill="url(#back)"/>
+  <path d="M36 20 68 25 74 68l-28 5-10-53Z" fill="#d4f2ff" opacity=".78"/>
+  <path d="m29 81 40-6 5-5v6c0 3-1.5 5-4.5 5.5L33 87c-3 .5-5-1.5-5-4.5v-4l1 2.5Z" fill="url(#edge)"/>
+  <path d="M25 24 58 19l14 13 2 39c.2 2.5-1.4 4.2-4 4.6l-39 6c-3 .5-5-1.1-5.3-4L21 29c-.3-2.6 1-4.5 4-5Z" fill="url(#paper)" stroke="#8bdcff" stroke-width="1.2"/>
+  <path d="m58 19 1.2 10.5c.2 2 1.4 3.2 3.6 3l9.2-.5L58 19Z" fill="url(#fold)" stroke="#8bdcff" stroke-width="1.1" stroke-linejoin="round"/>
+  <path d="m31 42 24-3.5" stroke="#00adfc" stroke-width="4" stroke-linecap="round"/>
+  <path d="m32 51 29-4.5M33 58 56 54.5M34 65 52 62.2" stroke="#8ddcff" stroke-width="2.7" stroke-linecap="round"/>
+  <circle cx="72" cy="69" r="13" fill="#006cae" opacity=".2"/>
+  <circle cx="71" cy="66" r="12" fill="url(#badge)" stroke="#c9f1ff" stroke-width="2"/>
+  <path d="m65.5 66 4 4 7-8" stroke="#fff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

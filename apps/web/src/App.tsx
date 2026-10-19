@@ -233,7 +233,7 @@ function UserApp() {
     setCreatingQuote(true);
   };
   const signOut = async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => undefined); setUser(null); setSection("home"); window.location.replace("/"); };
-  if (checkingSession) return <div className="splash"><div className="brand-mark">G</div><span>Đang mở không gian làm việc…</span></div>;
+  if (checkingSession) return <div className="splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /><span>Đang mở không gian làm việc…</span></div>;
   if (!user) return <NotificationProvider notify={notify}><><Login onLogin={handleLogin} onNotify={notify} />{notification && <NotificationToast notification={notification} onDismiss={dismiss} />}{confirmationDialog}</></NotificationProvider>;
   const openQuote = (id: string) => setQuoteId(id);
   const removeQuote = async (quote: Quote) => {
@@ -259,8 +259,7 @@ function UserApp() {
 
   return <NotificationProvider notify={notify}><div className="app-shell">
     <aside className="sidebar">
-      <div className="brand-lockup"><div className="brand-mark">G</div><div><strong>giáo</strong><span>TRỢ LÝ BÁO GIÁ</span></div></div>
-      <div className="nav-caption">KHÔNG GIAN LÀM VIỆC</div>
+      <div className="brand-lockup"><img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /></div>
       <nav className="side-nav">
         <NavButton icon="home" label="Tổng quan" active={!quoteId && section === "home"} onClick={() => { setQuoteId(null); setSection("home"); }} />
         <NavButton icon="quote" label="Báo giá" active={!quoteId && section === "quotes"} onClick={() => { setQuoteId(null); setSection("quotes"); }} />
@@ -339,7 +338,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
     { key: "taxId", label: "Mã số thuế", maxLength: 30 },
     { key: "address", label: "Địa chỉ doanh nghiệp", autoComplete: "street-address", maxLength: 500, wide: true },
     { key: "phone", label: "Điện thoại doanh nghiệp", type: "tel", autoComplete: "tel", maxLength: 30 },
-    { key: "businessEmail", label: "Email doanh nghiệp và đăng nhập", type: "email", autoComplete: "email", maxLength: 250 },
+    { key: "businessEmail", label: "Email đăng nhập", type: "email", autoComplete: "email", maxLength: 250 },
     { key: "representativeName", label: "Người đại diện và người dùng", autoComplete: "name", maxLength: 200 },
     { key: "password", label: "Mật khẩu", type: "password", autoComplete: "new-password", maxLength: 200 },
   ];
@@ -354,14 +353,11 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
 
   return (
     <div className="login-screen">
+      <div className={`login-card ${mode === "register" ? "register-mode" : ""}`}>
       <div className="login-art">
         <div className="art-content">
           <div className="art-brand-header">
-            <div className="brand-mark brand-mark-cyan">G</div>
-            <div className="art-brand-text">
-              <strong>giáo</strong>
-              <span>TRỢ LÝ BÁO GIÁ</span>
-            </div>
+            <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
           </div>
 
           <div className="art-hero">
@@ -370,28 +366,21 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
               <em>Rõ ràng.</em>
             </h1>
           </div>
-          <img className="login-banner-image" src="/images/quote-banner.png" alt="" />
+          <img className="login-banner-image" src="/images/login-illustration.png" alt="Minh họa báo giá và quản lý doanh nghiệp" />
         </div>
       </div>
 
       <div className={`login-panel ${mode === "register" ? "register-mode" : ""}`}>
         <div className="login-form-card">
           <div className="mobile-brand">
-            <span className="brand-mark brand-mark-cyan">G</span>
-            <div>
-              <strong>giáo</strong>
-              <span>TRỢ LÝ BÁO GIÁ</span>
-            </div>
+            <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
           </div>
 
           <div className="login-header">
             <h2>{mode === "login" ? "Đăng nhập" : "Đăng ký doanh nghiệp"}</h2>
-            <p className="login-subtitle">{mode === "login" ? "Đăng nhập vào không gian báo giá của doanh nghiệp." : "Tạo hồ sơ doanh nghiệp và tài khoản sử dụng."}</p>
-          </div>
-
-          <div className="login-mode-switch" role="tablist" aria-label="Chọn đăng nhập hoặc đăng ký">
-            <button type="button" role="tab" aria-selected={mode === "login"} className={mode === "login" ? "selected" : ""} onClick={() => switchMode("login")}>Đăng nhập</button>
-            <button type="button" role="tab" aria-selected={mode === "register"} className={mode === "register" ? "selected" : ""} onClick={() => switchMode("register")}>Đăng ký doanh nghiệp</button>
+            <p className={`login-subtitle ${mode === "login" ? "login-subtitle-login" : ""}`}>
+              {mode === "login" ? <>Đăng nhập vào không gian <span className="login-brand-highlight">báo giá</span> của doanh nghiệp.</> : "Tạo hồ sơ doanh nghiệp và tài khoản sử dụng."}
+            </p>
           </div>
 
           {mode === "login" ? <form onSubmit={(event) => void submit(event)} className="login-form">
@@ -439,7 +428,6 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
             <button className="login-submit-btn" type="submit" disabled={busy}>
               {busy ? <span className="login-spinner" /> : null}
               <span>{busy ? "Đang xác thực…" : "Đăng nhập"}</span>
-              {!busy && <Icon name="arrow" size={17} />}
             </button>
           </form> : <form onSubmit={(event) => void submitRegistration(event)} className="login-form business-register-form">
             {registrationFields.map(({ key, label, type = "text", autoComplete = "off", maxLength, wide }) => {
@@ -452,10 +440,21 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
                 </div>
               </div>;
             })}
-            <button className="login-submit-btn register-field-wide" type="submit" disabled={busy}>{busy ? <span className="login-spinner" /> : null}<span>{busy ? "Đang tạo tài khoản…" : "Tạo tài khoản doanh nghiệp"}</span>{!busy && <Icon name="arrow" size={17} />}</button>
+            <button className="login-submit-btn register-field-wide" type="submit" disabled={busy}>{busy ? <span className="login-spinner" /> : null}<span>{busy ? "Đang tạo tài khoản…" : "Tạo tài khoản"}</span></button>
           </form>}
-          <a className="admin-login-link" href="/quan-tri">Đăng nhập dành cho quản trị viên</a>
+          {mode === "login" && <div className="login-signup-cta">
+            <span>Chưa có tài khoản?</span>
+            <button className="login-signup-link" type="button" onClick={() => switchMode("register")}>
+              <strong>Đăng ký tài khoản</strong>
+              <Icon name="arrow" size={15} />
+            </button>
+          </div>}
+          {mode === "register" && <button className="login-return-cta" type="button" onClick={() => switchMode("login")}>
+            <span>Đã có tài khoản?</span> <strong>Đăng nhập ngay</strong>
+          </button>}
+          {mode === "login" && <a className="admin-login-link" href="/quan-tri">Đăng nhập dành cho quản trị viên</a>}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -471,7 +470,7 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, quoteUsageLabel, c
         <img src="/images/quote-banner.png" alt="" />
         <div className="dashboard-banner-copy">
           <h1>Báo giá nhanh, rõ ràng</h1>
-          <button className="button button-primary" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>
+          <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>
           {quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}
           {!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}
         </div>
@@ -497,7 +496,7 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, quoteUsageLabel, c
 }
 
 function Metric({ label, value, icon, tone, action }: { label: string; value: number | string; icon: string; tone: string; action?: () => void }) {
-  return <button className={`metric-card tone-${tone} ${action ? "metric-action" : ""}`} onClick={action} disabled={!action}><span className="metric-top"><span>{label}</span><span className="metric-icon"><Icon name={icon} size={18} /></span></span><strong className="metric-value">{value}</strong></button>;
+  return <button className={`metric-card tone-${tone} ${action ? "metric-action" : ""}`} onClick={action} disabled={!action}><span className="metric-watermark" aria-hidden="true"><Icon name={icon} size={88} /></span><span className="metric-top"><span>{label}</span><span className="metric-icon"><Icon name={icon} size={18} /></span></span><strong className="metric-value">{value}</strong></button>;
 }
 
 function QuoteWorkspace({ onOpen, onCreate, canCreate, quoteUsageLabel, createBlockedMessage, onRefreshUsage, showUsageError, onDeleteQuote }: { onOpen: (id: string) => void; onCreate: () => void; canCreate: boolean; quoteUsageLabel: string; createBlockedMessage: string; onRefreshUsage: () => void; showUsageError: boolean; onDeleteQuote: (quote: Quote) => void }) {
@@ -505,10 +504,42 @@ function QuoteWorkspace({ onOpen, onCreate, canCreate, quoteUsageLabel, createBl
   const notify = useAppNotification();
   useEffect(() => { setLoading(true); setLoadFailed(false); api<{ quotes: Quote[] }>("/api/quotes").then((result) => setQuotes(result.quotes)).catch((cause) => { setLoadFailed(true); notify(cause instanceof Error ? cause.message : "Không thể tải danh sách báo giá.", "error"); }).finally(() => setLoading(false)); }, [reloadKey, notify]);
   const filtered = filter === "all" ? quotes : quotes.filter((quote) => quote.status === filter);
-  return <div className="page-stack"><section className="page-heading-row"><div><h1>Báo giá</h1>{quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}{!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}</div><div className="page-heading-actions">{loadFailed && <button type="button" className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button>}<button className="button button-primary" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá mới</button></div></section><section className="content-card list-card"><div className="list-toolbar"><div className="filter-tabs">{[["all", "Tất cả"], ["draft", "Bản nháp"], ["pending_review", "Chờ duyệt"], ["approved", "Đã duyệt"], ["needs_info", "Cần bổ sung"], ["rejected", "Cần chỉnh sửa"]].map(([value, label]) => <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div><span className="row-count">{filtered.length} báo giá</span></div>{loading ? <Loading /> : <QuoteCards quotes={filtered} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Không có báo giá trong mục này" emptyText="" />}</section></div>;
+  return <div className="page-stack"><section className="page-heading-row"><div><h1>Báo giá</h1>{quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}{!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}</div><div className="page-heading-actions">{loadFailed && <button type="button" className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button>}<button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá mới</button></div></section><section className="content-card list-card"><div className="list-toolbar"><div className="filter-tabs">{[["all", "Tất cả"], ["draft", "Bản nháp"], ["pending_review", "Chờ duyệt"], ["approved", "Đã duyệt"], ["needs_info", "Cần bổ sung"], ["rejected", "Cần chỉnh sửa"]].map(([value, label]) => <button key={value} className={filter === value ? "selected" : ""} onClick={() => setFilter(value)}>{label}</button>)}</div><span className="row-count">{filtered.length} báo giá</span></div>{loading ? <Loading /> : <QuoteCards quotes={filtered} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Không có báo giá trong mục này" emptyText="" />}</section></div>;
 }
 
 interface QuoteOptions { templates: TemplateDetails[]; defaultTemplateId: string | null; productsAvailable: boolean }
+
+function QuoteTemplateDropdown({ templates, value, defaultTemplateId, disabled, onChange }: { templates: TemplateDetails[]; value: string; defaultTemplateId: string | null; disabled: boolean; onChange: (id: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const selected = templates.find((entry) => entry.id === value);
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", closeOutside);
+    const selectedOption = root.current?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]');
+    (selectedOption ?? root.current?.querySelector<HTMLButtonElement>('[role="option"]'))?.focus();
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [open]);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  const label = (entry: TemplateDetails) => `${entry.name || entry.originalFilename}${entry.id === defaultTemplateId ? " (Mặc định)" : ""}`;
+  return <div className={`quote-template-dropdown ${open ? "is-open" : ""}`} ref={root} onKeyDown={(event) => {
+    if (event.key === "Escape" && open) { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
+    if (open && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const items = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    }
+  }}>
+    <button ref={trigger} type="button" className="quote-template-trigger" disabled={disabled || templates.length === 0} aria-haspopup="listbox" aria-expanded={open} aria-label={`Mẫu báo giá: ${selected ? label(selected) : "Chọn mẫu báo giá"}`} onClick={() => setOpen((current) => !current)} onKeyDown={(event) => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); setOpen(true); } }}>
+      <span>{selected ? label(selected) : "Chọn mẫu báo giá"}</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+    </button>
+    {open && <div className="quote-template-menu" role="listbox" aria-label="Chọn mẫu báo giá">{templates.map((entry) => <button key={entry.id} type="button" role="option" aria-selected={entry.id === value} onClick={() => { onChange(entry.id); setOpen(false); trigger.current?.focus(); }}>{label(entry)}</button>)}</div>}
+  </div>;
+}
 
 async function loadQuoteOptions(): Promise<QuoteOptions> {
   const loadTemplates = async () => {
@@ -679,19 +710,22 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
       <div className="creation-layout">
         <section className="content-card form-card">
           <form onSubmit={(event) => void analyze(event)} className="request-form">
-            <div className="field-row single-field-row">
-              <label>Mẫu báo giá<select required value={templateId} disabled={locked} onChange={(event) => setTemplateId(event.target.value)}><option value="">Chọn mẫu báo giá</option>{options.templates.map((entry) => <option key={entry.id} value={entry.id}>{entry.name || entry.originalFilename}{entry.id === options.defaultTemplateId ? " (Mặc định)" : ""}</option>)}</select></label>
-            </div>
-            {templateId && <div className="request-file-selection"><button type="button" className="text-button" onClick={() => { const template = options.templates.find((entry) => entry.id === templateId); if (template) setPreviewFile({ name: template.originalFilename, url: `/api/quote-template/${template.id}/file?preview=1` }); }}>Xem trước mẫu đã chọn</button></div>}
-            {!options.templates.length && <p className="muted">Chưa có mẫu báo giá. {canManageTemplate ? <button type="button" className="text-button" onClick={onManageTemplate}>Thêm mẫu báo giá</button> : "Vui lòng liên hệ quản trị hệ thống."}</p>}
-            {!options.productsAvailable && <p className="muted">Chưa có sản phẩm trong danh mục. Hãy thêm bảng giá tại mục Bảng giá trước khi tạo báo giá.</p>}
-            {!analysis && <div className="field-row">
-              <label>Tên khách hàng<input value={customerName} maxLength={250} disabled={locked} autoComplete="name" onChange={(event) => setCustomerName(event.target.value)} placeholder="Nhập tên khách hàng" /></label>
-              <label>Email (không bắt buộc)<input type="email" value={customerEmail} maxLength={250} disabled={locked} autoComplete="email" onChange={(event) => setCustomerEmail(event.target.value)} placeholder="Không bắt buộc" /></label><label>Số điện thoại (không bắt buộc)<input type="tel" autoComplete="tel" maxLength={50} value={customerPhone} disabled={locked} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Số điện thoại khách hàng" /></label>
+            {options.templates.length > 0 && <div className="template-setup">
+              <div className="template-field"><span className="template-field-label">Mẫu báo giá</span><QuoteTemplateDropdown templates={options.templates} value={templateId} defaultTemplateId={options.defaultTemplateId} disabled={locked} onChange={setTemplateId} /></div>
+              {templateId && <button type="button" className="text-button quote-template-preview" onClick={() => { const template = options.templates.find((entry) => entry.id === templateId); if (template) setPreviewFile({ name: template.originalFilename, url: `/api/quote-template/${template.id}/file?preview=1` }); }}>Xem trước mẫu</button>}
             </div>}
-            <label>Yêu cầu của khách hàng<textarea value={requestText} onChange={(event) => setRequestText(event.target.value)} placeholder="Nhập yêu cầu của khách hàng hoặc tải file yêu cầu bên dưới…" rows={6} maxLength={10000} required={!requestFile} disabled={locked} /></label>
-            <label>Hoặc tải file yêu cầu<input ref={fileInput} type="file" accept=".pdf,.docx,.txt,.xlsx,.xls,.csv" disabled={locked} onChange={(event) => { setRequestFile(event.target.files?.[0] ?? null); uploadedFile.current = null; setError(""); }} /><span className="field-hint">PDF, Word, TXT, Excel, CSV · Tối đa 10 MB</span></label>
-            {requestFile && <div className="request-file-selection"><span>{requestFile.name}</span><button type="button" className="text-button" onClick={() => setPreviewFile({ name: requestFile.name, file: requestFile })}>Xem trước</button><button type="button" className="text-button" disabled={locked} onClick={() => { setRequestFile(null); uploadedFile.current = null; if (fileInput.current) fileInput.current.value = ""; }}>Bỏ file</button></div>}
+            {(!options.templates.length || !options.productsAvailable) && <div className="quote-setup-notice" role="status">
+              <strong>Để tạo báo giá, hãy bổ sung:</strong>
+              {!options.templates.length && <div className="quote-setup-item"><span>Mẫu báo giá</span>{canManageTemplate ? <button type="button" className="text-button" onClick={onManageTemplate}>Thêm mẫu →</button> : <span>Liên hệ quản trị viên</span>}</div>}
+              {!options.productsAvailable && <div className="quote-setup-item"><span>Sản phẩm</span><span>Thêm tại mục Bảng giá</span></div>}
+            </div>}
+            {!analysis && <div className="field-row quote-customer-fields">
+              <label>Tên khách hàng<input value={customerName} maxLength={250} disabled={locked} autoComplete="name" onChange={(event) => setCustomerName(event.target.value)} placeholder="Nhập tên khách hàng" /></label>
+              <label>Email (không bắt buộc)<input type="email" value={customerEmail} maxLength={250} disabled={locked} autoComplete="email" onChange={(event) => setCustomerEmail(event.target.value)} placeholder="email@congty.vn" /></label><label>Số điện thoại (không bắt buộc)<input type="tel" autoComplete="tel" maxLength={50} value={customerPhone} disabled={locked} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Số điện thoại khách hàng" /></label>
+            </div>}
+            <label className="request-text-label">Yêu cầu của khách hàng<textarea value={requestText} onChange={(event) => setRequestText(event.target.value)} placeholder="Mô tả sản phẩm, số lượng, quy cách khách hàng cần…" rows={4} maxLength={10000} required={!requestFile} disabled={locked} /></label>
+            <label className="request-upload-label">Hoặc tải file yêu cầu<input className="request-file-input" ref={fileInput} type="file" accept=".pdf,.docx,.txt,.xlsx,.xls,.csv" disabled={locked} onChange={(event) => { setRequestFile(event.target.files?.[0] ?? null); uploadedFile.current = null; setError(""); }} /><span className="request-file-control"><span className="request-file-trigger">Chọn file</span><span className="request-file-name">{requestFile?.name ?? "Chưa chọn file"}</span></span><span className="field-hint">PDF, Word, TXT, Excel, CSV · Tối đa 10 MB</span></label>
+            {requestFile && <div className="request-file-selection"><button type="button" className="text-button" onClick={() => setPreviewFile({ name: requestFile.name, file: requestFile })}>Xem trước file</button><button type="button" className="text-button" disabled={locked} onClick={() => { setRequestFile(null); uploadedFile.current = null; if (fileInput.current) fileInput.current.value = ""; }}>Bỏ file</button></div>}
             {!analysis && <button className="button button-primary analyze-button" type="submit" disabled={busy || !templateId || !options.productsAvailable || (!requestText.trim() && !requestFile)}>{busy ? <span className="spinner" /> : <Icon name="spark" size={17} />}{busy ? "Đang phân tích…" : "Phân tích yêu cầu"}<Icon name="arrow" size={16} /></button>}
             {requestId && <button type="button" className="text-button" disabled={busy} onClick={editRequest}>Chỉnh sửa yêu cầu</button>}
           </form>
@@ -1263,7 +1297,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             </div>
             {supplementalProducts.length > 0 ? <div className="quote-supplement-product-wrap">
               <table className="quote-supplement-product-table">
-                <thead><tr><th>Tên sản phẩm & quy cách</th><th>ĐVT</th><th>Số lượng</th><th>Đơn giá ({quote.currency})</th><th>Thành tiền</th><th aria-label="Thao tác" /></tr></thead>
+                <thead><tr><th>Tên sản phẩm & quy cách</th><th>Đơn vị</th><th>Số lượng</th><th>Đơn giá ({quote.currency})</th><th>Thành tiền</th><th aria-label="Thao tác" /></tr></thead>
                 <tbody>{supplementalProducts.map((product) => {
                   const quantity = Number(product.quantity);
                   const unitPrice = Number(product.unitPrice);
@@ -1409,7 +1443,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
                   <tr>
                     <th>#</th>
                     <th>Sản phẩm & Quy cách</th>
-                    <th className="col-unit">ĐVT</th>
+                    <th className="col-unit">Đơn vị</th>
                     <th className="col-qty">Số lượng</th>
                     <th className="col-amount">Đơn giá</th>
                     <th className="col-amount">Thành tiền</th>
@@ -1773,20 +1807,61 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
 function AccountProfile({ user, onToast, onSignOut, confirm, subscriptionExpiresAt, requestedPlanCode, onInitialPlanHandled, onBillingPaid }: { user: User; onToast: Notify; onSignOut: () => void; confirm: (options: ConfirmOptions) => Promise<boolean>; subscriptionExpiresAt: string | null; requestedPlanCode: string | null; onInitialPlanHandled: () => void; onBillingPaid: () => void }) {
   const plan = user.plan;
   return <div className="page-stack profile-page">
-    <section className="page-heading-row"><div><h1>Trang cá nhân</h1></div></section>
-    <section className="content-card profile-overview">
-      <div className="profile-identity">
-        <span className="profile-overview-avatar" aria-hidden="true">{user.name.trim().slice(0, 1).toLocaleUpperCase("vi") || "?"}</span>
-        <div className="profile-overview-copy"><strong>{user.name}</strong><span className="profile-email">{user.email}</span><small className="profile-role">{roleLabels[user.role]}</small></div>
-      </div>
-      <button className="button profile-signout" onClick={() => void confirm({ title: "Đăng xuất khỏi tài khoản?", message: "Bạn sẽ cần đăng nhập lại để tiếp tục làm việc.", confirmLabel: "Đăng xuất" }).then((accepted) => { if (accepted) onSignOut(); })}><Icon name="logout" size={17} />Đăng xuất</button>
-    </section>
-    <section className="content-card profile-plan-card">
-      <div className="profile-plan-main"><span className="profile-plan-icon"><Icon name="check" size={19} /></span><div><span className="profile-plan-eyebrow">GÓI ĐANG SỬ DỤNG</span><h2>{plan?.name ?? "Dùng thử"}</h2><p>{plan?.description ?? "Gói miễn phí mặc định của Giáo."}</p></div></div>
-      <div className="profile-plan-details"><span><small>Giá gói</small><strong>{plan?.monthlyPrice === null ? "Theo nhu cầu" : plan?.monthlyPrice ? `${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ / tháng` : "Miễn phí"}</strong></span><span><small>Báo giá</small><strong>{plan?.quoteLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt / tháng`}</strong></span><span><small>Mẫu báo giá</small><strong>{plan?.templateLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.templateLimit)} mẫu`}</strong></span></div>
-    </section>
+    <section className="page-heading-row"><div><h1>Trang cá nhân</h1><p className="muted">Quản lý tài khoản, email gửi báo giá và tệp doanh nghiệp.</p></div><button type="button" className="profile-signout" onClick={() => void confirm({ title: "Đăng xuất khỏi tài khoản?", message: "Bạn sẽ cần đăng nhập lại để tiếp tục làm việc.", confirmLabel: "Đăng xuất", tone: "danger", dismissWithClose: true }).then((accepted) => { if (accepted) onSignOut(); })}><Icon name="logout" size={17} />Đăng xuất</button></section>
+    <div className="profile-left-column">
+      <section className="content-card profile-overview">
+        <div className="profile-identity">
+          <span className="profile-overview-avatar" aria-hidden="true">{user.name.trim().slice(0, 1).toLocaleUpperCase("vi") || "?"}</span>
+          <div className="profile-overview-copy"><strong>{user.name}</strong><span className="profile-email">{user.email}</span><small className="profile-role">{roleLabels[user.role]}</small></div>
+        </div>
+      </section>
+      <section className="content-card profile-plan-card">
+        <div className="profile-plan-main"><span className="profile-plan-icon"><Icon name="check" size={19} /></span><div><span className="profile-plan-eyebrow">Gói đang sử dụng</span><h2>{plan?.name ?? "Dùng thử"}</h2><p>{plan?.description ?? "Gói miễn phí mặc định của iGen Baogia."}</p></div></div>
+        <div className="profile-plan-details"><span><small>Giá gói</small><strong>{plan?.monthlyPrice === null ? "Theo nhu cầu" : plan?.monthlyPrice ? `${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ / tháng` : "Miễn phí"}</strong></span><span><small>Báo giá</small><strong>{plan?.quoteLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt / tháng`}</strong></span><span><small>Mẫu báo giá</small><strong>{plan?.templateLimit == null ? "Theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.templateLimit)} mẫu`}</strong></span></div>
+      </section>
+      <CompanyFiles onToast={onToast} confirm={confirm} />
+    </div>
     <SubscriptionBillingPanel currentPlanCode={plan?.code ?? "free"} subscriptionExpiresAt={subscriptionExpiresAt} initialPlanCode={requestedPlanCode} onInitialPlanHandled={onInitialPlanHandled} onPaid={onBillingPaid} />
     <CompanySettings onToast={onToast} confirm={confirm} />
+  </div>;
+}
+
+function SmtpSecurityDropdown({ secure, onChange }: { secure: boolean; onChange: (secure: boolean) => void }) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const options = [
+    { value: false, label: "STARTTLS (thường dùng cổng 587)" },
+    { value: true, label: "TLS (thường dùng cổng 465)" },
+  ];
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    root.current?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]')?.focus();
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [open]);
+
+  return <div className={`smtp-security-dropdown ${open ? "is-open" : ""}`} ref={root} onKeyDown={(event) => {
+    if (event.key === "Escape" && open) { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
+    if (["ArrowDown", "ArrowUp"].includes(event.key)) {
+      event.preventDefault();
+      if (!open) { setOpen(true); return; }
+      const items = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      items[(current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length]?.focus();
+    }
+  }}>
+    <button ref={trigger} type="button" className="smtp-security-trigger" aria-label="Kiểu bảo mật" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+      <span>{options.find((option) => option.value === secure)?.label}</span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+    </button>
+    {open && <div className="smtp-security-menu" role="listbox" aria-label="Kiểu bảo mật">
+      {options.map((option) => <button key={String(option.value)} type="button" role="option" aria-selected={secure === option.value} onClick={() => { onChange(option.value); setOpen(false); trigger.current?.focus(); }}>{option.label}</button>)}
+    </div>}
   </div>;
 }
 
@@ -1997,17 +2072,16 @@ function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (opti
       setTaskProgress(null);
     }
   };
-  if (loading) return <Loading />;
+  if (loading) return <div className="profile-settings-loading"><Loading /></div>;
   return <div className="page-stack settings-page">
-    <section className="page-heading-row"><div><h1>Email gửi báo giá</h1></div></section>
+    <section className="content-card email-settings-card profile-email-settings-card">
+      <div className="settings-card-heading"><div><h2>Email gửi báo giá</h2><p className="settings-hint">Cấu hình máy chủ SMTP để gửi báo giá.</p></div><span className={`settings-status ${settings?.configured ? "connected" : "not-connected"}`}>{settings?.configured ? "Đã cấu hình" : "Chưa cấu hình"}</span></div>
     {taskProgress && <TaskProgress {...taskProgress} />}
-    <section className="content-card email-settings-card">
-      <div className="settings-card-heading"><div><span className="eyebrow">MÁY CHỦ SMTP</span><h2>Thông tin kết nối</h2></div><span className={`settings-status ${settings?.configured ? "connected" : "not-connected"}`}>{settings?.configured ? "Đã cấu hình" : "Chưa cấu hình"}</span></div>
       <form className="email-settings-form" onSubmit={(event) => void save(event)}>
         <label>Máy chủ SMTP<input type="text" value={form.host} onChange={(event) => update("host", event.target.value)} placeholder="smtp.congty.vn" autoComplete="off" required /></label>
         <div className="email-settings-row">
           <label>Cổng<input type="number" min="1" max="65535" value={form.port} onChange={(event) => update("port", event.target.value)} required /></label>
-          <label>Kiểu bảo mật<select value={form.secure ? "tls" : "starttls"} onChange={(event) => update("secure", event.target.value === "tls")}><option value="starttls">STARTTLS (thường dùng cổng 587)</option><option value="tls">TLS (thường dùng cổng 465)</option></select></label>
+          <div className="smtp-security-field"><span>Kiểu bảo mật</span><SmtpSecurityDropdown secure={form.secure} onChange={(secure) => update("secure", secure)} /></div>
         </div>
         <label>Tên đăng nhập SMTP<input type="text" value={form.user} onChange={(event) => update("user", event.target.value)} placeholder="Có thể để trống nếu máy chủ không yêu cầu" autoComplete="username" /></label>
         <label>Mật khẩu SMTP<input type="password" value={form.password} onChange={(event) => update("password", event.target.value)} placeholder={settings?.passwordSet ? "Để trống để giữ mật khẩu đã lưu" : "Nhập mật khẩu hoặc mật khẩu ứng dụng"} autoComplete="new-password" /></label>
@@ -2016,7 +2090,6 @@ function CompanySettings({ onToast, confirm }: { onToast: Notify; confirm: (opti
         <div className="settings-actions"><div>{settings?.configured && <><button className="button button-soft" type="button" disabled={busy || testing} onClick={() => void testConnection()}>{testing ? "Đang kiểm tra…" : "Kiểm tra kết nối"}</button><button className="text-button settings-delete" type="button" disabled={busy || testing} onClick={() => void removeSettings()}>Xóa cấu hình</button></>}</div><button className="button button-primary" type="submit" disabled={busy || testing}>{busy ? "Đang lưu…" : "Lưu cấu hình"}</button></div>
       </form>
     </section>
-    <CompanyFiles onToast={onToast} confirm={confirm} />
   </div>;
 }
 
@@ -2072,11 +2145,11 @@ function CompanyFiles({ onToast, confirm }: { onToast: Notify; confirm: (options
       setTaskProgress(null);
     }
   };
-  if (loading) return <section className="content-card email-settings-card"><Loading /></section>;
+  if (loading) return <section className="content-card email-settings-card company-files-card"><Loading /></section>;
   return <section className="content-card email-settings-card company-files-card">
-    <div className="settings-card-heading"><div><span className="eyebrow">TỆP VÀ ẢNH</span><h2>Tệp doanh nghiệp</h2></div></div>
-    <div className="stored-files-section"><div className="stored-files-heading"><div><p className="settings-hint">Ảnh, PDF, CSV và Excel · tối đa 10 MB mỗi tệp</p></div><button className="button button-soft" type="button" disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? "Đang tải lên…" : "Tải tệp hoặc ảnh"}</button><input ref={fileInput} type="file" hidden accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.csv,.xlsx,.xls" onChange={(event) => void upload(event)} /></div>
+    <div className="settings-card-heading"><div><h2>Tệp doanh nghiệp</h2><p className="settings-hint">Ảnh, PDF, CSV và Excel · tối đa 10 MB mỗi tệp</p></div><button className="button button-soft" type="button" disabled={uploading} onClick={() => fileInput.current?.click()}>{uploading ? "Đang tải lên…" : "Tải tệp lên"}</button><input ref={fileInput} type="file" hidden accept=".png,.jpg,.jpeg,.webp,.gif,.pdf,.csv,.xlsx,.xls" onChange={(event) => void upload(event)} /></div>
     {taskProgress && <TaskProgress {...taskProgress} />}
+    <div className="stored-files-section">
       {files.length ? <div className="stored-files-list">{files.map((file) => <div className="stored-file-row" key={file._id ?? `${file.originalFilename}-${file.createdAt}`}><span className="stored-file-icon"><Icon name="file" size={16} /></span><span><strong>{file.originalFilename}</strong><small>{formatDate(file.createdAt)} · {(file.bytes / 1024).toFixed(0)} KB</small></span><button type="button" className="text-button" disabled={!file._id} onClick={() => setPreviewFile({ name: file.originalFilename, url: `/api/files/${file._id}/preview` })}>Xem trước</button></div>)}</div> : <p className="settings-hint stored-files-empty">Chưa có tệp nào được tải lên.</p>}
     </div>
     <FilePreview file={previewFile} onClose={() => setPreviewFile(null)} />
@@ -2087,7 +2160,7 @@ function QuoteCards({ quotes, onOpen, onDelete, emptyTitle, emptyText }: { quote
   return <div className="quote-cards">{quotes.map((quote) => <div className="quote-card-entry" key={quote._id}><button type="button" className="quote-summary-card" onClick={() => onOpen(quote._id)}><span className="quote-summary-top"><strong className="quote-number">{quote.quoteNumber}</strong><StatusPill status={quote.status} /></span><span className="quote-summary-customer"><strong>{quote.customerName}</strong><span>{quote.customerEmail || "Chưa có email"}</span>{quote.customerPhone && <span>{quote.customerPhone}</span>}</span><span className="quote-summary-meta">Tạo {formatDate(quote.createdAt)} · {quote.lines.length} mặt hàng</span><span className="quote-summary-bottom"><span><small>Tổng tiền</small><strong>{formatMoney(quote.total, quote.currency)}</strong></span><Icon name="arrow" size={18} /></span></button>{onDelete && <button type="button" className="quote-card-delete" onClick={() => onDelete(quote)}><Icon name="trash" size={14} /> Xóa báo giá</button>}</div>)}</div>;
 }
 
-function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><span className="empty-icon"><Icon name="file" size={21} /></span><h3>{title}</h3>{text && <p>{text}</p>}</div>; }
+function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state quote-empty-state"><span className="empty-icon"><img src="/images/quote-empty-3d.svg" alt="" /></span><h3>{title}</h3>{text && <p>{text}</p>}</div>; }
 function Loading() { return <TaskProgress label="Đang tải dữ liệu" detail="Vui lòng chờ trong giây lát…" />; }
 
 function App() {

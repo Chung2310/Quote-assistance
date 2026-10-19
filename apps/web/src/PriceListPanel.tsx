@@ -19,6 +19,46 @@ const columnRoleLabels: Array<{ value: ImportColumnRole; label: string }> = [
   { value: "effectiveTo", label: "Hiệu lực đến" }, { value: "attribute", label: "Thuộc tính riêng" },
 ];
 
+function ReviewSelect({ value, options, disabled, label, onChange }: { value: string; options: Array<{ value: string; label: string }>; disabled: boolean; label: string; onChange: (value: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [openAbove, setOpenAbove] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const selected = options.find((option) => option.value === value);
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    document.addEventListener("pointerdown", closeOutside);
+    (root.current?.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]') ?? root.current?.querySelector<HTMLButtonElement>('[role="option"]'))?.focus();
+    return () => document.removeEventListener("pointerdown", closeOutside);
+  }, [open]);
+
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+
+  const toggle = () => {
+    if (!open) {
+      const bounds = root.current?.getBoundingClientRect();
+      setOpenAbove(Boolean(bounds && window.innerHeight - bounds.bottom < 280 && bounds.top > 300));
+    }
+    setOpen((current) => !current);
+  };
+
+  return <div className={`price-list-review-select ${open ? "is-open" : ""} ${openAbove ? "opens-above" : ""}`} ref={root} onKeyDown={(event) => {
+    if (event.key === "Escape" && open) { event.preventDefault(); setOpen(false); trigger.current?.focus(); }
+    if (open && ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const items = Array.from(root.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') ?? []);
+      const current = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[next]?.focus();
+    }
+  }}>
+    <button ref={trigger} type="button" className="price-list-review-select-trigger" disabled={disabled || options.length === 0} aria-label={`${label}: ${selected?.label ?? ""}`} aria-haspopup="listbox" aria-expanded={open} onClick={toggle} onKeyDown={(event) => { if (!open && ["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); toggle(); } }}><span>{selected?.label ?? ""}</span><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></button>
+    {open && <div className="price-list-review-select-menu" role="listbox" aria-label={label}>{options.map((option) => <button key={option.value} type="button" role="option" aria-selected={option.value === value} onClick={() => { onChange(option.value); setOpen(false); trigger.current?.focus(); }}>{option.label}</button>)}</div>}
+  </div>;
+}
+
 function isSheetMappingValid(sheet: PendingImportSheet) {
   const required = sheet.roles.filter((role) => role === "name" || role === "price");
   const core = sheet.roles.filter((role) => role !== "attribute" && role !== "ignore");
@@ -314,10 +354,10 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
     } finally { setBusy(false); setTaskProgress(null); }
   };
 
-  return <div className="page-stack">
-    <section className="page-heading-row">
-      <div><h1>Bảng giá{!loading && ` (${products.length} sản phẩm)`}</h1><p className="muted">Tải tài liệu lên để tự tạo sản phẩm và cập nhật đơn giá trong danh mục.</p></div>
-      <button className="button button-primary" disabled={busy || loading || pendingImports.length > 0} onClick={() => input.current?.click()}>{busy ? "Đang đọc tài liệu…" : "Thêm bảng giá"}</button>
+  return <div className={`page-stack price-list-page ${!loading && products.length === 0 ? "is-empty" : ""}`}>
+    <section className="page-heading-row price-list-heading">
+      <div><div className="price-list-title-row"><h1>Bảng giá</h1>{!loading && <span className="price-list-total-badge">{products.length} sản phẩm</span>}</div><p className="muted">Quản lý sản phẩm và đơn giá từ các tài liệu của doanh nghiệp.</p></div>
+      {(loading || products.length > 0) && <button className="button button-primary price-list-add-button" disabled={busy || loading || pendingImports.length > 0} onClick={() => input.current?.click()}>{busy ? "Đang đọc tài liệu…" : "Thêm bảng giá"}</button>}
       <input ref={input} type="file" hidden multiple disabled={busy || pendingImports.length > 0} accept=".csv,.xlsx,.xls" onChange={(event) => void upload(event)} />
     </section>
     {taskProgress && <TaskProgress {...taskProgress} />}
@@ -331,16 +371,16 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
           return <section className="price-list-review-sheet" key={sheet.sheet}>
             <div className="price-list-sheet-heading">
               <label className="price-list-sheet-toggle"><input type="checkbox" checked={sheet.included} disabled={busy} onChange={(event) => updatePendingSheet(fileIndex, sheet.sheet, (current) => ({ ...current, included: event.target.checked }))} /><span>Nhập sheet <strong>{sheet.sheet}</strong></span></label>
-              <label className="price-list-header-select">Dòng tiêu đề<select value={sheet.headerRow} disabled={busy || !sheet.headerRows.length} onChange={(event) => updatePendingSheet(fileIndex, sheet.sheet, (current) => {
-                const chosen = current.headerRows.find((row) => row.row === Number(event.target.value));
+              <div className="price-list-header-select"><span>Dòng tiêu đề</span><ReviewSelect value={String(sheet.headerRow)} disabled={busy || !sheet.headerRows.length} label="Dòng tiêu đề" onChange={(value) => updatePendingSheet(fileIndex, sheet.sheet, (current) => {
+                const chosen = current.headerRows.find((row) => row.row === Number(value));
                 if (!chosen) return current;
                 return { ...current, headerRow: chosen.row, roles: chosen.roles, included: chosen.roles.includes("name") && chosen.roles.includes("price") };
-              })}>{sheet.headerRows.map((row) => <option key={row.row} value={row.row}>Dòng {row.row}: {row.cells.filter(Boolean).join(" · ").slice(0, 100)}</option>)}</select></label>
+              })} options={sheet.headerRows.map((row) => ({ value: String(row.row), label: `Dòng ${row.row}: ${row.cells.filter(Boolean).join(" · ").slice(0, 100)}` }))} /></div>
             </div>
             {selectedHeader && <div className="price-list-column-mapping">{selectedHeader.cells.map((header, columnIndex) => {
               const role = sheet.roles[columnIndex] ?? "ignore";
               if (!header.trim() && role === "ignore") return null;
-              return <label className="price-list-column-row" key={`${columnIndex}-${header}`}><span title={header}>{header.trim() || `Cột ${columnIndex + 1}`}</span><select value={role} disabled={busy} onChange={(event) => updatePendingSheet(fileIndex, sheet.sheet, (current) => ({ ...current, roles: current.roles.map((value, index) => index === columnIndex ? event.target.value as ImportColumnRole : value), included: current.included || event.target.value === "name" || event.target.value === "price" }))}>{columnRoleLabels.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>;
+              return <div className="price-list-column-row" key={`${columnIndex}-${header}`}><span title={header}>{header.trim() || `Cột ${columnIndex + 1}`}</span><ReviewSelect value={role} disabled={busy} label={header.trim() || `Cột ${columnIndex + 1}`} onChange={(selectedRole) => updatePendingSheet(fileIndex, sheet.sheet, (current) => ({ ...current, roles: current.roles.map((value, index) => index === columnIndex ? selectedRole as ImportColumnRole : value), included: current.included || selectedRole === "name" || selectedRole === "price" }))} options={columnRoleLabels} /></div>;
             })}</div>}
             {samples.length > 0 && selectedHeader && <div className="price-list-mapping-samples"><strong>Dữ liệu mẫu</strong>{samples.map((sample) => <p key={sample.row}>{sheet.roles.flatMap((role, index) => role === "ignore" ? [] : [`${selectedHeader.cells[index] || `Cột ${index + 1}`}: ${sample.cells[index] ?? ""}`]).filter((value) => !value.endsWith(": ")).join(" · ")}</p>)}</div>}
           </section>;
@@ -349,7 +389,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
       <div className="preview-actions"><button type="button" className="button button-soft" disabled={busy} onClick={() => setPendingImports([])}>Hủy</button><button type="button" className="button button-primary" disabled={busy} onClick={() => void confirmImports()}>{busy ? "Đang nhập…" : "Xác nhận và nhập"}</button></div>
     </section>}
     <section className="content-card list-card price-list-product-card">
-      <div className="price-list-toolbar-section">
+      {(loading || products.length > 0) && <div className="price-list-toolbar-section">
         <div className="price-list-search-row">
           <div className="price-list-search-box">
             <span className="price-list-search-icon" aria-hidden="true"><SearchIcon size={16} /></span>
@@ -461,15 +501,17 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
             </button>
           </div>
         )}
-      </div>
+      </div>}
 
       {loading ? (
         <div className="loading-state" role="status">Đang tải danh sách sản phẩm…</div>
       ) : products.length === 0 ? (
-        <div className="empty-state">
-          <span className="empty-icon">₫</span>
-          <h2>Chưa có sản phẩm trong bảng giá</h2>
-          <p>Tải tài liệu CSV, XLSX hoặc XLS lên để hệ thống đọc và đưa sản phẩm cùng đơn giá vào danh sách.</p>
+        <div className="empty-state price-list-empty-state setup-empty-state">
+          <span className="empty-icon"><img src="/images/catalog-empty-3d.svg" alt="" /></span>
+          <h2>Bắt đầu với bảng giá đầu tiên</h2>
+          <p>Tải file lên để tạo danh sách sản phẩm và đơn giá. Bạn có thể kiểm tra các cột trước khi nhập.</p>
+          <button type="button" className="button button-primary price-list-empty-cta" disabled={busy || pendingImports.length > 0} onClick={() => input.current?.click()}>{busy ? "Đang đọc tài liệu…" : "Tải bảng giá lên"}</button>
+          <small>Hỗ trợ CSV, XLSX, XLS · Tối đa 5 MB mỗi file · Có thể chọn nhiều file</small>
         </div>
       ) : filteredProducts.length === 0 ? (
         <div className="empty-state price-list-empty-search">
@@ -489,12 +531,12 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
           <table className="data-table price-list-table">
             <thead>
               <tr>
-                <th>SẢN PHẨM</th>
-                <th>QUY CÁCH / THÔNG SỐ</th>
-                <th>ĐƠN VỊ</th>
-                <th>ĐƠN GIÁ</th>
-                <th>TRẠNG THÁI</th>
-                <th>THAO TÁC</th>
+                <th>Sản phẩm</th>
+                <th>Quy cách / thông số</th>
+                <th>Đơn vị</th>
+                <th>Đơn giá</th>
+                <th>Trạng thái</th>
+                <th>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -557,7 +599,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
         <button type="button" className="button button-soft" onClick={() => setPreview({ name: file.originalFilename, url: `/api/price-list/${file._id}/file` })}>Xem file</button>
       </div>)}</div>
     </details>}
-    <p className="catalog-note">CSV / XLSX / XLS · Tối đa 5 MB mỗi file · Có thể chọn nhiều file cùng lúc.</p>
+    {products.length > 0 && <p className="catalog-note">CSV / XLSX / XLS · Tối đa 5 MB mỗi file · Có thể chọn nhiều file cùng lúc.</p>}
     <FilePreview file={preview} onClose={() => setPreview(null)} />
     {editingProduct && <EditCatalogProductDialog key={editingProduct._id} item={editingProduct} onToast={onToast} onClose={() => setEditingProduct(null)} onSaved={(item) => {
       setProducts((current) => current.map((entry) => entry._id === item._id ? item : entry));

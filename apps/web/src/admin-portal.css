@@ -59,7 +59,7 @@
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
-  font-family: inherit;
+  font-family: system-ui, sans-serif;
   text-align: left;
 }
 
@@ -343,7 +343,7 @@
 }
 
 .admin-user-avatar.role-admin {
-  color: #39815c;
+  color: #00ADFC;
   background: #eaf5ed;
 }
 
@@ -357,7 +357,7 @@
 }
 
 .admin-role-pill.role-admin {
-  color: #43815c;
+  color: #00ADFC;
   background: #edf6ef;
 }
 
@@ -824,6 +824,38 @@
   .admin-access-actions .admin-button { width: 100%; }
 }
 
+/* Keep primary actions in the brand color across admin screens. */
+.admin-button-primary {
+  color: #fff;
+  border-color: #00ADFC;
+  background: #00ADFC;
+  box-shadow: 0 5px 16px rgba(0, 173, 252, 0.24);
+}
+.admin-button-primary:hover:not(:disabled) {
+  border-color: #008fce;
+  background: #008fce;
+}
+
+/* Use the full Baogia logo in the administration interface. */
+.admin-brand .brand-logo-baogia {
+  width: 127px;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+  object-position: left center;
+}
+.admin-splash .brand-logo-baogia {
+  width: 147px;
+  max-width: calc(100vw - 40px);
+  height: auto;
+  object-fit: contain;
+}
+@media (max-width: 1050px) {
+  .admin-brand .brand-logo-baogia { width: 36px; }
+}
+@media (max-width: 620px) {
+  .admin-brand .brand-logo-baogia { width: 85px; }
+}
 .admin-table { min-width: 760px; }
 .admin-plan-pill { display: inline-flex; align-items: center; min-height: 25px; padding: 4px 9px; border: 1px solid #dceef1; border-radius: 20px; background: #f1fafb; color: #39727d; font-size: 9px; font-weight: 750; white-space: nowrap; }
 .admin-plan-pill.is-featured { border-color: #b9e6eb; background: #e9f9fb; color: #087f95; }
