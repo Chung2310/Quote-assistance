@@ -113,7 +113,7 @@ export default function AdminApp() {
   };
 
   if (sessionState === "checking") {
-    return <div className="admin-splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /><span>Đang kiểm tra phiên quản trị…</span></div>;
+    return <div className="admin-splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /><span>Đang kiểm tra phiên quản trị…</span></div>;
   }
   if (sessionState !== "allowed") return null;
 
@@ -122,8 +122,8 @@ export default function AdminApp() {
 
   return <NotificationProvider notify={notify}><div className="admin-shell">
     <aside className="admin-sidebar">
-      <a className="admin-brand" href="/quan-tri" aria-label="Trang quản trị iGen Baogia">
-        <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
+      <a className="admin-brand" href="/quan-tri" aria-label="Trang quản trị iGen Trợ lí báo giá">
+        <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" />
       </a>
       <div className="admin-nav-label">Quản lý</div>
       <nav className="admin-nav">
