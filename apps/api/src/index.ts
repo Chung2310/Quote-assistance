@@ -795,20 +795,21 @@ app.post("/api/billing/sepay/webhook", async (request, response) => {
     return response.json({ success: true, ignored: true });
   }
 
-  const prefix = sepaySettings.paymentPrefix;
-  const codePattern = new RegExp(`${prefix}[A-F0-9]{10}`, "i");
   const codeField = typeof request.body.code === "string" ? request.body.code.toUpperCase() : "";
   const content = [request.body.content, request.body.description]
     .filter((value): value is string => typeof value === "string")
     .join(" ")
     .toUpperCase();
-  const paymentCode = codePattern.test(codeField) ? codeField.match(codePattern)?.[0] : content.match(codePattern)?.[0];
-  if (!paymentCode) return response.json({ success: true, ignored: true });
+  const paymentCodes = [...new Set([codeField, content].flatMap((value) =>
+    Array.from(value.matchAll(/[A-Z]{2,5}[A-F0-9]{10}/g), ([code]) => code),
+  ))];
+  if (!paymentCodes.length) return response.json({ success: true, ignored: true });
 
   const payments = db.collection<SubscriptionPayment>("subscriptionPayments");
-  let payment = await payments.findOne({ code: paymentCode });
+  let payment = await payments.findOne({ code: { $in: paymentCodes } });
   if (!payment || payment.status === "superseded") return response.json({ success: true, ignored: true });
   if (transferAmount < payment.amount) return response.json({ success: true, ignored: true });
+  const paymentCode = payment.code;
 
   if (payment.status === "pending") {
     const paidAt = new Date();

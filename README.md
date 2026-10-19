@@ -94,7 +94,7 @@ SEPAY_BANK_CODE=VCB
 SEPAY_ACCOUNT_NUMBER=0123456789
 SEPAY_ACCOUNT_NAME=TEN CHU TAI KHOAN
 SEPAY_WEBHOOK_API_KEY=chuoi-bi-mat-tu-tao-va-cau-hinh-tren-sepay
-SEPAY_PAYMENT_PREFIX=GQ
+SEPAY_PAYMENT_PREFIX=BG
 ```
 
 Trong SePay, tạo webhook nhận **tiền vào** tại địa chỉ hiển thị trong trang **Thanh toán**, chọn xác thực **API Key** và nhập cùng khóa. Bật nhận diện mã thanh toán theo tiền tố đã cấu hình và hậu tố 10 ký tự chữ/số. QR chuyển khoản được tạo theo mã đơn, số tiền và nội dung riêng; ứng dụng không tự kích hoạt gói nếu thiếu webhook xác thực. Ngân hàng và số tài khoản dùng để nhận tiền phải thuộc tài khoản đã kết nối với webhook SePay. Không commit khóa webhook vào Git. Sau khi cấu hình, dùng tính năng gửi thử webhook của SePay rồi kiểm tra một giao dịch nhỏ trên môi trường staging trước khi nhận thanh toán thật.

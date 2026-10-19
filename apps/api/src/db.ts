@@ -263,6 +263,18 @@ export async function connectDatabase() {
         db.collection("quoteTemplates").createIndex({ companyId: 1 }),
       ]);
       const platformSettings = db.collection<{ _id: string; createdAt?: Date }>("platformSettings");
+      const sepayPrefixMigration = await platformSettings.findOne({ _id: "sepay-prefix-bg-v1" });
+      if (!sepayPrefixMigration) {
+        await db.collection<{ _id: string; sepaySettings?: { paymentPrefix?: string }; updatedAt?: Date }>("platformSettings").updateOne(
+          { _id: "sepay", "sepaySettings.paymentPrefix": "GQ" },
+          { $set: { "sepaySettings.paymentPrefix": "BG", updatedAt: new Date() } },
+        );
+        await platformSettings.updateOne(
+          { _id: "sepay-prefix-bg-v1" },
+          { $setOnInsert: { createdAt: new Date() } },
+          { upsert: true },
+        );
+      }
       const roleModel = await platformSettings.findOne({ _id: "user-role-model-v2" });
       if (!roleModel) {
         await migrateUserRoles(db);
