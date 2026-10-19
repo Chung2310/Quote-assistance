@@ -1034,6 +1034,13 @@
 #root .admin-shell textarea::placeholder,
 #root .admin-login-screen input::placeholder,
 #root .admin-access-card input::placeholder {
-  color: #c2cfd5 !important;
-  opacity: 1 !important;
+  color: #aebfc6 !important;
+  opacity: 0.55 !important;
+}
+
+#root .admin-shell .admin-modal .admin-account-form input::placeholder,
+#root .admin-shell .admin-modal .admin-account-form textarea::placeholder {
+  color: #aebfc6 !important;
+  opacity: 0.55 !important;
+  -webkit-text-fill-color: #aebfc6 !important;
 }
