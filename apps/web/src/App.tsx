@@ -452,7 +452,6 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
           {mode === "register" && <button className="login-return-cta" type="button" onClick={() => switchMode("login")}>
             <span>Đã có tài khoản?</span> <strong>Đăng nhập ngay</strong>
           </button>}
-          {mode === "login" && <a className="admin-login-link" href="/quan-tri">Đăng nhập dành cho quản trị viên</a>}
         </div>
       </div>
       </div>

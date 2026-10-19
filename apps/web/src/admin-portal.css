@@ -621,18 +621,9 @@
   margin-left: auto;
 }
 
-.admin-back-link,
-.admin-login-link {
+.admin-back-link {
   color: #66858c;
   font-size: 10px;
-}
-
-.admin-login-link {
-  display: block;
-  margin-top: 20px;
-  font-size: 11px;
-  text-align: center;
-  text-decoration: none;
 }
 
 .admin-portal-link {
