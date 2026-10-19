@@ -113,7 +113,7 @@ export default function AdminApp() {
   };
 
   if (sessionState === "checking") {
-    return <div className="admin-splash"><span className="admin-mark">G</span><span>Đang kiểm tra phiên quản trị…</span></div>;
+    return <div className="admin-splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /><span>Đang kiểm tra phiên quản trị…</span></div>;
   }
   if (sessionState !== "allowed") return null;
 
@@ -122,10 +122,10 @@ export default function AdminApp() {
 
   return <NotificationProvider notify={notify}><div className="admin-shell">
     <aside className="admin-sidebar">
-      <a className="admin-brand" href="/quan-tri" aria-label="Trang quản trị">
-        <span className="admin-mark">G</span><span className="admin-brand-copy"><strong>giáo</strong><small>QUẢN TRỊ HỆ THỐNG</small></span>
+      <a className="admin-brand" href="/quan-tri" aria-label="Trang quản trị iGen Baogia">
+        <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
       </a>
-      <div className="admin-nav-label">QUẢN LÝ</div>
+      <div className="admin-nav-label">Quản lý</div>
       <nav className="admin-nav">
         <button type="button" className={`admin-nav-item ${activeSection === "businesses" ? "is-active" : ""}`} onClick={() => setActiveSection("businesses")}><AdminIcon name="users" /><span>Doanh nghiệp</span></button>
         <button type="button" className={`admin-nav-item ${activeSection === "plans" ? "is-active" : ""}`} onClick={() => setActiveSection("plans")}><AdminIcon name="plans" /><span>Gói dịch vụ</span></button>
@@ -165,10 +165,10 @@ export default function AdminApp() {
                 </select>
               </div>
             </div>
-            {loadError && <button className="admin-button admin-button-secondary" onClick={() => setReloadKey((key) => key + 1)}>Tải lại dữ liệu</button>}
-            {loadingUsers ? <div className="admin-loading"><span className="admin-spinner" />Đang tải doanh nghiệp…</div> : users.length === 0 ? <div className="admin-empty"><span><AdminIcon name="users" size={23} /></span><strong>Chưa có doanh nghiệp</strong><p>Doanh nghiệp có thể tự đăng ký tài khoản trên trang đăng nhập.</p><button className="admin-button admin-button-primary" onClick={() => setDialogUser(null)}><AdminIcon name="plus" size={16} /> Thêm doanh nghiệp</button></div> : visibleUsers.length === 0 ? <div className="admin-empty admin-empty-compact"><strong>Không tìm thấy doanh nghiệp phù hợp</strong><p>Thử từ khóa hoặc trạng thái khác.</p></div> : <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>DOANH NGHIỆP</th><th>TÀI KHOẢN NGƯỜI DÙNG</th><th>GÓI HIỆN TẠI</th><th>TRẠNG THÁI</th><th>NGÀY TẠO</th><th><span className="sr-only">Thao tác</span></th></tr></thead><tbody>
+            {loadError && <div className="admin-inline-error" role="alert">{loadError}<button onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div>}
+            {loadingUsers ? <div className="admin-loading"><span className="admin-spinner" />Đang tải doanh nghiệp…</div> : users.length === 0 ? <div className="admin-empty"><span><AdminIcon name="users" size={23} /></span><strong>Chưa có doanh nghiệp</strong><p>Doanh nghiệp có thể tự đăng ký tài khoản trên trang đăng nhập.</p><button className="admin-button admin-button-primary" onClick={() => setDialogUser(null)}><AdminIcon name="plus" size={16} /> Thêm doanh nghiệp</button></div> : visibleUsers.length === 0 ? <div className="admin-empty admin-empty-compact"><strong>Không tìm thấy doanh nghiệp phù hợp</strong><p>Thử từ khóa hoặc trạng thái khác.</p></div> : <div className="admin-table-scroll"><table className="admin-table"><thead><tr><th>Doanh nghiệp</th><th>Tài khoản người dùng</th><th>Gói hiện tại</th><th>Trạng thái</th><th>Ngày tạo</th><th><span className="sr-only">Thao tác</span></th></tr></thead><tbody>
               {visibleUsers.map((managedUser) => <tr key={managedUser.id}>
-                <td><div className="admin-user-cell"><span className="admin-user-avatar">{managedUser.companyName.trim().charAt(0).toLocaleUpperCase("vi") || "?"}</span><span><strong>{managedUser.companyName}</strong><small>MST: {managedUser.taxId} · {managedUser.representativeName}</small></span></div></td>
+                <td><div className="admin-user-cell"><span className="admin-user-avatar">{managedUser.companyName.trim().charAt(0).toLocaleUpperCase("vi") || "?"}</span><span><strong>{managedUser.companyName}</strong><small>Mã số thuế: {managedUser.taxId} · {managedUser.representativeName}</small></span></div></td>
                 <td><div className="admin-business-contact"><strong>{managedUser.name}</strong><small>{managedUser.email}</small><small>{managedUser.phone} · {managedUser.businessEmail}</small></div></td>
                 <td><span className={`admin-plan-pill ${managedUser.planCode === "pro" ? "is-featured" : ""}`}>{managedUser.planName || "Dùng thử"}</span></td>
                 <td><span className={`admin-status ${managedUser.active ? "is-active" : "is-inactive"}`}><i />{managedUser.active ? "Đang hoạt động" : "Đã khóa"}</span></td>
@@ -476,7 +476,7 @@ function AdminEmail({ onToast, confirm }: { onToast: Notify; confirm: (options: 
   if (loading) return <TaskProgress label="Đang tải cấu hình email" detail="Đang đọc cài đặt và danh sách người nhận…" />;
   return <>
     <div className="admin-page-heading">
-      <div><span className="admin-eyebrow">THÔNG BÁO</span><h1>Email toàn hệ thống</h1><p>Cấu hình máy chủ gửi thư và gửi thông báo đến các tài khoản người dùng.</p></div>
+      <div><span className="admin-eyebrow">Thông báo</span><h1>Email toàn hệ thống</h1><p>Cấu hình máy chủ gửi thư và gửi thông báo đến các tài khoản người dùng.</p></div>
     </div>
     {taskProgress && <TaskProgress {...taskProgress} />}
     {loadFailed && <button className="admin-button admin-button-secondary" onClick={() => void load()}>Tải lại cài đặt email</button>}
@@ -562,7 +562,7 @@ function AccountDialog({ user, plans, onClose, onSaved, confirm }: { user: Manag
 
   return <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title">
-      <div className="admin-modal-heading"><div><span className="admin-eyebrow">HỒ SƠ DOANH NGHIỆP</span><h2 id="account-dialog-title">{user ? "Chỉnh sửa doanh nghiệp" : "Tạo doanh nghiệp"}</h2></div><button className="admin-icon-button" onClick={onClose} aria-label="Đóng"><AdminIcon name="close" /></button></div>
+      <div className="admin-modal-heading"><div><span className="admin-eyebrow">Hồ sơ doanh nghiệp</span><h2 id="account-dialog-title">{user ? "Chỉnh sửa doanh nghiệp" : "Tạo doanh nghiệp"}</h2></div><button className="admin-icon-button" onClick={onClose} aria-label="Đóng"><AdminIcon name="close" /></button></div>
       <form className="admin-account-form" onSubmit={(event) => void submit(event)}>
         <label>Tên doanh nghiệp<input autoComplete="organization" maxLength={200} value={draft.companyName} onChange={(event) => setDraft({ ...draft, companyName: event.target.value })} placeholder="Công ty ABC" required /></label>
         <label>Mã số thuế<input maxLength={30} value={draft.taxId} onChange={(event) => setDraft({ ...draft, taxId: event.target.value })} placeholder="0123456789" required /></label>
@@ -669,7 +669,7 @@ function PasswordDialog({ user, onClose, onSaved, confirm }: { user: ManagedUser
   };
   return <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="admin-modal admin-password-modal" role="dialog" aria-modal="true" aria-labelledby="password-dialog-title">
-      <div className="admin-modal-heading"><div><span className="admin-eyebrow">BẢO MẬT TÀI KHOẢN</span><h2 id="password-dialog-title">Đặt lại mật khẩu</h2></div><button className="admin-icon-button" onClick={onClose} aria-label="Đóng"><AdminIcon name="close" /></button></div>
+      <div className="admin-modal-heading"><div><span className="admin-eyebrow">Bảo mật tài khoản</span><h2 id="password-dialog-title">Đặt lại mật khẩu</h2></div><button className="admin-icon-button" onClick={onClose} aria-label="Đóng"><AdminIcon name="close" /></button></div>
       <p className="admin-password-user">{user.name}<small>{user.email}</small></p>
       <form className="admin-account-form" onSubmit={(event) => void submit(event)}>
         <label>Mật khẩu mới<input type="password" autoComplete="new-password" minLength={7} maxLength={200} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Ít nhất 7 ký tự" required /><small>Mật khẩu phải có từ 7 đến 200 ký tự.</small></label>
