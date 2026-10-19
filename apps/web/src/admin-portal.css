@@ -1045,3 +1045,45 @@
   opacity: 0.55 !important;
   -webkit-text-fill-color: #aebfc6 !important;
 }
+
+/* Make admin state badges easy to scan by status. */
+#root .admin-shell .admin-status {
+  color: #0369a1 !important;
+  background: #e0f2fe !important;
+}
+
+#root .admin-shell .admin-status i {
+  background: currentColor !important;
+}
+
+#root .admin-shell .admin-status.is-active {
+  color: #15803d !important;
+  background: #dcfce7 !important;
+}
+
+#root .admin-shell .admin-status.is-inactive {
+  color: #b91c1c !important;
+  background: #fee2e2 !important;
+}
+
+#root .admin-shell .admin-plan-pill {
+  color: #0369a1 !important;
+  background: #e0f2fe !important;
+  border-color: #bae6fd !important;
+}
+
+#root .admin-shell .admin-plan-pill.is-featured {
+  color: #6d28d9 !important;
+  background: #f3e8ff !important;
+  border-color: #e9d5ff !important;
+}
+
+#root .admin-shell .admin-role-pill.role-admin {
+  color: #6d28d9 !important;
+  background: #f3e8ff !important;
+}
+
+#root .admin-shell .admin-role-pill.role-approver {
+  color: #1d4ed8 !important;
+  background: #dbeafe !important;
+}
