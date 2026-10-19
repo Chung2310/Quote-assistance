@@ -1091,3 +1091,51 @@
   color: #1d4ed8 !important;
   background: #dbeafe !important;
 }
+
+/* Match native select controls and their option list to the admin theme. */
+#root .admin-shell select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  padding-right: 40px !important;
+  border: 1px solid #d6e7eb !important;
+  border-radius: 11px !important;
+  color: #244c57 !important;
+  background-color: #fff !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 7.5 5 5 5-5' stroke='%2300ADFC' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 16px 16px !important;
+  cursor: pointer;
+  transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+}
+
+#root .admin-shell select:hover {
+  border-color: #94d8e8 !important;
+  background-color: #fbfeff !important;
+}
+
+#root .admin-shell select:focus {
+  border-color: #00adfc !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px rgba(0, 173, 252, 0.14) !important;
+}
+
+#root .admin-shell select:disabled {
+  color: #91a7ad !important;
+  background-color: #f5f9fa !important;
+  cursor: not-allowed;
+}
+
+#root .admin-shell select option {
+  color: #244c57;
+  background: #fff;
+}
+
+#root .admin-shell select option:checked {
+  color: #007da8;
+  background: #e4f7fc;
+}
+
+#root .admin-shell select option:hover {
+  background: #f0fbff;
+}
