@@ -914,3 +914,108 @@
   .admin-contact-stats article { min-height: 76px; padding: 12px; }
   .admin-contact-details { grid-template-columns: 1fr; gap: 12px; }
 }
+
+/* Increase admin body text for comfortable reading; keep section titles unchanged. */
+#root .admin-shell .admin-nav-label,
+#root .admin-shell .admin-eyebrow {
+  font-size: 11px;
+}
+
+#root .admin-shell .admin-nav-item,
+#root .admin-shell .admin-topbar > div,
+#root .admin-shell .admin-topbar strong,
+#root .admin-shell .admin-page-heading p,
+#root .admin-shell .admin-button,
+#root .admin-shell .admin-stat-card span,
+#root .admin-shell .admin-stat-card small,
+#root .admin-shell .admin-users-toolbar > div:first-child > span,
+#root .admin-shell .admin-search input,
+#root .admin-shell .admin-search input::placeholder,
+#root .admin-shell .admin-filter-select,
+#root .admin-shell .admin-filters select,
+#root .admin-shell .admin-table,
+#root .admin-shell .admin-table td,
+#root .admin-shell .admin-user-cell strong,
+#root .admin-shell .admin-business-contact strong,
+#root .admin-shell .admin-contact-details strong,
+#root .admin-shell .admin-contact-details a,
+#root .admin-shell .admin-contact-details > div > span {
+  font-size: 14px !important;
+}
+
+#root .admin-shell .admin-secure-label,
+#root .admin-shell .admin-sidebar-note p,
+#root .admin-shell .admin-profile-copy small,
+#root .admin-shell .admin-table th,
+#root .admin-shell .admin-user-cell small,
+#root .admin-shell .admin-business-contact small,
+#root .admin-shell .admin-role-pill,
+#root .admin-shell .admin-status,
+#root .admin-shell .admin-date-cell,
+#root .admin-shell .admin-card-footer,
+#root .admin-shell .admin-empty p,
+#root .admin-shell .admin-plan-pill,
+#root .admin-shell .admin-plan-price small,
+#root .admin-shell .admin-plan-card footer > span,
+#root .admin-shell .admin-plan-input-grid label small,
+#root .admin-shell .admin-contact-status,
+#root .admin-shell .admin-contact-details small,
+#root .admin-shell .admin-contact-message-full > span {
+  font-size: 12px !important;
+}
+
+#root .admin-shell .admin-sidebar-note strong,
+#root .admin-shell .admin-profile-copy strong,
+#root .admin-shell .admin-empty strong,
+#root .admin-shell .admin-plan-card > p,
+#root .admin-shell .admin-plan-limits span,
+#root .admin-shell .admin-plan-note,
+#root .admin-shell .admin-plan-options .admin-plan-checkbox,
+#root .admin-shell .admin-contact-stats article span,
+#root .admin-shell .admin-contact-table td a,
+#root .admin-shell .admin-contact-message-preview,
+#root .admin-shell .admin-contact-message-full p {
+  font-size: 13px !important;
+}
+
+#root .admin-shell .admin-contact-table .admin-button {
+  min-height: 38px;
+  padding-inline: 12px;
+  font-size: 13px !important;
+}
+
+#root .admin-shell .admin-account-form label,
+#root .admin-shell .admin-login-card label,
+#root .admin-shell .admin-account-form input,
+#root .admin-shell .admin-account-form select,
+#root .admin-shell .admin-account-form textarea,
+#root .admin-shell .admin-login-card input {
+  font-size: 14px !important;
+}
+
+#root .admin-shell .admin-account-form label small,
+#root .admin-shell .admin-account-note,
+#root .admin-shell .admin-inline-error,
+#root .admin-shell .admin-form-error,
+#root .admin-shell .admin-password-user small,
+#root .admin-shell .admin-toast,
+#root .admin-shell .admin-sepay-info {
+  font-size: 12px !important;
+}
+
+#root .admin-login-card label,
+#root .admin-login-card input,
+#root .admin-login-card > p,
+#root .admin-access-card p,
+#root .admin-access-actions .admin-button,
+#root .admin-splash > span {
+  font-size: 14px !important;
+}
+
+#root .admin-login-brand small {
+  font-size: 10px !important;
+}
+
+#root .admin-back-link {
+  font-size: 12px !important;
+}
