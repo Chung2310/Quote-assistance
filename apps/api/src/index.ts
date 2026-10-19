@@ -12,7 +12,6 @@ import { hashPassword } from "./password.js";
 import { analyzeRequest, suggestUnmatchedExplicitRequestLines } from "./ai.js";
 import { analyzePriceList, extractPriceListRows, type PriceList, type PriceListAnalysisRow } from "./price-list.js";
 import { requestFileContent, type RequestFile } from "./request-file.js";
-import { createCompanySmtpTransport, encryptSmtpPassword } from "./mail.js";
 import { decryptCompanySecret, encryptCompanySecret } from "./secrets.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
@@ -20,7 +19,7 @@ import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole,
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { attachWeb } from "./web.js";
 import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
-import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, CompanySmtpSettings, ContactRequestStatus, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
+import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
 const require = createRequire(import.meta.url);
@@ -113,12 +112,6 @@ interface CatalogImportRow {
 }
 
 type CatalogRowResult = { ok: true; value: CatalogImportRow } | { ok: false; error: string };
-
-interface PlatformSmtpSettingsDocument extends Document {
-  _id: string;
-  smtpSettings?: CompanySmtpSettings;
-  updatedAt: Date;
-}
 
 interface PlatformSepaySettingsDocument extends Document {
   _id: string;
@@ -526,18 +519,6 @@ async function writeAudit(db: Db, user: SessionUser, action: string, entityType:
     details,
     createdAt: new Date(),
   });
-}
-
-function publicSmtpSettings(settings?: CompanySmtpSettings) {
-  return {
-    configured: Boolean(settings?.host),
-    host: settings?.host ?? "",
-    port: settings?.port ?? 587,
-    secure: settings?.secure ?? false,
-    user: settings?.user ?? "",
-    from: settings?.from ?? "",
-    passwordSet: Boolean(settings?.passwordEncrypted),
-  };
 }
 
 function uploadedFileDetails(file: CompanyFile) {
@@ -1295,211 +1276,6 @@ app.put("/api/admin/settings/sepay", requireSystemAdmin, async (request, respons
   });
 });
 
-app.get("/api/admin/settings/email", requireSystemAdmin, async (_request, response) => {
-  const db = await connectDatabase();
-  const settings = await db.collection<PlatformSmtpSettingsDocument>("platformSettings").findOne({ _id: "smtp" });
-  response.json({ settings: publicSmtpSettings(settings?.smtpSettings) });
-});
-
-app.put("/api/admin/settings/email", requireSystemAdmin, async (request, response) => {
-  if (!isRecord(request.body)) return fail(response, "Thông tin SMTP không hợp lệ.");
-  const body = request.body;
-  const host = typeof body.host === "string" ? body.host.trim() : "";
-  const port = Number(body.port);
-  const secure = body.secure;
-  const smtpUser = typeof body.user === "string" ? body.user.trim() : "";
-  const password = typeof body.password === "string" ? body.password : "";
-  const from = typeof body.from === "string" ? body.from.trim() : "";
-  const fromAddress = from.match(/<([^<>]+)>$/)?.[1] ?? from;
-  if (!host || host.length > 253) return fail(response, "Hãy nhập tên máy chủ SMTP hợp lệ.");
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return fail(response, "Cổng SMTP phải là số nguyên từ 1 đến 65535.");
-  if (typeof secure !== "boolean") return fail(response, "Hãy chọn kiểu kết nối SMTP hợp lệ.");
-  if (smtpUser.length > 320 || password.length > 1024) return fail(response, "Thông tin đăng nhập SMTP quá dài.");
-  if (!from || from.length > 320 || !validEmail(fromAddress)) return fail(response, "Hãy nhập email người gửi hợp lệ.");
-  if (!smtpUser && password) return fail(response, "Nhập tên đăng nhập SMTP để sử dụng mật khẩu.");
-
-  const db = await connectDatabase();
-  const settingsCollection = db.collection<PlatformSmtpSettingsDocument>("platformSettings");
-  const existing = await settingsCollection.findOne({ _id: "smtp" });
-  let passwordEncrypted: string | undefined;
-  if (smtpUser) {
-    if (password) passwordEncrypted = encryptSmtpPassword(password);
-    else if (existing?.smtpSettings?.user === smtpUser && existing.smtpSettings.passwordEncrypted) {
-      passwordEncrypted = existing.smtpSettings.passwordEncrypted;
-    } else {
-      return fail(response, "Hãy nhập mật khẩu SMTP cho tài khoản này.");
-    }
-  }
-  const smtpSettings: CompanySmtpSettings = {
-    host, port, secure, user: smtpUser, from,
-    ...(passwordEncrypted ? { passwordEncrypted } : {}),
-  };
-  await settingsCollection.updateOne(
-    { _id: "smtp" },
-    { $set: { smtpSettings, updatedAt: new Date() } },
-    { upsert: true },
-  );
-  await writeAudit(db, userOf(request), "platform_smtp_settings_updated", "platformSettings", "smtp", {
-    host, port, secure, authenticated: Boolean(smtpUser), from,
-  });
-  response.json({ settings: publicSmtpSettings(smtpSettings) });
-});
-
-app.post("/api/admin/settings/email/test", requireSystemAdmin, async (_request, response) => {
-  const db = await connectDatabase();
-  const settings = await db.collection<PlatformSmtpSettingsDocument>("platformSettings").findOne({ _id: "smtp" });
-  if (!settings?.smtpSettings) return fail(response, "Hãy lưu cấu hình SMTP trước khi kiểm tra.", 409);
-  let transport: ReturnType<typeof createCompanySmtpTransport> | undefined;
-  try {
-    transport = createCompanySmtpTransport(settings.smtpSettings);
-    await transport.verify();
-    response.json({ connected: true });
-  } catch {
-    return fail(response, "Không kết nối được SMTP. Hãy kiểm tra máy chủ, cổng và thông tin đăng nhập.", 502);
-  } finally {
-    transport?.close();
-  }
-});
-
-app.get("/api/admin/email/recipients", requireSystemAdmin, async (_request, response) => {
-  const db = await connectDatabase();
-  const accounts = await db.collection<UserAccount>("users")
-    .find({ role: "user" })
-    .project<{ email: string }>({ email: 1 })
-    .toArray();
-  const recipients = [...new Set(accounts.map((account) => account.email.trim().toLowerCase()).filter(validEmail))];
-  response.json({ recipientCount: recipients.length });
-});
-
-app.post("/api/admin/email/broadcast", requireSystemAdmin, async (request, response) => {
-  const subject = request.body?.subject;
-  const message = request.body?.message;
-  if (!validText(subject, 200) || !validText(message, 10_000)) {
-    return fail(response, "Hãy nhập tiêu đề (tối đa 200 ký tự) và nội dung email (tối đa 10.000 ký tự).");
-  }
-  const db = await connectDatabase();
-  const settings = await db.collection<PlatformSmtpSettingsDocument>("platformSettings").findOne({ _id: "smtp" });
-  if (!settings?.smtpSettings) return fail(response, "Quản trị viên chưa cấu hình SMTP gửi thông báo.", 409);
-  const accounts = await db.collection<UserAccount>("users")
-    .find({ role: "user" })
-    .project<{ email: string }>({ email: 1 })
-    .toArray();
-  const recipients = [...new Set(accounts.map((account) => account.email.trim().toLowerCase()).filter(validEmail))];
-  if (!recipients.length) return fail(response, "Không có tài khoản người dùng nào có email hợp lệ.", 409);
-
-  let transport: ReturnType<typeof createCompanySmtpTransport> | undefined;
-  try {
-    transport = createCompanySmtpTransport(settings.smtpSettings);
-    await transport.sendMail({
-      from: settings.smtpSettings.from,
-      to: settings.smtpSettings.from,
-      bcc: recipients,
-      subject: subject.trim(),
-      text: message.trim(),
-    });
-  } catch {
-    return fail(response, "Gửi email thông báo không thành công. Hãy kiểm tra SMTP hoặc thử lại sau.", 502);
-  } finally {
-    transport?.close();
-  }
-  await writeAudit(db, userOf(request), "platform_email_broadcast_sent", "platform", "users", {
-    recipientCount: recipients.length,
-    subject: subject.trim(),
-  });
-  response.json({ sentCount: recipients.length });
-});
-
-app.get("/api/settings/email", requireRole("user"), async (request, response) => {
-  const db = await connectDatabase();
-  const user = userOf(request);
-  const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) });
-  if (!company) return fail(response, "Không tìm thấy doanh nghiệp.", 404);
-  response.json({ settings: publicSmtpSettings(company.smtpSettings) });
-});
-
-app.put("/api/settings/email", requireRole("user"), async (request, response) => {
-  if (!isRecord(request.body)) return fail(response, "Thông tin SMTP không hợp lệ.");
-  const body = request.body;
-  const host = typeof body.host === "string" ? body.host.trim() : "";
-  const port = Number(body.port);
-  const secure = body.secure;
-  const smtpUser = typeof body.user === "string" ? body.user.trim() : "";
-  const password = typeof body.password === "string" ? body.password : "";
-  const from = typeof body.from === "string" ? body.from.trim() : "";
-  const fromAddress = from.match(/<([^<>]+)>$/)?.[1] ?? from;
-
-  if (!host || host.length > 253) return fail(response, "Hãy nhập tên máy chủ SMTP hợp lệ.");
-  if (!Number.isInteger(port) || port < 1 || port > 65535) return fail(response, "Cổng SMTP phải là số nguyên từ 1 đến 65535.");
-  if (typeof secure !== "boolean") return fail(response, "Hãy chọn kiểu kết nối SMTP hợp lệ.");
-  if (smtpUser.length > 320 || password.length > 1024) return fail(response, "Thông tin đăng nhập SMTP quá dài.");
-  if (!from || from.length > 320 || !validEmail(fromAddress)) return fail(response, "Hãy nhập email người gửi hợp lệ.");
-  if (!smtpUser && password) return fail(response, "Nhập tên đăng nhập SMTP để sử dụng mật khẩu.");
-
-  const db = await connectDatabase();
-  const user = userOf(request);
-  const companies = db.collection<Company>("companies");
-  const companyId = new ObjectId(user.companyId);
-  const existingCompany = await companies.findOne({ _id: companyId }, { projection: { smtpSettings: 1 } });
-  if (!existingCompany) return fail(response, "Không tìm thấy doanh nghiệp.", 404);
-  const existingSettings = existingCompany.smtpSettings;
-  let passwordEncrypted: string | undefined;
-  if (smtpUser) {
-    if (password) passwordEncrypted = encryptSmtpPassword(password);
-    else if (existingSettings?.user === smtpUser && existingSettings.passwordEncrypted) {
-      passwordEncrypted = existingSettings.passwordEncrypted;
-    } else {
-      return fail(response, "Hãy nhập mật khẩu SMTP cho tài khoản này.");
-    }
-  }
-
-  const smtpSettings: CompanySmtpSettings = {
-    host,
-    port,
-    secure,
-    user: smtpUser,
-    from,
-    ...(passwordEncrypted ? { passwordEncrypted } : {}),
-  };
-  await companies.updateOne({ _id: companyId }, { $set: { smtpSettings, updatedAt: new Date() } });
-  await writeAudit(db, user, "smtp_settings_updated", "company", user.companyId, {
-    host,
-    port,
-    secure,
-    authenticated: Boolean(smtpUser),
-    from,
-  });
-  response.json({ settings: publicSmtpSettings(smtpSettings) });
-});
-
-app.delete("/api/settings/email", requireRole("user"), async (request, response) => {
-  const db = await connectDatabase();
-  const user = userOf(request);
-  await db.collection<Company>("companies").updateOne(
-    { _id: new ObjectId(user.companyId) },
-    { $unset: { smtpSettings: "" }, $set: { updatedAt: new Date() } },
-  );
-  await writeAudit(db, user, "smtp_settings_deleted", "company", user.companyId);
-  response.status(204).end();
-});
-
-app.post("/api/settings/email/test", requireRole("user"), async (request, response) => {
-  const db = await connectDatabase();
-  const user = userOf(request);
-  const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) });
-  if (!company?.smtpSettings) return fail(response, "Hãy lưu cấu hình SMTP trước khi kiểm tra.", 409);
-
-  let transport: ReturnType<typeof createCompanySmtpTransport> | undefined;
-  try {
-    transport = createCompanySmtpTransport(company.smtpSettings);
-    await transport.verify();
-    response.json({ connected: true });
-  } catch {
-    return fail(response, "Không kết nối được SMTP. Hãy kiểm tra máy chủ, cổng và thông tin đăng nhập.", 502);
-  } finally {
-    transport?.close();
-  }
-});
-
 app.get("/api/quote-templates", requireRole("user"), async (request, response) => {
   const db = await connectDatabase();
   const user = userOf(request);
@@ -1659,7 +1435,7 @@ app.get("/api/dashboard", requireRole("user"), async (request, response) => {
     quotes.countDocuments({ companyId: user.companyId, status: "draft" }),
     quotes.countDocuments({ companyId: user.companyId, status: "pending_review" }),
     quotes.countDocuments({ companyId: user.companyId, status: "approved" }),
-    quotes.find({ companyId: user.companyId }).sort({ createdAt: -1 }).limit(8).toArray(),
+    quotes.find({ companyId: user.companyId }).sort({ createdAt: -1, _id: -1 }).limit(3).toArray(),
   ]);
   response.json({ counts: { total, drafts, pending, approved }, recent });
 });
@@ -2077,11 +1853,63 @@ app.post("/api/quote-requests/:id/analyze", requireRole("user"), async (request,
 app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const db = await connectDatabase();
   const user = userOf(request);
+  const collection = db.collection<Quote>("quotes");
   const status = request.query.status;
   const filter: Document = { companyId: user.companyId };
   if (typeof status === "string" && ["draft", "needs_info", "pending_review", "approved", "rejected"].includes(status)) filter.status = status;
-  const quotes = await db.collection<Quote>("quotes").find(filter).sort({ createdAt: -1 }).limit(100).toArray();
-  response.json({ quotes: quotes.map(quoteForResponse) });
+  if (request.query.page === undefined) {
+    const quotes = await collection.find(filter).sort({ createdAt: -1, _id: -1 }).limit(100).toArray();
+    response.json({ quotes: quotes.map(quoteForResponse) });
+    return;
+  }
+
+  const requestedPage = Number(request.query.page);
+  if (!Number.isInteger(requestedPage) || requestedPage < 1) return fail(response, "Trang báo giá không hợp lệ.");
+  const pageSize = 9;
+  const search = typeof request.query.search === "string" ? request.query.search.trim().slice(0, 100) : "";
+  if (search) {
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(escaped, "i");
+    filter.$or = [
+      { quoteNumber: pattern },
+      { customerName: pattern },
+      { customerEmail: pattern },
+      { customerPhone: pattern },
+    ];
+  }
+  const sortBy = typeof request.query.sort === "string" ? request.query.sort : "newest";
+  const sort: Record<string, 1 | -1> = sortBy === "oldest" ? { createdAt: 1, _id: 1 }
+    : sortBy === "total_desc" ? { total: -1, _id: -1 }
+    : sortBy === "total_asc" ? { total: 1, _id: -1 }
+    : sortBy === "customer" ? { customerName: 1, _id: -1 }
+    : { createdAt: -1, _id: -1 };
+  const [total, statusRows] = await Promise.all([
+    collection.countDocuments(filter),
+    collection.aggregate<{ _id: QuoteStatus; count: number; revenue: number }>([
+      { $match: { companyId: user.companyId } },
+      { $group: { _id: "$status", count: { $sum: 1 }, revenue: { $sum: { $cond: [{ $eq: ["$status", "approved"] }, "$total", 0] } } } },
+    ]).toArray(),
+  ]);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const quotes = await collection.find(filter).sort(sort).skip((page - 1) * pageSize).limit(pageSize).toArray();
+  const counts = Object.fromEntries(statusRows.map((row) => [row._id, row.count]));
+  response.json({
+    quotes: quotes.map(quoteForResponse),
+    page,
+    pageSize,
+    total,
+    totalPages,
+    stats: {
+      total: statusRows.reduce((sum, row) => sum + row.count, 0),
+      drafts: counts.draft ?? 0,
+      pending: counts.pending_review ?? 0,
+      approved: counts.approved ?? 0,
+      needsInfo: counts.needs_info ?? 0,
+      rejected: counts.rejected ?? 0,
+      approvedRevenue: statusRows.reduce((sum, row) => sum + row.revenue, 0),
+    },
+  });
 });
 
 app.post("/api/quotes", requireRole("user"), async (request, response) => {
@@ -2548,60 +2376,6 @@ app.get("/api/quotes/:id/pdf", requireRole("user"), async (request, response) =>
   response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.pdf"`);
   pdf.pipe(response);
   pdf.end();
-});
-
-app.post("/api/quotes/:id/email", requireRole("user"), async (request, response) => {
-  const id = asId(request.params.id);
-  if (!id) return fail(response, "Mã báo giá không hợp lệ.");
-
-  const db = await connectDatabase();
-  const user = userOf(request);
-  const quotes = db.collection<Quote>("quotes");
-  const storedQuote = await quotes.findOne({ _id: id, companyId: user.companyId });
-  if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
-  const quote = quoteForResponse(storedQuote);
-  if (quote.status !== "approved") return fail(response, "Chỉ có thể gửi báo giá đã được duyệt.", 409);
-  if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể gửi báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
-  if (!validEmail(quote.customerEmail)) return fail(response, "Báo giá chưa có email khách hàng hợp lệ.", 422);
-
-  const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) });
-  if (!company?.smtpSettings) return fail(response, "Doanh nghiệp chưa cấu hình SMTP trong phần Cài đặt.", 503);
-
-  let transport: ReturnType<typeof createCompanySmtpTransport> | undefined;
-  try {
-    transport = createCompanySmtpTransport(company.smtpSettings);
-    const inputContext = await quoteInputContext(db, quote);
-    const template = quote.template ? await savedTemplate(db, user.companyId, quote.template) : null;
-    let renderQuote = quote;
-    if (template?.extension === "xlsx") {
-      const plan = await getOrCreateXlsxTemplateFillPlan(db, template, quote, inputContext);
-      renderQuote = { ...quote, xlsxTemplateFillPlan: plan };
-      await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { xlsxTemplateFillPlan: plan } });
-    } else if (template) {
-      const plan = await getOrCreateTemplateFillPlan(db, template, quote);
-      renderQuote = { ...quote, templateFillPlan: plan };
-      const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v3d" : "v3"}_${quote.lines.length}`;
-      if (template.extension === "pdf" || quote.lines.length > 30 || !template.fillPlanCache?.[fillPlanKey]) {
-        await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
-      }
-    }
-    const attachment = template ? await renderTemplate(template, renderQuote, inputContext) : await makePdfBuffer(quote);
-    const extension = template?.extension ?? "pdf";
-    await transport.sendMail({
-      from: company.smtpSettings.from,
-      to: quote.customerEmail,
-      subject: `Báo giá ${quote.quoteNumber}`,
-      text: `Kính gửi ${quote.customerName},\n\nChúng tôi gửi bạn báo giá ${quote.quoteNumber} trong tệp đính kèm.\n\nTrân trọng.`,
-      attachments: [{ filename: `${quote.quoteNumber}.${extension}`, content: attachment, contentType: templateFormats[extension] }],
-    });
-  } catch {
-    return fail(response, "Gửi email không thành công. Hãy kiểm tra cấu hình SMTP hoặc thử lại sau.", 502);
-  } finally {
-    transport?.close();
-  }
-
-  await writeAudit(db, user, "quote_emailed", "quote", id.toHexString(), { quoteNumber: quote.quoteNumber });
-  response.json({ sent: true });
 });
 
 const server = createServer(app);
