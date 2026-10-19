@@ -1057,8 +1057,12 @@
 }
 
 #root .admin-shell .admin-status.is-active {
-  color: #15803d !important;
+  color: #16a34a !important;
   background: #dcfce7 !important;
+}
+
+#root .admin-shell .admin-status.is-active i {
+  background: #22c55e !important;
 }
 
 #root .admin-shell .admin-status.is-inactive {
