@@ -563,7 +563,6 @@ function AccountDialog({ user, plans, onClose, onSaved, confirm }: { user: Manag
   return <div className="admin-modal-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="admin-modal" role="dialog" aria-modal="true" aria-labelledby="account-dialog-title">
       <div className="admin-modal-heading"><div><span className="admin-eyebrow">Hồ sơ doanh nghiệp</span><h2 id="account-dialog-title">{user ? "Chỉnh sửa doanh nghiệp" : "Tạo doanh nghiệp"}</h2></div><button className="admin-icon-button" onClick={onClose} aria-label="Đóng"><AdminIcon name="close" /></button></div>
-      {error && <div className="admin-form-error" role="alert">{error}</div>}
       <form className="admin-account-form" onSubmit={(event) => void submit(event)}>
         <label>Tên doanh nghiệp<input autoComplete="organization" maxLength={200} value={draft.companyName} onChange={(event) => setDraft({ ...draft, companyName: event.target.value })} placeholder="Công ty ABC" required /></label>
         <label>Mã số thuế<input maxLength={30} value={draft.taxId} onChange={(event) => setDraft({ ...draft, taxId: event.target.value })} placeholder="0123456789" required /></label>
