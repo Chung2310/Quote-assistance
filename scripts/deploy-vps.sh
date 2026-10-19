@@ -11,6 +11,7 @@ candidate="$CONTAINER-candidate-${staging##*.}"
 old_moved=false
 new_created=false
 old_running=false
+old_container=""
 cleanup() {
   status=$?
   trap - EXIT
@@ -20,8 +21,8 @@ cleanup() {
     echo "Deployment failed; restoring previous container if available." >&2
     if [[ "$new_created" == true ]]; then docker rm -f "$CONTAINER" >/dev/null; fi
     if [[ "$old_moved" == true ]]; then
-      docker rename "$backup" "$CONTAINER"
-      if [[ "$old_running" == true ]]; then docker start "$CONTAINER"; fi
+      docker rename "$backup" "$old_container"
+      if [[ "$old_running" == true ]]; then docker start "$old_container"; fi
     fi
   fi
   rm -rf -- "$staging"
@@ -92,15 +93,20 @@ docker run -d --name "$candidate" "${network_args[@]}" --env-file "$staging/app.
 check_health "$candidate"
 docker rm -f "$candidate" >/dev/null
 if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
-  old_running=$(docker inspect --format '{{.State.Running}}' "$CONTAINER")
-  docker rename "$CONTAINER" "$backup"
+  old_container="$CONTAINER"
+elif [[ "$CONTAINER" != "bao-gia" ]] && docker container inspect "bao-gia" >/dev/null 2>&1; then
+  old_container="bao-gia"
+fi
+if [[ -n "$old_container" ]]; then
+  old_running=$(docker inspect --format '{{.State.Running}}' "$old_container")
+  docker rename "$old_container" "$backup"
   old_moved=true
   docker stop "$backup" >/dev/null
 fi
 docker create --name "$CONTAINER" --restart unless-stopped \
   "${network_args[@]}" \
   --env-file "$staging/app.env" -p "$BIND_ADDRESS:$HOST_PORT:$APP_PORT" \
-  --label app=bao-gia "$IMAGE_TAG" >/dev/null
+  --label "app=$CONTAINER" "$IMAGE_TAG" >/dev/null
 new_created=true
 docker start "$CONTAINER" >/dev/null
 check_health "$CONTAINER"
