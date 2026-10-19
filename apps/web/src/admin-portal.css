@@ -850,18 +850,19 @@
 .admin-table { min-width: 760px; }
 .admin-plan-pill { display: inline-flex; align-items: center; min-height: 25px; padding: 4px 9px; border: 1px solid #dceef1; border-radius: 20px; background: #f1fafb; color: #39727d; font-size: 9px; font-weight: 750; white-space: nowrap; }
 .admin-plan-pill.is-featured { border-color: #b9e6eb; background: #e9f9fb; color: #087f95; }
-.admin-plan-management .admin-page-heading { margin-bottom: 22px; }
-.admin-plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 15px; }
-.admin-plan-card { display: flex; min-width: 0; flex-direction: column; padding: 19px; border: 1px solid #e1ecee; border-radius: 12px; background: #fff; box-shadow: 0 6px 18px rgba(26, 82, 95, .035); }
+.admin-plan-management .admin-page-heading { margin-bottom: 16px; }
+.admin-plan-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: stretch; gap: 12px; }
+.admin-plan-card { display: flex; min-width: 0; flex-direction: column; padding: 15px; border: 1px solid #e1ecee; border-radius: 12px; background: #fff; box-shadow: 0 6px 18px rgba(26, 82, 95, .035); }
 .admin-plan-card.is-featured { border-color: #7fd2df; box-shadow: 0 9px 24px rgba(7, 137, 163, .09); }
 .admin-plan-card-top { display: flex; align-items: center; justify-content: space-between; }
-.admin-plan-card h2 { margin: 13px 0 5px; color: #234650; font-size: 17px; }
-.admin-plan-card > p { min-height: 34px; margin: 0; color: #7c9297; font-size: 10px; line-height: 1.6; }
-.admin-plan-price { display: block; margin-top: 17px; color: #176b82; font-size: 22px; letter-spacing: -.5px; }
+.admin-plan-card h2 { margin: 8px 0 3px; color: #234650; font-size: 17px; }
+.admin-plan-card > p { min-height: 0; margin: 0; color: #7c9297; font-size: 10px; line-height: 1.5; }
+.admin-plan-price { display: block; margin-top: 10px; color: #176b82; font-size: 22px; letter-spacing: -.5px; }
 .admin-plan-price small { margin-left: 4px; color: #879b9f; font-size: 9px; font-weight: 500; letter-spacing: 0; }
-.admin-plan-limits { display: grid; gap: 8px; margin-top: 17px; padding: 13px 0; border-top: 1px solid #edf2f2; border-bottom: 1px solid #edf2f2; }
+.admin-plan-limits { display: grid; gap: 6px; margin-top: 10px; padding: 9px 0; border-top: 1px solid #edf2f2; border-bottom: 1px solid #edf2f2; }
 .admin-plan-limits span { color: #61797e; font-size: 10px; }
-.admin-plan-card footer { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: auto; padding-top: 14px; }
+.admin-plan-card footer { display: flex; align-items: center; justify-content: space-between; gap: 9px; margin-top: auto; padding-top: 9px; }
+.admin-plan-card footer .admin-button { min-height: 36px; }
 .admin-plan-card footer > span { color: #84979b; font-size: 9px; }
 .admin-plan-note { margin: 14px 0 0; color: #84979b; font-size: 10px; }
 .admin-plan-modal { width: min(620px, 100%); }
