@@ -15,6 +15,7 @@ cleanup() {
 trap cleanup EXIT
 node scripts/prepare-deploy.mjs "$staging"
 app_port=$(cat "$staging/app-port")
+container_name=$(cat "$staging/container-name")
 ssh_args=(-i "$staging/ssh-key" -p "$SSH_PORT" -o BatchMode=yes -o IdentitiesOnly=yes
   -o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$staging/known_hosts"
   -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
@@ -28,7 +29,7 @@ fi
   printf 'IMAGE=%q\n' "$IMAGE"
   printf 'IMAGE_TAG=%q\n' "$(cat "$staging/image-tag")"
   printf 'GHCR_USER=%q\n' "$GHCR_USER"
-  printf 'CONTAINER=%q\n' "bao-gia"
+  printf 'CONTAINER=%q\n' "$container_name"
   printf 'HOST_PORT=%q\n' "$app_port"
   printf 'APP_PORT=%q\n' "$app_port"
   printf 'DOCKER_NETWORK=%q\n' "$(cat "$staging/docker-network")"
