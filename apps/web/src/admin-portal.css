@@ -268,17 +268,7 @@
   color: #a1b0b3;
 }
 
-.admin-filter-select,
-.admin-filters select {
-  width: 150px;
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid #dfeaec;
-  border-radius: 8px;
-  color: #607a80;
-  background: #fff;
-  font-size: 11px;
-}
+.admin-select-filter { width: 150px; flex: 0 0 150px; }
 
 .admin-table-scroll {
   overflow-x: auto;
@@ -503,7 +493,6 @@
 }
 
 .admin-account-form input,
-.admin-account-form select,
 .admin-login-card input {
   height: 42px;
   border-color: #dce8ea;
@@ -513,7 +502,6 @@
 }
 
 .admin-account-form input:focus,
-.admin-account-form select:focus,
 .admin-login-card input:focus {
   border-color: #49b5c8;
   box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.13);
@@ -779,7 +767,7 @@
   .admin-users-toolbar { align-items: flex-start; flex-direction: column; padding: 15px; }
   .admin-filters { width: 100%; }
   .admin-search { flex: 1; }
-  .admin-filter-select, .admin-filters select { width: 140px; }
+  .admin-select-filter { width: 140px; flex-basis: 140px; }
   .admin-content { padding: 23px 14px 34px; }
   .admin-topbar { height: 56px; padding: 0 15px; }
   .admin-secure-label { font-size: 0; }
@@ -808,7 +796,7 @@
   .admin-page-heading .admin-button { width: 100%; }
   .admin-users-toolbar { align-items: stretch; }
   .admin-filters { align-items: stretch; flex-direction: column; }
-  .admin-search, .admin-filter-select, .admin-filters select { width: 100%; min-height: 39px; }
+  .admin-search, .admin-select-filter { width: 100%; min-height: 39px; flex-basis: auto; }
   .admin-modal-backdrop { align-items: end; padding: 10px; }
   .admin-modal { padding: 20px; border-radius: 15px 15px 10px 10px; }
   .admin-access-actions { flex-direction: column; }
@@ -932,8 +920,7 @@
 #root .admin-shell .admin-users-toolbar > div:first-child > span,
 #root .admin-shell .admin-search input,
 #root .admin-shell .admin-search input::placeholder,
-#root .admin-shell .admin-filter-select,
-#root .admin-shell .admin-filters select,
+#root .admin-shell .admin-select-trigger,
 #root .admin-shell .admin-table,
 #root .admin-shell .admin-table td,
 #root .admin-shell .admin-user-cell strong,
@@ -988,7 +975,7 @@
 #root .admin-shell .admin-account-form label,
 #root .admin-shell .admin-login-card label,
 #root .admin-shell .admin-account-form input,
-#root .admin-shell .admin-account-form select,
+#root .admin-shell .admin-account-form .admin-select-trigger,
 #root .admin-shell .admin-account-form textarea,
 #root .admin-shell .admin-login-card input {
   font-size: 14px !important;
@@ -1092,52 +1079,132 @@
   background: #dbeafe !important;
 }
 
-/* Match native select controls and their option list to the admin theme. */
-#root .admin-shell select {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  padding-right: 40px !important;
-  border: 1px solid #d6e7eb !important;
-  border-radius: 11px !important;
-  color: #244c57 !important;
-  background-color: #fff !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='m5 7.5 5 5 5-5' stroke='%2300ADFC' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") !important;
-  background-repeat: no-repeat !important;
-  background-position: right 12px center !important;
-  background-size: 16px 16px !important;
+/* Custom admin dropdowns keep the same feel in the field and the open menu. */
+#root .admin-shell .admin-select {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+#root .admin-shell .admin-select-filter {
+  width: 150px;
+  flex: 0 0 150px;
+}
+
+#root .admin-shell .admin-select-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 13px;
+  border: 1px solid #d6e7eb;
+  border-radius: 11px;
+  color: #244c57;
+  background: #fff;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
 }
 
-#root .admin-shell select:hover {
-  border-color: #94d8e8 !important;
-  background-color: #fbfeff !important;
+#root .admin-shell .admin-select-filter .admin-select-trigger {
+  min-height: 40px;
 }
 
-#root .admin-shell select:focus {
-  border-color: #00adfc !important;
-  outline: none !important;
-  box-shadow: 0 0 0 3px rgba(0, 173, 252, 0.14) !important;
+#root .admin-shell .admin-select-trigger:hover {
+  border-color: #94d8e8;
+  background: #fbfeff;
 }
 
-#root .admin-shell select:disabled {
-  color: #91a7ad !important;
-  background-color: #f5f9fa !important;
-  cursor: not-allowed;
+#root .admin-shell .admin-select-trigger:focus-visible,
+#root .admin-shell .admin-select-trigger.is-open {
+  border-color: #00adfc;
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(0, 173, 252, 0.14);
 }
 
-#root .admin-shell select option {
-  color: #244c57;
+#root .admin-shell .admin-select-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#root .admin-shell .admin-select-chevron {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  color: #00adfc;
+  transition: transform 160ms ease;
+}
+
+#root .admin-shell .admin-select-trigger.is-open .admin-select-chevron {
+  transform: rotate(180deg);
+}
+
+.admin-select-menu {
+  position: fixed;
+  z-index: 1000;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid #d7e9ed;
+  border-radius: 13px;
   background: #fff;
+  box-shadow: 0 16px 38px rgba(18, 67, 80, 0.18), 0 3px 9px rgba(18, 67, 80, 0.08);
+  animation: admin-select-enter 140ms ease-out both;
+  overscroll-behavior: contain;
 }
 
-#root .admin-shell select option:checked {
+.admin-select-option {
+  display: flex;
+  min-height: 39px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  color: #294f59;
+  font-size: 14px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+
+.admin-select-option:hover,
+.admin-select-option.is-active {
   color: #007da8;
-  background: #e4f7fc;
+  background: #f0faff;
 }
 
-#root .admin-shell select option:hover {
-  background: #f0fbff;
+.admin-select-option.is-selected {
+  color: #007da8;
+  background: #e6f7fc;
+  font-weight: 600;
+}
+
+.admin-select-option.is-selected.is-active,
+.admin-select-option.is-selected:hover {
+  background: #d9f2fb;
+}
+
+.admin-select-check {
+  width: 17px;
+  flex: 0 0 17px;
+  color: #00a3df;
+  font-size: 15px;
+  font-weight: 800;
+  text-align: center;
+}
+
+@keyframes admin-select-enter {
+  from { opacity: 0; transform: translateY(-4px) scale(.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (max-width: 720px) {
+  #root .admin-shell .admin-select-filter { width: 100%; flex-basis: auto; }
 }
 
 #root .admin-shell input[type="number"] {
