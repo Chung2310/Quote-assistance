@@ -1139,3 +1139,14 @@
 #root .admin-shell select option:hover {
   background: #f0fbff;
 }
+
+#root .admin-shell input[type="number"] {
+  appearance: auto !important;
+  -moz-appearance: number-input !important;
+}
+
+#root .admin-shell input[type="number"]::-webkit-inner-spin-button,
+#root .admin-shell input[type="number"]::-webkit-outer-spin-button {
+  opacity: 1 !important;
+  cursor: pointer;
+}
