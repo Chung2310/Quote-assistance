@@ -33,6 +33,8 @@ command -v flock >/dev/null
 exec 9>"/tmp/bao-gia-$CONTAINER.lock"
 flock -w 300 9
 docker info >/dev/null
+printf 'Docker target: %s (user=%s, root=%s)\n' \
+  "$(hostname -f 2>/dev/null || hostname)" "$(id -un)" "$(docker info --format '{{.DockerRootDir}}')"
 network_args=()
 if [[ -n "${DOCKER_NETWORK:-}" ]]; then
   if ! docker network inspect "$DOCKER_NETWORK" >/dev/null 2>&1; then
@@ -92,11 +94,13 @@ check_health() {
 docker run -d --name "$candidate" "${network_args[@]}" --env-file "$staging/app.env" "$IMAGE_TAG" >/dev/null
 check_health "$candidate"
 docker rm -f "$candidate" >/dev/null
-if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
-  old_container="$CONTAINER"
-elif [[ "$CONTAINER" != "bao-gia" ]] && docker container inspect "bao-gia" >/dev/null 2>&1; then
-  old_container="bao-gia"
-fi
+for possible_old in "$CONTAINER" "${LEGACY_CONTAINER:-}-develop" "${LEGACY_CONTAINER:-}-production" "${LEGACY_CONTAINER:-}" "bao-gia"; do
+  [[ -n "$possible_old" ]] || continue
+  if docker container inspect "$possible_old" >/dev/null 2>&1; then
+    old_container="$possible_old"
+    break
+  fi
+done
 if [[ -n "$old_container" ]]; then
   old_running=$(docker inspect --format '{{.State.Running}}' "$old_container")
   docker rename "$old_container" "$backup"
@@ -106,7 +110,7 @@ fi
 docker create --name "$CONTAINER" --restart unless-stopped \
   "${network_args[@]}" \
   --env-file "$staging/app.env" -p "$BIND_ADDRESS:$HOST_PORT:$APP_PORT" \
-  --label "app=$CONTAINER" "$IMAGE_TAG" >/dev/null
+  --label "app=${LEGACY_CONTAINER:-$CONTAINER}" "$IMAGE_TAG" >/dev/null
 new_created=true
 docker start "$CONTAINER" >/dev/null
 check_health "$CONTAINER"
