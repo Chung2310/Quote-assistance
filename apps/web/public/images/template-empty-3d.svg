@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="104" height="104" viewBox="0 0 104 104" fill="none">
+  <defs>
+    <linearGradient id="back" x1="40" y1="15" x2="78" y2="76" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#a7e7ff"/>
+      <stop offset="1" stop-color="#21a9ed"/>
+    </linearGradient>
+    <linearGradient id="middle" x1="29" y1="18" x2="72" y2="81" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e7f9ff"/>
+      <stop offset="1" stop-color="#8bdcff"/>
+    </linearGradient>
+    <linearGradient id="paper" x1="20" y1="24" x2="69" y2="83" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#fff"/>
+      <stop offset="1" stop-color="#e1f6ff"/>
+    </linearGradient>
+    <linearGradient id="badge" x1="66" y1="57" x2="86" y2="79" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#58d0ff"/>
+      <stop offset="1" stop-color="#00adfc"/>
+    </linearGradient>
+    <filter id="shadow" x="10" y="74" width="86" height="28" filterUnits="userSpaceOnUse">
+      <feGaussianBlur stdDeviation="5"/>
+    </filter>
+  </defs>
+  <ellipse cx="53" cy="88" rx="33" ry="5" fill="#007bc7" opacity=".15" filter="url(#shadow)"/>
+  <path d="m41 15 31 6c2.4.5 4 2 4.2 4.4L80 71c.2 3-1.4 4.9-4.4 5.4L43 81 37 20c-.3-3 1-5.5 4-5Z" fill="url(#back)"/>
+  <path d="m32 20 34-2c2.5-.2 4.3 1.4 4.5 4l3.5 51c.2 2.7-1.2 4.5-4 5l-35 5-7-58c-.3-2.8 1.1-4.8 4-5Z" fill="url(#middle)" stroke="#71d2fa" stroke-width="1.2"/>
+  <path d="m23 27 35-5c2.5-.4 4.5 1 4.8 3.7L69 75c.3 2.6-1.2 4.5-3.9 5L30 86c-2.8.5-4.7-1.1-5-3.9l-6-49c-.3-2.8 1.1-5 4-5.5Z" fill="url(#paper)" stroke="#9de2ff" stroke-width="1.2"/>
+  <path d="m30 40 26-3.8" stroke="#00adfc" stroke-width="4" stroke-linecap="round"/>
+  <path d="m31 49 25-3.7M32 55l25-3.7" stroke="#a5e4ff" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="m34 62 25-3.7 1.7 14.2L35.5 76 34 62Z" fill="#f8fdff" stroke="#8bdcff" stroke-width="1.1"/>
+  <path d="m35 67 25-3.7M43 61l1.8 13.8M51 60l1.8 13.7" stroke="#b4eaff" stroke-width="1"/>
+  <circle cx="74" cy="68" r="12.5" fill="#006cae" opacity=".17"/>
+  <circle cx="73" cy="65" r="11.5" fill="url(#badge)" stroke="#d4f4ff" stroke-width="2"/>
+  <path d="M73 59.5v11M67.5 65h11" stroke="#fff" stroke-width="2.7" stroke-linecap="round"/>
+</svg>
