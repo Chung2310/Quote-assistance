@@ -86,6 +86,12 @@
 .quote-template-meta { margin: 9px 0 17px; font-size: 9px; color: #8a968e; }
 .quote-template-download { width: 100%; text-decoration: none; }
 .quote-template-download-link { display: block; margin: 9px auto 0; text-align: center; }
+.quota-blocked-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid #f0d7b8; border-radius: 9px; background: #fff9ef; color: #795a32; font-size: 11px; line-height: 1.5; }
+.quota-blocked-notice .text-button { color: #2d6fba; }
+.quota-usage-count { margin: 7px 0 0; color: #7b8980; font-size: 10px; }
+.dashboard-banner-primary .quota-usage-count { color: #e9f7f4; }
+.template-usage-count { margin: 6px 0 0; color: #7b8980; font-size: 10px; }
+.button.button-primary:disabled { cursor: not-allowed; opacity: .55; box-shadow: none; }
 .quote-file-references { display: grid; gap: 12px; }
 .quote-file-reference { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .quote-file-reference strong { flex: 1 1 220px; overflow-wrap: anywhere; }
@@ -111,9 +117,12 @@
 .file-preview-fallback { display: grid; place-items: center; gap: 14px; min-height: 40vh; color: #69776e; }
 @media(max-width:600px) { .file-preview-dialog { width: calc(100vw - 16px); height: calc(100dvh - 16px); border-radius: 10px; } .file-preview-heading { padding: 12px; } .file-preview-content { padding: 8px; } .file-preview-frame { min-height: 70vh; } .quote-file-reference { align-items: flex-start; } }
 .quote-cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; padding: 20px; }
+.quote-card-entry { min-width: 0; display: grid; align-content: start; gap: 6px; }
 @media (max-width: 980px) { .quote-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .quote-cards { grid-template-columns: minmax(0, 1fr); } }
 .quote-summary-card { min-width: 0; display: flex; flex-direction: column; gap: 20px; padding: 22px; border: 1px solid #e2e8f0; border-radius: 16px; background: #fff; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.quote-card-delete { justify-self: end; display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; border: 0; border-radius: 6px; background: transparent; color: #a24c46; font: inherit; font-size: 11px; cursor: pointer; }
+.quote-card-delete:hover { background: #fff1ef; color: #823a35; }
 .quote-summary-card:hover { border-color: #94a3b8; box-shadow: 0 4px 16px #0f172a0a; }
 .quote-summary-card:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
 .quote-summary-top, .quote-summary-bottom { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
@@ -299,11 +308,17 @@
 .quote-terms-heading { margin-bottom: 16px; }
 .quote-terms-heading h2 { margin: 0; color: #24352b; font-size: 15px; }
 .quote-terms-heading p { margin: 4px 0 0; color: #718078; font-size: 11px; }
-.quote-terms-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: end; }
+.quote-terms-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: end; }
 .quote-terms-grid label { display: grid; gap: 7px; min-width: 0; color: #4d5d53; font-size: 11px; font-weight: 650; }
 .quote-terms-grid input:not([type="checkbox"]) { width: 100%; min-width: 0; height: 38px; box-sizing: border-box; padding: 0 10px; border: 1px solid #d4ded6; border-radius: 8px; background: #fff; color: #27372e; font: inherit; font-weight: 500; }
 .quote-terms-grid input:focus { outline: 2px solid #34775a33; border-color: #34775a; }
-.quote-terms-grid small { min-height: 14px; color: #75837a; font-size: 10px; font-weight: 400; line-height: 1.4; }
+.quote-fee-control { display: grid; gap: 7px; min-width: 0; }
+.quote-fee-label { color: #4d5d53; font-size: 11px; font-weight: 650; }
+.quote-fee-row { display: flex; gap: 7px; min-width: 0; }
+.quote-fee-row select { width: 46%; min-width: 0; height: 38px; padding: 0 9px; border: 1px solid #d4ded6; border-radius: 8px; background: #fff; color: #27372e; font: inherit; font-size: 11px; }
+.quote-fee-row input { flex: 1; }
+.quote-fee-row select:focus { outline: 2px solid #34775a33; border-color: #34775a; }
+.quote-fee-row input::placeholder { color: #99a39c; }
 .quote-terms-grid .quote-term-confirm { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 0 10px; border: 1px solid #d4ded6; border-radius: 8px; }
 .quote-terms-grid .quote-term-confirm input { width: 16px; height: 16px; accent-color: #34775a; }
 .quote-total-pending-note { display: block; margin: 8px 2px 0; color: #8b6728; font-size: 10px; line-height: 1.5; }

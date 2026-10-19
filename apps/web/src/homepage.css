@@ -364,9 +364,80 @@ h3 {
   }
 }
 
+.app-shell .profile-plan-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 26px;
+  padding: 21px 24px;
+  border: 1px solid #dcecef;
+  border-radius: 14px;
+  background: linear-gradient(110deg, #fff, #f5fcfa);
+}
+
+.app-shell .profile-plan-main { display: flex; align-items: center; gap: 14px; min-width: 0; }
+.app-shell .profile-plan-icon { width: 42px; height: 42px; display: grid; place-items: center; flex: none; border-radius: 12px; background: #e8f8f6; color: #078ba0; }
+.app-shell .profile-plan-eyebrow { display: block; margin-bottom: 4px; color: #15829a; font-size: 9px; font-weight: 800; letter-spacing: 1px; }
+.app-shell .profile-plan-main h2 { margin: 0 0 3px; color: #21424a; font-size: 17px; }
+.app-shell .profile-plan-main p { margin: 0; color: #71868a; font-size: 11px; }
+.app-shell .profile-plan-details { display: flex; align-items: center; gap: 25px; }
+.app-shell .profile-plan-details > span { display: grid; gap: 5px; }
+.app-shell .profile-plan-details small { color: #82969a; font-size: 9px; }
+.app-shell .profile-plan-details strong { color: #34565e; font-size: 11px; white-space: nowrap; }
+
+.app-shell .subscription-billing-card { display: grid; gap: 16px; }
+.app-shell .subscription-billing-card > .settings-card-heading { margin: 0; }
+.app-shell .subscription-billing-card > .settings-card-heading h2 { margin-bottom: 5px; }
+.app-shell .subscription-billing-card > .settings-card-heading p { margin: 0; }
+.app-shell .subscription-expiry { margin: 0; color: #557168; font-size: 12px; }
+.app-shell .subscription-plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(205px, 1fr)); gap: 12px; }
+.app-shell .subscription-plan-option { display: flex; flex-direction: column; align-items: flex-start; gap: 11px; padding: 16px; border: 1px solid #e1e9e6; border-radius: 12px; background: #fff; }
+.app-shell .subscription-plan-option.is-current { border-color: #91cdb2; background: #f5fbf7; }
+.app-shell .subscription-plan-option > div { display: grid; gap: 4px; }
+.app-shell .subscription-plan-option > div strong { color: #294b41; font-size: 14px; }
+.app-shell .subscription-plan-option > div span { color: #758780; font-size: 11px; line-height: 1.5; }
+.app-shell .subscription-plan-option > b { color: #23724c; font-size: 17px; }
+.app-shell .subscription-plan-option > b small { color: #82918a; font-size: 10px; font-weight: 500; }
+.app-shell .subscription-plan-option > p { flex: 1; margin: 0; color: #63776d; font-size: 10px; line-height: 1.5; }
+.app-shell .subscription-plan-option > button { width: 100%; }
+.billing-modal-backdrop { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; overflow-y: auto; padding: 22px; background: #16292380; backdrop-filter: blur(5px); }
+.billing-modal { position: relative; width: min(440px, 100%); max-height: calc(100vh - 44px); overflow-y: auto; padding: 25px; border: 1px solid #dce9e1; border-radius: 18px; background: #fff; box-shadow: 0 24px 70px #102a1e35; text-align: center; }
+.billing-modal-close { position: absolute; top: 12px; right: 12px; }
+.billing-modal > .eyebrow { color: #32805b; }
+.billing-modal h2 { margin: 9px 0 15px; color: #25483b; font-size: 19px; }
+.billing-qr { display: block; width: min(250px, 85%); height: auto; margin: 0 auto 12px; border: 1px solid #e5ece8; border-radius: 12px; }
+.billing-amount { display: block; color: #23724c; font-size: 23px; font-variant-numeric: tabular-nums; }
+.billing-instruction { margin: 5px 0 15px; color: #6d7d75; font-size: 11px; }
+.billing-transfer-details { display: grid; gap: 0; margin: 0; padding: 10px 13px; border-radius: 10px; background: #f5f8f6; text-align: left; }
+.billing-transfer-details > div { display: flex; justify-content: space-between; gap: 14px; padding: 7px 0; border-bottom: 1px solid #e7ede9; font-size: 11px; }
+.billing-transfer-details > div:last-child { border-bottom: 0; }
+.billing-transfer-details dt { color: #77877f; }
+.billing-transfer-details dd { margin: 0; color: #314f42; font-weight: 700; text-align: right; overflow-wrap: anywhere; }
+.billing-pending-note { margin: 12px 0 0; color: #688276; font-size: 11px; }
+.billing-modal-actions { display: flex; justify-content: center; gap: 9px; margin-top: 18px; }
+.billing-success { display: grid; justify-items: center; gap: 6px; padding: 24px 12px; color: #28734c; }
+.billing-success > span { display: grid; width: 44px; height: 44px; place-items: center; border-radius: 50%; background: #e6f5eb; font-size: 24px; }
+.billing-success p { margin: 0; color: #718279; font-size: 12px; }
+
+@media (max-width: 800px) {
+  .app-shell .profile-plan-card { align-items: stretch; flex-direction: column; gap: 17px; }
+  .app-shell .profile-plan-details { flex-wrap: wrap; gap: 13px 24px; padding-top: 14px; border-top: 1px solid #e2eff0; }
+  .app-shell .subscription-plan-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .app-shell .profile-plan-card { padding: 17px; }
+  .app-shell .profile-plan-main h2 { font-size: 15px; }
+  .app-shell .profile-plan-main p { font-size: 10px; }
+  .app-shell .profile-plan-details { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 13px; }
+  .app-shell .profile-plan-details strong { font-size: 10px; white-space: normal; }
+  .app-shell .subscription-plan-grid { grid-template-columns: 1fr; }
+  .billing-modal { padding: 22px 17px; }
+}
+
 .app-notification {
   position: fixed;
-  z-index: 40;
+  z-index: 70;
   right: 22px;
   bottom: 22px;
   width: min(430px, calc(100vw - 32px));
@@ -388,6 +459,28 @@ h3 {
 .app-notification-message { flex: 1; font-size: 12px; line-height: 1.45; }
 .app-notification-close { width: 28px; height: 28px; flex: none; border: 0; border-radius: 6px; background: transparent; color: currentColor; font-size: 21px; cursor: pointer; }
 .app-notification-close:hover { background: #0000000a; }
+
+.task-progress {
+  display: grid;
+  gap: 9px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid #dce8df;
+  border-radius: 10px;
+  background: #f7faf7;
+  color: #42564a;
+}
+.task-progress-heading { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.task-progress-heading strong { flex: 1; font-size: 11px; line-height: 1.4; }
+.task-progress-percent { color: #34775a; font-size: 11px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.task-progress-spinner { width: 15px; height: 15px; flex: none; border: 2px solid #d5e4d9; border-top-color: #34775a; border-radius: 50%; animation: task-progress-spin .75s linear infinite; }
+.task-progress-track { position: relative; height: 6px; overflow: hidden; border-radius: 99px; background: #e6eee8; }
+.task-progress-track > span { display: block; height: 100%; border-radius: inherit; background: #4c936d; transition: width .16s ease-out; }
+.task-progress-track.is-indeterminate > span { position: absolute; width: 34%; animation: task-progress-slide 1.25s ease-in-out infinite; }
+.task-progress small { color: #75847a; font-size: 10px; line-height: 1.45; }
+@keyframes task-progress-spin { to { transform: rotate(360deg); } }
+@keyframes task-progress-slide { from { left: -36%; } to { left: 102%; } }
+@media (prefers-reduced-motion: reduce) { .task-progress-spinner, .task-progress-track.is-indeterminate > span { animation-duration: 3s; } }
 
 .app-confirm-backdrop {
   position: fixed;
