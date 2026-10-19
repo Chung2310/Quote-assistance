@@ -1019,3 +1019,13 @@
 #root .admin-back-link {
   font-size: 12px !important;
 }
+
+#root .admin-shell .admin-button,
+#root .admin-login-screen .admin-button,
+#root .admin-access-card .admin-button {
+  border-radius: 9999px !important;
+}
+
+#root .admin-login-submit {
+  border-radius: 9999px !important;
+}
