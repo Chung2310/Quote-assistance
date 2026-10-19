@@ -470,8 +470,10 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, quoteUsageLabel, c
         <img src="/images/quote-banner.png" alt="" />
         <div className="dashboard-banner-copy">
           <h1>Báo giá nhanh, rõ ràng</h1>
-          <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>
-          {quoteUsageLabel && <p className="quota-usage-count">{quoteUsageLabel}</p>}
+          <div className="dashboard-banner-actions">
+            <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>
+            {quoteUsageLabel && <p className="dashboard-banner-quota"><span aria-hidden="true" />{quoteUsageLabel}</p>}
+          </div>
           {!canCreate && <div className="quota-blocked-notice" role="status">{createBlockedMessage}{showUsageError && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}
         </div>
       </article>
