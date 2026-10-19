@@ -279,7 +279,7 @@ function UserApp() {
     setQuoteId(null);
     setSection("quotes");
   };
-  if (checkingSession) return <div className="splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /><span>Đang mở không gian làm việc…</span></div>;
+  if (checkingSession) return <div className="splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /><span>Đang mở không gian làm việc…</span></div>;
   if (!user) return <NotificationProvider notify={notify}><><Login onLogin={handleLogin} onNotify={notify} />{notification && <NotificationToast notification={notification} onDismiss={dismiss} />}{confirmationDialog}</></NotificationProvider>;
   const openQuote = (id: string) => {
     const target = `${sectionPaths.quotes}/${id}`;
@@ -310,7 +310,7 @@ function UserApp() {
 
   return <NotificationProvider notify={notify}><div className="app-shell">
     <aside className="sidebar">
-      <div className="brand-lockup"><img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /></div>
+      <div className="brand-lockup"><img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /></div>
       <nav className="side-nav">
         <NavButton icon="home" label="Tổng quan" href={sectionPaths.home} active={!quoteId && section === "home"} onClick={() => navigateSection("home")} />
         <NavButton icon="quote" label="Báo giá" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
@@ -418,7 +418,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
         <div className="login-art">
           <div className="art-content">
             <div className="art-brand-header">
-              <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
+              <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" />
             </div>
 
             <div className="art-hero">
@@ -434,7 +434,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
         <div className={`login-panel ${mode === "register" ? "register-mode" : ""}`}>
           <div className="login-form-card">
             <div className="mobile-brand">
-              <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
+              <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" />
             </div>
 
             <div className="login-header">
@@ -2416,7 +2416,7 @@ function AccountProfile({
               <span className="profile-plan-pill-active">ĐANG KÍCH HOẠT</span>
             </div>
 
-            <p className="profile-quota-desc">{plan?.description ?? "Gói miễn phí mặc định của Giáo."}</p>
+            <p className="profile-quota-desc">{plan?.description ?? "Gói miễn phí mặc định của iGen Trợ lí báo giá."}</p>
 
             {subscriptionExpiresAt ? (
               <div className="profile-expiry-banner">

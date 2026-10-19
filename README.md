@@ -1,4 +1,4 @@
-# Giáo — AI hỗ trợ báo giá (pilot)
+# iGen Trợ lí báo giá — AI hỗ trợ báo giá (pilot)
 
 Ứng dụng pilot theo phạm vi trong [`docs/de-xuat-ai-ho-tro-bao-gia-CEO.md`](docs/de-xuat-ai-ho-tro-bao-gia-CEO.md): nhiều doanh nghiệp có dữ liệu được phân vùng theo hồ sơ doanh nghiệp trong MongoDB, nhập yêu cầu bằng văn bản, nhập bảng giá CSV/XLSX, gợi ý mặt hàng, tính giá phía máy chủ, duyệt và tải PDF. Đây là nền tảng thử nghiệm staging, chưa phải SaaS production.
 

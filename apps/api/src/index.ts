@@ -900,7 +900,7 @@ app.post("/api/billing/payments", requireRole("user"), async (request, response)
   qr.searchParams.set("showinfo", "true");
   qr.searchParams.set("fullacc", "true");
   if (sepaySettings.accountName) qr.searchParams.set("holder", sepaySettings.accountName.toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").toUpperCase());
-  qr.searchParams.set("store", "GIAO BAO GIA");
+  qr.searchParams.set("store", "IGEN TRO LI BAO GIA");
   response.status(201).json({
     payment: {
       id: insertedId.toHexString(),
