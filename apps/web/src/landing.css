@@ -30,7 +30,7 @@
 
   position: relative;
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-x: clip;
   background: var(--landing-cream);
   color: var(--landing-ink);
   font-family: Inter, 'Be Vietnam Pro', 'Segoe UI Variable', 'Segoe UI', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
