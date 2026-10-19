@@ -35,7 +35,7 @@ Yêu cầu Node.js 20.19+ và một MongoDB có thể truy cập từ máy chạ
    SEED_ADMIN_NAME=Quản trị nền tảng
    ```
 
-   Mật khẩu cần dài từ 7 đến 200 ký tự; ứng dụng tự băm bằng scrypt rồi lưu tài khoản admin trong `users`, độc lập với hồ sơ doanh nghiệp. Tài khoản admin duy nhất dùng để đăng nhập `/admin` và quản lý các tài khoản doanh nghiệp. Doanh nghiệp tự đăng ký tài khoản user và dùng tài khoản đó để quản lý toàn bộ dữ liệu của mình. Nếu email seed đã thuộc một tài khoản doanh nghiệp, ứng dụng giữ nguyên tài khoản đó, tạo admin với email dạng `ten+system-admin@domain` (in ra terminal khi khởi động) và vẫn dùng mật khẩu seed. Sau lần khởi động đầu tiên thành công, có thể xóa `SEED_ADMIN_EMAIL` và `SEED_ADMIN_PASSWORD`; tài khoản admin đã được lưu trong MongoDB.
+   Mật khẩu cần dài từ 7 đến 200 ký tự; ứng dụng tự băm bằng scrypt rồi lưu tài khoản admin trong `users`, độc lập với hồ sơ doanh nghiệp. Tài khoản admin duy nhất dùng để đăng nhập `/quan-tri` và quản lý các tài khoản doanh nghiệp. Doanh nghiệp tự đăng ký tài khoản user và dùng tài khoản đó để quản lý toàn bộ dữ liệu của mình. Nếu email seed đã thuộc một tài khoản doanh nghiệp, ứng dụng giữ nguyên tài khoản đó, tạo admin với email dạng `ten+system-admin@domain` (in ra terminal khi khởi động) và vẫn dùng mật khẩu seed. Sau lần khởi động đầu tiên thành công, có thể xóa `SEED_ADMIN_EMAIL` và `SEED_ADMIN_PASSWORD`; tài khoản admin đã được lưu trong MongoDB.
 
 3. Cấu hình `PORT` (mặc định 3000) cho cả API và giao diện. Có thể đặt URI MongoDB trong `MONGODB_URI`; nếu URI không có tên database, ứng dụng dùng `MONGODB_DATABASE` hoặc `bao_gia_pilot`. Để kết nối MongoDB local không xác thực, để trống user và password. `SESSION_SECRET` cần là chuỗi ngẫu nhiên dài ít nhất 32 ký tự. Nếu muốn gọi AI, thêm khóa vào `OPENROUTER_API_KEY`; có thể chọn model qua `OPENROUTER_MODEL`.
 
@@ -46,6 +46,10 @@ Yêu cầu Node.js 20.19+ và một MongoDB có thể truy cập từ máy chạ
    ```
 
    Mở giao diện và API tại `http://localhost:3013` theo giá trị mẫu trong `.env`. Express phục vụ API và Vite middleware trên cùng một cổng; không cần chạy proxy hoặc máy chủ frontend riêng. Nếu chưa đặt khóa OpenRouter, phân tích chỉ thử khớp chính xác mã/tên hàng; người dùng vẫn có thể chọn mặt hàng thủ công từ danh mục.
+
+## Đường dẫn và SEO
+
+Trang giới thiệu dùng `/`; đăng nhập dùng `/dang-nhap`, đăng ký dùng `/dang-ky`, không gian doanh nghiệp dùng `/ung-dung` và quản trị dùng `/quan-tri`. Các đường dẫn cũ `/login`, `/app` và `/admin` được chuyển hướng sang URL mới. Chỉ trang giới thiệu được đưa vào sitemap; các trang tài khoản và URL không tồn tại được đánh dấu không lập chỉ mục. Khi triển khai, đặt `PUBLIC_SITE_URL` thành origin HTTPS chính thức để canonical và sitemap luôn dùng đúng tên miền.
 
 ## Nhập bảng giá
 
@@ -77,7 +81,23 @@ Kiểm thử xử lý mẫu: `node --import tsx --test apps/api/src/quote-templa
 
 ## Tài khoản doanh nghiệp
 
-Khách truy cập có thể chọn “Đăng ký doanh nghiệp” ngay trên màn hình đăng nhập. Biểu mẫu yêu cầu thông tin doanh nghiệp, người đại diện, họ tên người dùng, email đăng nhập và mật khẩu. Mỗi doanh nghiệp có một tài khoản user gắn với hồ sơ doanh nghiệp đó; tài khoản đăng ký được đăng nhập ngay sau khi tạo và có thể quản lý, duyệt báo giá cùng các cài đặt của doanh nghiệp. Admin hệ thống cũng có thể tạo, cập nhật hồ sơ, khóa tài khoản hoặc đặt lại mật khẩu tại `/admin`. Chỉ tài khoản admin hệ thống truy cập được `/admin`.
+Khách truy cập có thể chọn “Đăng ký doanh nghiệp” ngay trên màn hình đăng nhập. Biểu mẫu yêu cầu thông tin doanh nghiệp, người đại diện, họ tên người dùng, email đăng nhập và mật khẩu. Mỗi doanh nghiệp có một tài khoản user gắn với hồ sơ doanh nghiệp đó; tài khoản đăng ký được đăng nhập ngay sau khi tạo và có thể quản lý, duyệt báo giá cùng các cài đặt của doanh nghiệp. Admin hệ thống cũng có thể tạo, cập nhật hồ sơ, khóa tài khoản hoặc đặt lại mật khẩu tại `/quan-tri`. Chỉ tài khoản admin hệ thống truy cập được `/quan-tri`.
+
+## Gói dịch vụ và thanh toán SePay
+
+Đăng ký thông thường bắt đầu ở gói Dùng thử. Khi khách chọn gói trả phí trên trang bảng giá, lựa chọn được giữ qua bước đăng ký; sau khi tạo tài khoản, ứng dụng tự mở QR thanh toán. Người dùng đang đăng nhập cũng có thể chọn hoặc gia hạn gói tại **Trang cá nhân → Chọn gói dịch vụ**. Gói chỉ đổi sau khi máy chủ nhận webhook SePay đã xác thực, đúng mã thanh toán và đủ số tiền. Mỗi giao dịch chỉ được áp dụng một lần; thời hạn là một tháng và được nối tiếp nếu gói hiện tại vẫn còn hiệu lực. Khi hết hạn, hệ thống tự chuyển doanh nghiệp về gói Dùng thử.
+
+Cấu hình tài khoản nhận tiền tại **`/quan-tri` → Thanh toán**. Admin có thể nhập mã ngân hàng, số tài khoản, tên chủ tài khoản, tiền tố mã chuyển khoản và API Key webhook; API Key được mã hóa trước khi lưu. Các biến môi trường dưới đây vẫn được hỗ trợ làm cấu hình ban đầu/dự phòng khi chưa có giá trị lưu trong trang quản trị:
+
+```dotenv
+SEPAY_BANK_CODE=VCB
+SEPAY_ACCOUNT_NUMBER=0123456789
+SEPAY_ACCOUNT_NAME=TEN CHU TAI KHOAN
+SEPAY_WEBHOOK_API_KEY=chuoi-bi-mat-tu-tao-va-cau-hinh-tren-sepay
+SEPAY_PAYMENT_PREFIX=GQ
+```
+
+Trong SePay, tạo webhook nhận **tiền vào** tại địa chỉ hiển thị trong trang **Thanh toán**, chọn xác thực **API Key** và nhập cùng khóa. Bật nhận diện mã thanh toán theo tiền tố đã cấu hình và hậu tố 10 ký tự chữ/số. QR chuyển khoản được tạo theo mã đơn, số tiền và nội dung riêng; ứng dụng không tự kích hoạt gói nếu thiếu webhook xác thực. Ngân hàng và số tài khoản dùng để nhận tiền phải thuộc tài khoản đã kết nối với webhook SePay. Không commit khóa webhook vào Git. Sau khi cấu hình, dùng tính năng gửi thử webhook của SePay rồi kiểm tra một giao dịch nhỏ trên môi trường staging trước khi nhận thanh toán thật.
 
 ## Gửi báo giá qua email
 
@@ -119,10 +139,12 @@ File bảng giá được lưu trong MongoDB làm tài liệu nguồn sau khi s�
 ## API chính
 
 - `POST /api/catalog/import/preview` và `POST /api/catalog/import/confirm`
+- `POST /api/billing/payments`, `GET /api/billing/payments/:id`, `POST /api/billing/sepay/webhook`
+- `GET /api/admin/settings/sepay`, `PUT /api/admin/settings/sepay` (chỉ admin hệ thống)
 - `POST /api/quote-requests`, `POST /api/quote-requests/:id/analyze`
 - `POST /api/quotes`, `PATCH /api/quotes/:id`, `POST /api/quotes/:id/submit-review`
 - `POST /api/quotes/:id/approve`, `POST /api/quotes/:id/reject`, `GET /api/quotes/:id/pdf`, `POST /api/quotes/:id/email`
 - `GET /api/settings/email`, `PUT /api/settings/email`, `POST /api/settings/email/test`, `DELETE /api/settings/email`
 - `GET /api/settings/cloudinary`, `PUT /api/settings/cloudinary`, `DELETE /api/settings/cloudinary`, `GET /api/files`, `POST /api/files`
 
-Các API dữ liệu yêu cầu phiên đăng nhập; mọi truy vấn được giới hạn theo tenant của phiên. Hai API tạo yêu cầu và báo giá yêu cầu `idempotencyKey` để gửi lại cùng thao tác không tạo dữ liệu trùng.
+Các API dữ liệu yêu cầu phiên đăng nhập; mọi truy vấn được giới hạn theo tenant của phiên. Webhook SePay là ngoại lệ: endpoint công khai nhưng bắt buộc xác thực API Key. Hai API tạo yêu cầu và báo giá yêu cầu `idempotencyKey` để gửi lại cùng thao tác không tạo dữ liệu trùng.

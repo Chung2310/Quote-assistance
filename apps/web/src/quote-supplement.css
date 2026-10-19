@@ -161,6 +161,45 @@
   font-size: 9px;
 }
 
+.quote-missing-product-list {
+  display: grid;
+  flex-basis: 100%;
+  gap: 7px;
+}
+
+.quote-missing-product {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 11px;
+  border: 1px solid #f0e5ca;
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.quote-missing-product > div {
+  display: grid;
+  gap: 3px;
+}
+
+.quote-missing-product strong {
+  color: #705323;
+  font-size: 10px;
+}
+
+.quote-missing-product span {
+  color: #8b754e;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.quote-missing-product .button {
+  flex: none;
+  min-height: 30px;
+  font-size: 9px;
+}
+
 .quote-supplement-product-wrap {
   overflow-x: auto;
   border: 1px solid #e8ede8;
@@ -193,6 +232,14 @@
 .quote-supplement-product-table td {
   color: #34443a;
   font-size: 10px;
+}
+
+.quote-supplement-product-table td .quote-supplement-row-missing {
+  display: block;
+  margin-top: 4px;
+  color: #9a6e22;
+  font-size: 9px;
+  font-weight: 650;
 }
 
 .quote-supplement-product-table td:first-child {

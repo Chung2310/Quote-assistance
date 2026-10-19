@@ -43,11 +43,44 @@ export interface CompanyProfileDetails {
 export interface Company extends Partial<CompanyProfileDetails> {
   _id?: ObjectId;
   code?: string;
+  planCode?: string;
+  subscriptionExpiresAt?: Date;
+  billingPaymentCreatedAt?: Date;
   name: string;
   normalizedName: string;
   legacyPartitionId?: string;
   smtpSettings?: CompanySmtpSettings;
   quoteTemplateId?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface SubscriptionPlan {
+  _id?: ObjectId;
+  code: string;
+  name: string;
+  description: string;
+  monthlyPrice: number | null;
+  quoteLimit: number | null;
+  templateLimit: number | null;
+  active: boolean;
+  featured: boolean;
+  displayOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type ContactRequestStatus = "new" | "contacted" | "closed";
+
+export interface PlanContactRequest {
+  _id?: ObjectId;
+  name: string;
+  companyName: string;
+  email: string;
+  phone: string;
+  message: string;
+  status: ContactRequestStatus;
+  adminNote?: string;
   createdAt: Date;
   updatedAt: Date;
 }

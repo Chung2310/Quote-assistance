@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { api, formatDate, formatMoney } from "./api";
+import { api, apiUploadWithProgress, formatDate, formatMoney } from "./api";
 import FilePreview, { type PreviewFile } from "./FilePreview";
 import type { CatalogItem } from "./types";
+import type { Notify } from "./Feedback";
+import { TaskProgress, type TaskProgressState } from "./Feedback";
 
 interface StoredPriceList { _id: string; originalFilename: string; bytes: number; updatedAt: string; productCount?: number; skippedRows?: number }
 type ImportColumnRole = "sku" | "name" | "unit" | "price" | "currency" | "description" | "effectiveFrom" | "effectiveTo" | "attribute" | "ignore";
@@ -145,12 +147,12 @@ function HighlightMatch({ text, query }: { text: string; query: string }) {
   }
 }
 
-export default function PriceListPanel({ onToast }: { onToast: (message: string) => void }) {
+export default function PriceListPanel({ onToast }: { onToast: Notify }) {
   const [files, setFiles] = useState<StoredPriceList[]>([]);
   const [products, setProducts] = useState<CatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProductStatusKey>("all");
   const [sortBy, setSortBy] = useState<SortOption>("default");
@@ -237,8 +239,6 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
     { key: "inactive", label: "Ngừng kinh doanh", count: statusCounts.inactive },
   ];
 
-  const canConfirmImports = pendingImports.some((pending) => pending.sheets.some(isSheetMappingValid));
-
   useEffect(() => {
     Promise.all([
       api<{ files: StoredPriceList[] }>("/api/price-list"),
@@ -246,22 +246,30 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
     ]).then(([priceLists, catalog]) => {
       setFiles(priceLists.files);
       setProducts(catalog.items);
-    }).catch((cause) => setError(cause instanceof Error ? cause.message : "Không thể tải bảng giá."))
+    }).catch((cause) => onToast(cause instanceof Error ? cause.message : "Không thể tải bảng giá.", "error"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [onToast]);
 
   const upload = async (event: ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(event.target.files ?? []);
     if (!selectedFiles.length) return;
-    setError("");
     setBusy(true);
     const errors: string[] = [];
     const previews: PendingImport[] = [];
     try {
-      for (const selected of selectedFiles) {
+      for (let fileIndex = 0; fileIndex < selectedFiles.length; fileIndex++) {
+        const selected = selectedFiles[fileIndex]!;
         if (selected.size > 5 * 1024 * 1024) { errors.push(`${selected.name}: File không được vượt quá 5 MB.`); continue; }
         try {
-          const result = await api<{ preview: { sheets: ImportPreviewSheet[] } }>("/api/price-list/preview", { method: "POST", body: selected, headers: { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(selected.name) } });
+          setTaskProgress({ label: `Đang tải file ${fileIndex + 1} / ${selectedFiles.length}`, detail: selected.name });
+          const result = await apiUploadWithProgress<{ preview: { sheets: ImportPreviewSheet[] } }>(
+            "/api/price-list/preview",
+            selected,
+            { "Content-Type": "application/octet-stream", "X-File-Name": encodeURIComponent(selected.name) },
+            (progress) => setTaskProgress(progress >= 100
+              ? { label: `Đang đọc bảng giá ${fileIndex + 1} / ${selectedFiles.length}`, detail: selected.name }
+              : { label: `Đang tải file ${fileIndex + 1} / ${selectedFiles.length}`, progress, detail: selected.name }),
+          );
           previews.push({ file: selected, sheets: result.preview.sheets.map((sheet) => {
             const header = sheet.headerRows.find((row) => row.row === sheet.headerRow);
             const roles = header?.roles ?? [];
@@ -270,9 +278,9 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
         } catch (cause) { errors.push(`${selected.name}: ${cause instanceof Error ? cause.message : "Không đọc được file để xem trước."}`); }
       }
       setPendingImports(previews);
-      setError(errors.join(" "));
+      if (errors.length) onToast(errors.join(" "), "error");
     }
-    finally { setBusy(false); if (input.current) input.current.value = ""; }
+    finally { setBusy(false); setTaskProgress(null); if (input.current) input.current.value = ""; }
   };
 
   const updatePendingSheet = (fileIndex: number, sheetName: string, update: (sheet: PendingImportSheet) => PendingImportSheet) => {
@@ -285,7 +293,6 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
   const confirmImports = async () => {
     if (!pendingImports.length) return;
     setBusy(true);
-    setError("");
     const errors: string[] = [];
     const failed: PendingImport[] = [];
     let savedCount = 0;
@@ -293,7 +300,8 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
     let updatedCount = 0;
     let skippedCount = 0;
     try {
-      for (const pending of pendingImports) {
+      for (let importIndex = 0; importIndex < pendingImports.length; importIndex++) {
+        const pending = pendingImports[importIndex]!;
         const selectedSheets = pending.sheets.filter((sheet) => sheet.included);
         if (!selectedSheets.length || selectedSheets.some((sheet) => !isSheetMappingValid(sheet))) {
           errors.push(`${pending.file.name}: Hãy chọn sheet và ghép đúng một cột tên sản phẩm cùng một cột đơn giá.`);
@@ -304,15 +312,20 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
           return { sheet: sheet.sheet, headerRow: sheet.headerRow, roles: sheet.roles };
         });
         try {
-          const result = await api<{ file: StoredPriceList; imported: { inserted: number; updated: number; skippedRows: number } }>("/api/price-list", {
-            method: "POST",
-            body: pending.file,
-            headers: {
+          const headers = {
               "Content-Type": "application/octet-stream",
               "X-File-Name": encodeURIComponent(pending.file.name),
               "X-Catalog-Import-Mapping": encodeURIComponent(JSON.stringify(mappings)),
-            },
-          });
+          };
+          setTaskProgress({ label: `Đang nhập bảng giá ${importIndex + 1} / ${pendingImports.length}`, detail: pending.file.name });
+          const result = await apiUploadWithProgress<{ file: StoredPriceList; imported: { inserted: number; updated: number; skippedRows: number } }>(
+            "/api/price-list",
+            pending.file,
+            headers,
+            (progress) => setTaskProgress(progress >= 100
+              ? { label: `Đang nhập bảng giá ${importIndex + 1} / ${pendingImports.length}`, detail: pending.file.name }
+              : { label: `Đang tải bảng giá ${importIndex + 1} / ${pendingImports.length}`, progress, detail: pending.file.name }),
+          );
           setFiles((current) => [result.file, ...current]);
           savedCount++;
           insertedCount += result.imported.inserted;
@@ -324,6 +337,10 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
         }
       }
       setPendingImports(failed);
+      const importedTotal = insertedCount + updatedCount;
+      const summary = savedCount
+        ? `Đã đọc ${savedCount} bảng giá, nhập ${importedTotal} sản phẩm (${insertedCount} mới, ${updatedCount} cập nhật)${skippedCount ? `; bỏ qua ${skippedCount} dòng` : ""}.`
+        : "";
       if (savedCount) {
         try {
           const catalog = await api<{ items: CatalogItem[] }>("/api/catalog");
@@ -331,11 +348,10 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
         } catch (cause) {
           errors.push(`Đã nạp bảng giá nhưng không tải được danh sách sản phẩm: ${cause instanceof Error ? cause.message : "Vui lòng tải lại trang."}`);
         }
-        const importedTotal = insertedCount + updatedCount;
-        onToast(`Đã đọc ${savedCount} bảng giá, nhập ${importedTotal} sản phẩm (${insertedCount} mới, ${updatedCount} cập nhật)${skippedCount ? `; bỏ qua ${skippedCount} dòng` : ""}.`);
       }
-      setError(errors.join(" "));
-    } finally { setBusy(false); }
+      if (errors.length) onToast([summary, ...errors].filter(Boolean).join(" "), "error");
+      else if (summary) onToast(summary, "success");
+    } finally { setBusy(false); setTaskProgress(null); }
   };
 
   return <div className={`page-stack price-list-page ${!loading && products.length === 0 ? "is-empty" : ""}`}>
@@ -344,7 +360,7 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
       {(loading || products.length > 0) && <button className="button button-primary price-list-add-button" disabled={busy || loading || pendingImports.length > 0} onClick={() => input.current?.click()}>{busy ? "Đang đọc tài liệu…" : "Thêm bảng giá"}</button>}
       <input ref={input} type="file" hidden multiple disabled={busy || pendingImports.length > 0} accept=".csv,.xlsx,.xls" onChange={(event) => void upload(event)} />
     </section>
-    {error && <div className="inline-error" role="alert">{error}</div>}
+    {taskProgress && <TaskProgress {...taskProgress} />}
     {pendingImports.length > 0 && <section className="content-card import-preview price-list-import-review">
       <div className="price-list-review-heading"><div><h2>Kiểm tra cột trước khi nhập</h2><p className="muted">Chọn tiêu đề và ghép các cột. Cột để thành “Thuộc tính riêng” sẽ được lưu theo đúng tên cột.</p></div><span className="pending-count">{pendingImports.length} file</span></div>
       <div className="price-list-review-files">{pendingImports.map((pending, fileIndex) => <article className="price-list-review-file" key={`${pending.file.name}-${fileIndex}`}>
@@ -352,7 +368,6 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
         {pending.sheets.map((sheet) => {
           const selectedHeader = sheet.headerRows.find((row) => row.row === sheet.headerRow);
           const samples = sheet.rows.filter((row) => row.row > sheet.headerRow).slice(0, 2);
-          const valid = isSheetMappingValid(sheet);
           return <section className="price-list-review-sheet" key={sheet.sheet}>
             <div className="price-list-sheet-heading">
               <label className="price-list-sheet-toggle"><input type="checkbox" checked={sheet.included} disabled={busy} onChange={(event) => updatePendingSheet(fileIndex, sheet.sheet, (current) => ({ ...current, included: event.target.checked }))} /><span>Nhập sheet <strong>{sheet.sheet}</strong></span></label>
@@ -368,11 +383,10 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
               return <div className="price-list-column-row" key={`${columnIndex}-${header}`}><span title={header}>{header.trim() || `Cột ${columnIndex + 1}`}</span><ReviewSelect value={role} disabled={busy} label={header.trim() || `Cột ${columnIndex + 1}`} onChange={(selectedRole) => updatePendingSheet(fileIndex, sheet.sheet, (current) => ({ ...current, roles: current.roles.map((value, index) => index === columnIndex ? selectedRole as ImportColumnRole : value), included: current.included || selectedRole === "name" || selectedRole === "price" }))} options={columnRoleLabels} /></div>;
             })}</div>}
             {samples.length > 0 && selectedHeader && <div className="price-list-mapping-samples"><strong>Dữ liệu mẫu</strong>{samples.map((sample) => <p key={sample.row}>{sheet.roles.flatMap((role, index) => role === "ignore" ? [] : [`${selectedHeader.cells[index] || `Cột ${index + 1}`}: ${sample.cells[index] ?? ""}`]).filter((value) => !value.endsWith(": ")).join(" · ")}</p>)}</div>}
-            {sheet.included && !valid && <p className="price-list-mapping-error">{sheet.roles.filter((role) => role === "attribute").length > 50 ? "Mỗi sheet lưu tối đa 50 cột thuộc tính riêng; hãy bỏ qua bớt cột." : "Chọn đúng một cột tên sản phẩm và một cột đơn giá. Mỗi trường chuẩn chỉ được ghép với một cột."}</p>}
           </section>;
         })}
       </article>)}</div>
-      <div className="preview-actions"><button type="button" className="button button-soft" disabled={busy} onClick={() => { setPendingImports([]); setError(""); }}>Hủy</button><button type="button" className="button button-primary" disabled={busy || !canConfirmImports} onClick={() => void confirmImports()}>{busy ? "Đang nhập…" : "Xác nhận và nhập"}</button></div>
+      <div className="preview-actions"><button type="button" className="button button-soft" disabled={busy} onClick={() => setPendingImports([])}>Hủy</button><button type="button" className="button button-primary" disabled={busy} onClick={() => void confirmImports()}>{busy ? "Đang nhập…" : "Xác nhận và nhập"}</button></div>
     </section>}
     <section className="content-card list-card price-list-product-card">
       {(loading || products.length > 0) && <div className="price-list-toolbar-section">
@@ -587,7 +601,7 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
     </details>}
     {products.length > 0 && <p className="catalog-note">CSV / XLSX / XLS · Tối đa 5 MB mỗi file · Có thể chọn nhiều file cùng lúc.</p>}
     <FilePreview file={preview} onClose={() => setPreview(null)} />
-    {editingProduct && <EditCatalogProductDialog key={editingProduct._id} item={editingProduct} onClose={() => setEditingProduct(null)} onSaved={(item) => {
+    {editingProduct && <EditCatalogProductDialog key={editingProduct._id} item={editingProduct} onToast={onToast} onClose={() => setEditingProduct(null)} onSaved={(item) => {
       setProducts((current) => current.map((entry) => entry._id === item._id ? item : entry));
       setEditingProduct(null);
       onToast("Đã cập nhật sản phẩm và đơn giá.");
@@ -595,7 +609,7 @@ export default function PriceListPanel({ onToast }: { onToast: (message: string)
   </div>;
 }
 
-function EditCatalogProductDialog({ item, onClose, onSaved }: { item: CatalogItem; onClose: () => void; onSaved: (item: CatalogItem) => void }) {
+function EditCatalogProductDialog({ item, onClose, onSaved, onToast }: { item: CatalogItem; onClose: () => void; onSaved: (item: CatalogItem) => void; onToast: Notify }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [sku, setSku] = useState(item.sku);
   const [name, setName] = useState(item.name);
@@ -608,7 +622,6 @@ function EditCatalogProductDialog({ item, onClose, onSaved }: { item: CatalogIte
   const [effectiveTo, setEffectiveTo] = useState(item.effectiveTo ?? "");
   const [attributes, setAttributes] = useState<Array<{ key: string; value: string }>>(() => Object.entries(item.attributes ?? {}).map(([key, value]) => ({ key, value })));
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     const element = dialog.current!;
@@ -623,21 +636,20 @@ function EditCatalogProductDialog({ item, onClose, onSaved }: { item: CatalogIte
     event.preventDefault();
     const filledAttributes = attributes.filter((attribute) => attribute.key.trim() || attribute.value.trim());
     if (filledAttributes.some((attribute) => !attribute.key.trim() || !attribute.value.trim())) {
-      setError("Hãy nhập đủ tên trường và giá trị cho từng thuộc tính riêng.");
+      onToast("Hãy nhập đủ tên trường và giá trị cho từng thuộc tính riêng.", "error");
       return;
     }
     const attributeKeys = filledAttributes.map((attribute) => attribute.key.trim().toLocaleLowerCase("vi"));
     if (new Set(attributeKeys).size !== attributeKeys.length) {
-      setError("Tên thuộc tính riêng không được trùng nhau.");
+      onToast("Tên thuộc tính riêng không được trùng nhau.", "error");
       return;
     }
     if (filledAttributes.length > 50) {
-      setError("Mỗi sản phẩm lưu tối đa 50 thuộc tính riêng.");
+      onToast("Mỗi sản phẩm lưu tối đa 50 thuộc tính riêng.", "error");
       return;
     }
     const customAttributes = Object.fromEntries(filledAttributes.map((attribute) => [attribute.key.trim(), attribute.value.trim()]));
     setBusy(true);
-    setError("");
     try {
       const result = await api<{ item: CatalogItem }>(`/api/catalog/${encodeURIComponent(item._id)}`, {
         method: "PATCH",
@@ -645,7 +657,7 @@ function EditCatalogProductDialog({ item, onClose, onSaved }: { item: CatalogIte
       });
       onSaved(result.item);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể cập nhật sản phẩm.");
+      onToast(cause instanceof Error ? cause.message : "Không thể cập nhật sản phẩm.", "error");
     } finally { setBusy(false); }
   };
 
@@ -671,7 +683,6 @@ function EditCatalogProductDialog({ item, onClose, onSaved }: { item: CatalogIte
         </div>)}
       </section>
       <label className="price-list-active-toggle"><input type="checkbox" checked={active} disabled={busy} onChange={(event) => setActive(event.target.checked)} /><span>Sản phẩm đang kinh doanh</span></label>
-      {error && <div className="inline-error" role="alert">{error}</div>}
       <div className="preview-actions"><button type="button" className="button button-soft" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="button button-primary" disabled={busy}>{busy ? "Đang lưu…" : "Lưu thay đổi"}</button></div>
     </form>
   </dialog>;

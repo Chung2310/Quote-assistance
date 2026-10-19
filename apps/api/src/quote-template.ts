@@ -149,7 +149,7 @@ export async function createTemplateFillPlan(template: QuoteTemplate, quote: Quo
   const lineDetails = quote.lines.map((line, index) => ({ line: index + 1, value: quoteLineDetails(line) }));
   const plan = await requestTemplatePlan<TemplateFillPlan>([
     { type: "text", text: JSON.stringify({
-       instruction: "Create a reusable fill plan for this actual company template. Never require the user to add placeholders. Office: edits are exact unique XML find/replace operations applied in order to the supplied parts; preserve namespaces, styles, drawings, page settings. Use only [[key]] bindings inside XML text nodes, never literal quote data. For XLSX use inlineStr cells when replacing shared-string references, preserve cell style attributes; never put localized amounts in numeric <v> cells. Duplicate existing styled table rows as needed for the specified lineCount; adjust row/cell references and merges consistently. Replace old example line items, clear unused example rows. PDF: pdfEdits places text within boxes in PDF points (bottom-left origin); erase=true covers old example text only, never labels or logo. Do not overlap boxes. Use existing pages; if layout cannot fit, return empty arrays. Include customerName, total and every available line's name, quantity, unit price and line total. When line_n_details is non-empty and the template has a suitable product specification or description area, include it with that line while keeping quantity and prices in their own fields. If additionalInformation is available and the template has a clear notes or supplementary-information area, include it there. Other template-specific sections can remain unchanged when no new data is supplied. Return edits=[] for PDF or pdfEdits=[] for Office.",
+       instruction: "Create a reusable fill plan for this actual company template. Never require the user to add placeholders. Office: edits are exact unique XML find/replace operations applied in order to the supplied parts; preserve namespaces, styles, drawings, page settings. Use only [[key]] bindings inside XML text nodes, never literal quote data. For XLSX use inlineStr cells when replacing shared-string references, preserve cell style attributes; never put localized amounts in numeric <v> cells. Duplicate existing styled table rows as needed for the specified lineCount; adjust row/cell references and merges consistently. Replace old example line items, clear unused example rows. PDF: pdfEdits places text within boxes in PDF points (bottom-left origin); erase=true covers old example text only, never labels or logo. Do not overlap boxes. Use existing pages; if layout cannot fit, return empty arrays. Include customerName, total, subtotal, shippingFee, taxRate and taxAmount when the template has suitable matching fields, and every available line's name, quantity, unit price and line total. When line_n_details is non-empty and the template has a suitable product specification or description area, include it with that line while keeping quantity and prices in their own fields. If additionalInformation is available and the template has a clear notes or supplementary-information area, include it there. Other template-specific sections can remain unchanged when no new data is supplied. Return edits=[] for PDF or pdfEdits=[] for Office.",
       lineCount: quote.lines.length,
       availableBindings: Object.keys(quoteValues(quote)),
       lineDetails,
@@ -163,7 +163,7 @@ export async function createTemplateFillPlan(template: QuoteTemplate, quote: Quo
 
 export async function getOrCreateTemplateFillPlan(db: Db, template: QuoteTemplate, quote: Quote): Promise<TemplateFillPlan> {
   const hasLineDetails = quote.lines.some((line) => Boolean(quoteLineDetails(line)));
-  const key = `${hasLineDetails ? "v4d" : "v4"}_${quote.lines.length}_${quoteAdditionalInformation(quote) ? "i1" : "i0"}`;
+  const key = `${hasLineDetails ? "v6d" : "v6"}_${quote.lines.length}_${quoteAdditionalInformation(quote) ? "i1" : "i0"}`;
   const cached = template.extension === "pdf" || quote.lines.length > 30 ? undefined : template.fillPlanCache?.[key];
   if (cached) {
     try {
@@ -177,7 +177,7 @@ export async function getOrCreateTemplateFillPlan(db: Db, template: QuoteTemplat
 
   const plan = await createTemplateFillPlan(template, quote);
   if (template.extension !== "pdf" && quote.lines.length <= 30 && template._id) {
-    const cache = Object.fromEntries(Object.entries(template.fillPlanCache ?? {}).filter(([entryKey]) => entryKey.startsWith("v4") && entryKey !== key));
+    const cache = Object.fromEntries(Object.entries(template.fillPlanCache ?? {}).filter(([entryKey]) => entryKey.startsWith("v6") && entryKey !== key));
     const planBytes = Buffer.byteLength(JSON.stringify(plan), "utf8");
     const otherEntries = Object.entries(cache);
     const cachedBytes = otherEntries.reduce((total, [, entry]) => total + Buffer.byteLength(JSON.stringify(entry), "utf8"), 0);
@@ -386,7 +386,7 @@ const xlsxMapSchema = {
 
 function xlsxPlanKey(quote: Quote) {
   const dimensions = quote.lines.map((line) => dimensionKeys.map((key) => lineDimension(line, key) ? "1" : "0").join("")).join("");
-  return `v4_${quote.lines.length}_${quote.lines.map((line) => quoteLineDetails(line) ? "1" : "0").join("")}_${dimensions}_${quoteAdditionalInformation(quote) ? "i1" : "i0"}`;
+  return `v6_${quote.lines.length}_${quote.lines.map((line) => quoteLineDetails(line) ? "1" : "0").join("")}_${dimensions}_${quoteAdditionalInformation(quote) ? "i1" : "i0"}`;
 }
 
 function normalizeSheetLabel(value: string) {
@@ -436,7 +436,84 @@ function isCustomerLabel(value: string) {
 
 function isTotalLabel(value: string) {
   const label = normalizeSheetLabel(value);
-  return ["tong", "tong cong", "grand total", "total", "amount due"].includes(label);
+  return ["tong", "tong cong", "tong thanh toan", "tong tien thanh toan", "tong cong thanh toan", "grand total", "total", "amount due"].includes(label);
+}
+
+function summaryScalarKey(value: string): typeof xlsxScalarKeys[number] | undefined {
+  const label = normalizeSheetLabel(value);
+  if (/^(phi van chuyen|chi phi van chuyen|phi giao hang|cuoc van chuyen|shipping fee|delivery fee)( |$)/.test(label)) return "shippingFee";
+  if (/^(thue suat|vat rate|tax rate)( |$)/.test(label)) return "taxRate";
+  if (/^(tam tinh|cong tien hang|tong tien hang|tien hang|subtotal|amount before tax)( |$)/.test(label)) return "subtotal";
+  if (/^(tien thue|thue gia tri gia tang|tien thue gtgt|thue gtgt(?: \d+)?|thue vat|vat(?: \d+)?|tax|tax amount|vat amount)( |$)/.test(label)) return "taxAmount";
+  return undefined;
+}
+
+function isSummaryRowLabel(value: string) {
+  const label = normalizeSheetLabel(value);
+  return Boolean(summaryScalarKey(value)) || isTotalLabel(value) || /^(thanh toan|discount|chiet khau)$/.test(label);
+}
+
+function addRecognizedSummaryCells(plan: XlsxTemplateFillPlan, template: QuoteTemplate): XlsxTemplateFillPlan {
+  const mappedKeys = new Set(plan.cells.map((cell) => cell.key));
+  const occupied = new Set(plan.cells.map((cell) => `${cell.sheet}!${cell.cell.replace(/\$/g, "").toUpperCase()}`));
+  for (const sheet of workbookInfo(template).sheets.values()) {
+    for (const cell of sheet.cells.values()) {
+      const key = summaryScalarKey(cell.value);
+      if (!key || mappedKeys.has(key)) continue;
+      const point = parseCellRef(cell.ref);
+      if (!point) continue;
+      const merge = sheet.merged.map((range) => {
+        const [start, end = start] = range.split(":");
+        return { start, first: parseCellRef(start ?? ""), last: parseCellRef(end) };
+      }).find(({ start, first, last }) => start === cell.ref && first && last && point.row >= first.row && point.row <= last.row && columnNumber(point.column) >= columnNumber(first.column) && columnNumber(point.column) <= columnNumber(last.column));
+      const targetColumn = merge?.last ? columnNumber(merge.last.column) + 1 : columnNumber(point.column) + 1;
+      const targetRef = `${columnLetters(targetColumn)}${point.row}`;
+      const target = sheet.cells.get(targetRef);
+      if (!target || !isMergeAnchor(targetRef, sheet.merged) || target.formula && key === "taxRate") continue;
+      const targetKey = `${sheet.name}!${targetRef}`;
+      if (occupied.has(targetKey)) continue;
+      plan.cells.push({ key, sheet: sheet.name, cell: targetRef });
+      mappedKeys.add(key);
+      occupied.add(targetKey);
+    }
+  }
+  return plan;
+}
+
+async function addAiMappedSummaryCells(plan: XlsxTemplateFillPlan, template: QuoteTemplate, quote: Quote): Promise<XlsxTemplateFillPlan> {
+  const summaryKeys = ["subtotal", "shippingFee", "taxRate", "taxAmount"] as const;
+  const missingKeys = summaryKeys.filter((key) => !plan.cells.some((cell) => cell.key === key));
+  if (!missingKeys.length) return plan;
+
+  const schema = {
+    type: "object", additionalProperties: false, required: ["cells"],
+    properties: { cells: { type: "array", items: { type: "object", additionalProperties: false, required: ["key", "sheet", "cell"], properties: { key: { type: "string", enum: [...missingKeys] }, sheet: { type: "string" }, cell: { type: "string" } } } } },
+  };
+  const info = workbookInfo(template);
+  try {
+    const result = await requestTemplatePlan<{ cells: XlsxTemplateFillPlan["cells"] }>([{ type: "text", text: JSON.stringify({
+      instruction: "Locate only existing summary value cells in this Excel quote template. Map each available key to the blank or numeric cell belonging to its matching row label, including merged cells; never choose a label, product row, header, or unrelated field. Look for subtotal/tạm tính, shipping fee/phí vận chuyển/giao hàng, tax rate/thuế suất, and tax amount/VAT/thuế GTGT. Return only keys with a clear matching location; do not invent cells or alter layout.",
+      keys: missingKeys,
+      workbook: JSON.parse(xlsxWorkbookSummary(template, info)),
+    }) }], schema, (raw) => {
+      if (!raw || typeof raw !== "object") throw new Error("AI returned an invalid summary map.");
+      const summary = raw as { cells?: unknown };
+      if (!Array.isArray(summary.cells) || summary.cells.length > missingKeys.length) throw new Error("AI returned an invalid summary map.");
+      const cells = summary.cells as XlsxTemplateFillPlan["cells"];
+      const candidate = { ...plan, cells: [...plan.cells, ...cells] };
+      validateXlsxTemplateFillPlan(candidate, template, quote);
+      const activeRows = new Set(plan.lineRows.map((row) => `${row.sheet}!${row.row}`));
+      for (const cell of cells) {
+        if (!missingKeys.includes(cell.key as typeof missingKeys[number])) throw new Error("AI mapped an unexpected summary field.");
+        const point = parseCellRef(cell.cell);
+        if (!point || activeRows.has(`${cell.sheet}!${point.row}`)) throw new Error("AI mapped a summary field to a product row.");
+      }
+      return { cells };
+    });
+    return { ...plan, cells: [...plan.cells, ...result.cells] };
+  } catch {
+    return plan;
+  }
 }
 
 function columnLetters(column: number) {
@@ -488,7 +565,7 @@ function inferXlsxTemplateFillPlan(template: QuoteTemplate, quote: Quote): XlsxT
     const candidateRows = [...existingRows, ...dataRows.filter((row) => !existingRows.includes(row))];
     if (candidateRows.length < quote.lines.length) continue;
     const columns = new Map(header.columns);
-    const cells = [{ key: "customerName", sheet: sheet.name, cell: customerLabel.ref }, { key: "total", sheet: sheet.name, cell: totalTarget.ref }];
+    const cells: XlsxTemplateFillPlan["cells"] = [{ key: "customerName", sheet: sheet.name, cell: customerLabel.ref }, { key: "total", sheet: sheet.name, cell: totalTarget.ref }];
     if (quoteAdditionalInformation(quote)) {
       const noteLabel = [...sheet.cells.values()].find((cell) => /^(ghi chu|thong tin bo sung|ghi chu them|additional information|notes?)$/.test(normalizeSheetLabel(cell.value)));
       const notePoint = noteLabel ? parseCellRef(noteLabel.ref) : undefined;
@@ -500,7 +577,7 @@ function inferXlsxTemplateFillPlan(template: QuoteTemplate, quote: Quote): XlsxT
       row,
       fields: [...columns.entries()].filter(([key]) => xlsxLineKeys.includes(key as typeof xlsxLineKeys[number])).map(([key, column]) => ({ key, cell: `${column}${row}` })),
     }));
-    const plan: XlsxTemplateFillPlan = { cells, lineRows };
+    const plan = addRecognizedSummaryCells({ cells, lineRows }, template);
     try {
       validateXlsxTemplateFillPlan(plan, template, quote);
       return plan;
@@ -512,16 +589,19 @@ function inferXlsxTemplateFillPlan(template: QuoteTemplate, quote: Quote): XlsxT
 export async function createXlsxTemplateFillPlan(template: QuoteTemplate, quote: Quote, inputContext = ""): Promise<XlsxTemplateFillPlan> {
   const inferred = inferXlsxTemplateFillPlan(template, quote);
   if (inferred) {
-    renderXlsxTemplate(template, quote, inferred, inputContext);
-    return inferred;
+    const plan = await addAiMappedSummaryCells(inferred, template, quote);
+    renderXlsxTemplate(template, quote, plan, inputContext);
+    return plan;
   }
   const info = workbookInfo(template);
-  const plan = await requestTemplatePlan<XlsxTemplateFillPlan>([{ type: "text", text: JSON.stringify({
-    instruction: "Map the supplied quote fields to existing cells in this Excel quote template. Return cell coordinates only; never return XML edits. `cells` maps scalar keys to cells. `lineRows` must contain exactly one row per quote product, in order, and all its cells must be in that same existing row. Include name, quantity, unitPrice and lineTotal for every line. Also include sku and unit when the template has columns for them, and details when it has a description/specification column. When a requested product has width, height or length in its request attributes, map each available value to a matching dimension column in that product's row, preserving the supplied value and unit. Never invent a missing dimension. Map quoteNumber, customerName and total when those fields have a suitable location. Map additionalInformation only when supplied and when the template has a clear notes or supplementary-information cell. Map other scalar keys only when the template has a matching field. Use only listed cell coordinates and row numbers; never use formulas as text cells. Formula cells may be mapped only to numeric amount/quantity fields: the server will preserve each formula and update its cached result. Do not map labels, headers, terms, seller details, logos, or decorative cells. If the template does not have enough existing product rows or a suitable place for required values, return empty arrays.",
+  const mappedPlan = await requestTemplatePlan<XlsxTemplateFillPlan>([{ type: "text", text: JSON.stringify({
+    instruction: "Map the supplied quote fields to existing cells in this Excel quote template. Return cell coordinates only; never return XML edits. `cells` maps scalar keys to cells. `lineRows` must contain exactly one row per quote product, in order, and all its cells must be in that same existing row. Include name, quantity, unitPrice and lineTotal for every line. Also include sku and unit when the template has columns for them, and details when it has a description/specification column. When a requested product has width, height or length in its request attributes, map each available value to a matching dimension column in that product's row, preserving the supplied value and unit. Never invent a missing dimension. Map quoteNumber and customerName when those fields have a suitable location. Map subtotal, shippingFee, taxRate, taxAmount and total to matching summary rows when present (for example tạm tính, phí vận chuyển, thuế suất, VAT/thuế GTGT and tổng thanh toán). Map additionalInformation only when supplied and when the template has a clear notes or supplementary-information cell. Map other scalar keys only when the template has a matching field. Use only listed cell coordinates and row numbers; never use formulas as text cells. Formula cells may be mapped only to numeric amount/quantity fields: the server will preserve each formula and update its cached result. Do not map labels, headers, terms, seller details, logos, or decorative cells. If the template does not have enough existing product rows or a suitable place for required values, return empty arrays.",
     requiredScalars: ["customerName", "total"], availableScalars: xlsxScalarKeys.filter((key) => key !== "additionalInformation" || Boolean(quoteAdditionalInformation(quote))), lineCount: quote.lines.length,
     lines: quote.lines.map((line, index) => ({ index: index + 1, detailsAvailable: Boolean(quoteLineDetails(line)), hasDescription: Boolean(line.description?.trim()), dimensionsAvailable: Object.fromEntries(dimensionKeys.map((key) => [key, Boolean(lineDimension(line, key))])) })),
     workbook: JSON.parse(xlsxWorkbookSummary(template, info)),
   }) }], xlsxMapSchema, (raw) => validateXlsxTemplateFillPlan(raw, template, quote));
+  const plan = await addAiMappedSummaryCells(addRecognizedSummaryCells(mappedPlan, template), template, quote);
+  validateXlsxTemplateFillPlan(plan, template, quote);
   renderXlsxTemplate(template, quote, plan, inputContext);
   return plan;
 }
@@ -531,9 +611,14 @@ export async function getOrCreateXlsxTemplateFillPlan(db: Db, template: QuoteTem
   const cached = template.xlsxFillPlanCache?.[key];
   if (cached) {
     try {
-      validateXlsxTemplateFillPlan(cached, template, quote);
-      renderXlsxTemplate(template, quote, cached, inputContext);
-      return cached;
+      const plan = await addAiMappedSummaryCells(addRecognizedSummaryCells(structuredClone(cached), template), template, quote);
+      validateXlsxTemplateFillPlan(plan, template, quote);
+      renderXlsxTemplate(template, quote, plan, inputContext);
+      if (JSON.stringify(plan) !== JSON.stringify(cached) && template._id) {
+        await db.collection<QuoteTemplate>("quoteTemplates").updateOne({ _id: template._id, companyId: template.companyId }, { $set: { [`xlsxFillPlanCache.${key}`]: plan } });
+        template.xlsxFillPlanCache = { ...template.xlsxFillPlanCache, [key]: plan };
+      }
+      return plan;
     } catch { /* A stale or malformed per-template map is regenerated below. */ }
   }
   const plan = await createXlsxTemplateFillPlan(template, quote, inputContext);
@@ -680,6 +765,8 @@ function clearTableRows(info: XlsxWorkbookInfo, plan: XlsxTemplateFillPlan, inpu
     }
     if (!headerRow) continue;
     const activeRows = new Set(rowsForSheet.map((row) => row.row));
+    const mappedSummaryRows = new Set(plan.cells.filter((entry) => entry.sheet === sheet.name && ["subtotal", "shippingFee", "taxRate", "taxAmount"].includes(entry.key))
+      .map((entry) => parseCellRef(entry.cell)?.row).filter((row): row is number => row !== undefined));
     const measureColumns = rowsForSheet[0]!.fields.filter((field) => ["quantity", "unitPrice", "lineTotal"].includes(field.key)).map((field) => parseCellRef(field.cell)?.column).filter((value): value is string => Boolean(value));
     const productColumns = ["name", "quantity", "unitPrice", "lineTotal"].map((key) => {
       const field = rowsForSheet[0]!.fields.find((entry) => entry.key === key);
@@ -703,7 +790,7 @@ function clearTableRows(info: XlsxWorkbookInfo, plan: XlsxTemplateFillPlan, inpu
         const cell = sheet.cells.get(`${column}${row}`);
         return Boolean(cell && cell.value !== "" && (!cell.formula || Number(cell.value) !== 0));
       });
-      const isSummaryRow = /^(tong(?: |$)|thanh toan(?: |$)|vat(?: \d|$)|thue(?: gtgt| gia tri gia tang| vat| \d)?$|subtotal$|grand total$|amount due$|discount$|chiet khau$|shipping fee$|tax(?: rate)?$)/.test(label);
+      const isSummaryRow = mappedSummaryRows.has(row) || isSummaryRowLabel(label);
       if (isProductRow && isSummaryRow) {
         for (const column of measureColumns) {
           const cellInfo = sheet.cells.get(`${column}${row}`);
@@ -715,9 +802,14 @@ function clearTableRows(info: XlsxWorkbookInfo, plan: XlsxTemplateFillPlan, inpu
             cell.removeAttribute("t");
           }
         }
+        rowNodes.get(row)?.removeAttribute("hidden");
         continue;
       }
       const rowNode = rowNodes.get(row);
+      if (isSummaryRow) {
+        rowNode?.removeAttribute("hidden");
+        continue;
+      }
       if (!active && label && !hasLineValues && !isSummaryRow) {
         const words = label.split(" ");
         const titlePhrases = [label];
@@ -793,15 +885,139 @@ function clearTableProductImages(zip: PizZip, sheet: XlsxSheetInfo, headerRow: n
   }
 }
 
+function addFallbackSummaryRows(info: XlsxWorkbookInfo, plan: XlsxTemplateFillPlan) {
+  const labels = {
+    subtotal: "Tạm tính",
+    shippingFee: "Phí vận chuyển",
+    taxRate: "Thuế suất VAT",
+    taxAmount: "Tiền thuế VAT",
+  } as const;
+  const missing = (Object.keys(labels) as (keyof typeof labels)[]).filter((key) => !plan.cells.some((entry) => entry.key === key));
+  const taxRateStringTargets = new Set<string>();
+  if (!missing.length) return taxRateStringTargets;
+
+  const totalEntry = plan.cells.find((entry) => entry.key === "total");
+  const totalPoint = totalEntry ? parseCellRef(totalEntry.cell) : null;
+  const sheet = totalEntry ? info.sheets.get(totalEntry.sheet) : undefined;
+  if (!totalEntry || !totalPoint || !sheet) return taxRateStringTargets;
+
+  const rowLabel = [...sheet.cells.values()]
+    .filter((cell) => Number(cell.ref.match(/\d+$/)?.[0]) === totalPoint.row && isTotalLabel(cell.value))
+    .sort((left, right) => columnNumber(parseCellRef(right.ref)?.column ?? "A") - columnNumber(parseCellRef(left.ref)?.column ?? "A"))[0];
+  const fallbackName = plan.lineRows.find((row) => row.sheet === sheet.name)?.fields.find((field) => field.key === "name");
+  const fallbackNamePoint = fallbackName ? parseCellRef(fallbackName.cell) : null;
+  const proposedLabelColumn = (rowLabel && parseCellRef(rowLabel.ref)?.column) || fallbackNamePoint?.column || columnLetters(Math.max(1, columnNumber(totalPoint.column) - 1));
+  const labelColumn = proposedLabelColumn === totalPoint.column
+    ? columnLetters(columnNumber(totalPoint.column) > 1 ? columnNumber(totalPoint.column) - 1 : 2)
+    : proposedLabelColumn;
+  const labelSource = rowLabel ?? (fallbackName ? sheet.cells.get(fallbackName.cell) : undefined);
+  const amountSource = sheet.cells.get(totalEntry.cell);
+  const maxProductRow = Math.max(0, ...plan.lineRows.filter((row) => row.sheet === sheet.name).map((row) => row.row));
+  const blankRows: number[] = [];
+  for (let row = maxProductRow + 1; row < totalPoint.row; row++) {
+    const occupied = [...sheet.cells.values()].some((cell) => Number(cell.ref.match(/\d+$/)?.[0]) === row && (cell.value.trim() !== "" || Boolean(cell.formula)));
+    const labelRef = `${labelColumn}${row}`;
+    const amountRef = `${totalPoint.column}${row}`;
+    if (!occupied && labelRef !== amountRef && isMergeAnchor(labelRef, sheet.merged) && isMergeAnchor(amountRef, sheet.merged)) blankRows.push(row);
+  }
+  if (blankRows.length < missing.length) blankRows.length = 0;
+  const maxUsedRow = Math.max(0, ...sheet.rows);
+  const rows = [...blankRows];
+  while (rows.length < missing.length) rows.push(maxUsedRow + rows.length - blankRows.length + 1);
+
+  const document = validateXml(info.zip.file(sheet.path)!.asText());
+  const root = document.documentElement;
+  if (!root) return taxRateStringTargets;
+  let sheetData = descendants(document, "sheetData")[0];
+  if (!sheetData) {
+    sheetData = document.createElementNS(spreadsheetNamespace, "sheetData");
+    root.appendChild(sheetData);
+  }
+  const rowNodes = new Map(descendants(sheetData, "row").map((row) => [Number(row.getAttribute("r")), row]));
+  const getOrCreateRow = (rowNumber: number) => {
+    let rowNode = rowNodes.get(rowNumber);
+    if (!rowNode) {
+      rowNode = document.createElementNS(spreadsheetNamespace, "row");
+      rowNode.setAttribute("r", String(rowNumber));
+      const next = [...rowNodes.entries()].sort(([left], [right]) => left - right).find(([number]) => number > rowNumber)?.[1];
+      if (next) sheetData!.insertBefore(rowNode, next);
+      else sheetData!.appendChild(rowNode);
+      rowNodes.set(rowNumber, rowNode);
+    }
+    rowNode.removeAttribute("hidden");
+    return rowNode;
+  };
+  const getOrCreateCell = (rowNode: Element, ref: string, styleSource?: XlsxCellInfo) => {
+    let cell = childElements(rowNode).find((element) => element.localName === "c" && (element.getAttribute("r") ?? "").toUpperCase() === ref);
+    if (!cell) {
+      cell = document.createElementNS(spreadsheetNamespace, "c");
+      cell.setAttribute("r", ref);
+      const style = styleSource?.style;
+      if (style) cell.setAttribute("s", style);
+      const targetColumn = columnNumber(parseCellRef(ref)!.column);
+      const next = childElements(rowNode).filter((element) => element.localName === "c")
+        .find((element) => columnNumber(parseCellRef(element.getAttribute("r") ?? "")?.column ?? "A") > targetColumn);
+      if (next) rowNode.insertBefore(cell, next);
+      else rowNode.appendChild(cell);
+    } else if (!cell.getAttribute("s") && styleSource?.style) cell.setAttribute("s", styleSource.style ?? "");
+    return cell;
+  };
+  const serializer = new XMLSerializer();
+  for (let index = 0; index < missing.length; index++) {
+    const key = missing[index]!;
+    const row = rows[index]!;
+    const labelRef = `${labelColumn}${row}`;
+    const amountRef = `${totalPoint.column}${row}`;
+    const rowNode = getOrCreateRow(row);
+    const labelCell = getOrCreateCell(rowNode, labelRef, labelSource);
+    const amountCell = getOrCreateCell(rowNode, amountRef, amountSource);
+    setSpreadsheetCell(labelCell, labels[key], "reject");
+    sheet.rows.add(row);
+    const labelStyle = labelCell.getAttribute("s");
+    const amountStyle = amountCell.getAttribute("s");
+    sheet.cells.set(labelRef, { ref: labelRef, value: labels[key], ...(labelStyle ? { style: labelStyle } : {}) });
+    sheet.cells.set(amountRef, { ref: amountRef, value: "", ...(amountStyle ? { style: amountStyle } : {}) });
+    plan.cells.push({ key, sheet: sheet.name, cell: amountRef });
+    if (key === "taxRate") taxRateStringTargets.add(`${sheet.name}!${amountRef}`);
+  }
+
+  const dimension = directChild(root, "dimension");
+  const dimensionRefs = [...(dimension?.getAttribute("ref") ?? "").split(":"), ...sheet.cells.keys()]
+    .map((ref) => parseCellRef(ref))
+    .filter((point): point is { column: string; row: number } => point !== null);
+  if (dimensionRefs.length) {
+    const minColumn = Math.min(...dimensionRefs.map((point) => columnNumber(point.column)));
+    const minRow = Math.min(...dimensionRefs.map((point) => point.row));
+    const maxColumn = Math.max(...dimensionRefs.map((point) => columnNumber(point.column)));
+    const maxRow = Math.max(...dimensionRefs.map((point) => point.row));
+    const start = `${columnLetters(minColumn)}${minRow}`;
+    const end = `${columnLetters(maxColumn)}${maxRow}`;
+    const ref = start === end ? start : `${start}:${end}`;
+    if (dimension) dimension.setAttribute("ref", ref);
+    else {
+      const newDimension = document.createElementNS(spreadsheetNamespace, "dimension");
+      newDimension.setAttribute("ref", ref);
+      const before = childElements(root).find((element) => ["sheetViews", "sheetFormatPr", "cols", "sheetData"].includes(element.localName ?? ""));
+      if (before) root.insertBefore(newDimension, before);
+      else root.appendChild(newDimension);
+    }
+  }
+  info.zip.file(sheet.path, serializer.serializeToString(document));
+  return taxRateStringTargets;
+}
+
 function renderXlsxTemplate(template: QuoteTemplate, quote: Quote, raw: XlsxTemplateFillPlan, inputContext = "") {
-  const plan = validateXlsxTemplateFillPlan(raw, template, quote);
+  const plan = validateXlsxTemplateFillPlan(structuredClone(raw), template, quote);
   const info = workbookInfo(template);
+  const taxRateStringTargets = addFallbackSummaryRows(info, plan);
   clearTableRows(info, plan, inputContext);
   const values = xlsxQuoteValues(quote);
   const targets = [
     ...plan.cells.map((entry) => {
       const current = info.sheets.get(entry.sheet)?.cells.get(entry.cell)?.value ?? "";
-      const value = entry.key === "customerName" && isCustomerLabel(current) ? `${current}${current.endsWith(" ") ? "" : " "}${values[entry.key]}` : values[entry.key];
+      const value = taxRateStringTargets.has(`${entry.sheet}!${entry.cell}`) && entry.key === "taxRate"
+        ? `${(quote.taxRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}%`
+        : entry.key === "customerName" && isCustomerLabel(current) ? `${current}${current.endsWith(" ") ? "" : " "}${values[entry.key]}` : values[entry.key];
       return { ...entry, value };
     }),
     ...plan.lineRows.flatMap((row, index) => row.fields.map((field) => ({ sheet: row.sheet, cell: field.cell, key: `line_${index + 1}_${field.key}`, value: values[`line_${index + 1}_${field.key}`] }))),
@@ -820,7 +1036,7 @@ function renderXlsxTemplate(template: QuoteTemplate, quote: Quote, raw: XlsxTemp
     for (const entry of entries) {
       const cell = descendants(document, "c").find((element) => (element.getAttribute("r") ?? "").replace(/\$/g, "").toUpperCase() === entry.cell);
       if (!cell) throw new Error("Không tìm thấy ô đã ánh xạ trong file Excel.");
-      const formulaMode = entry.key.endsWith("_quantity") || entry.key.endsWith("_unitPrice") || entry.key.endsWith("_index") ? "replace" : ["subtotal", "taxRate", "taxAmount", "total"].includes(entry.key) || entry.key.endsWith("_lineTotal") ? "preserve" : "reject";
+      const formulaMode = entry.key.endsWith("_quantity") || entry.key.endsWith("_unitPrice") || entry.key.endsWith("_index") ? "replace" : ["subtotal", "shippingFee", "taxRate", "taxAmount", "total"].includes(entry.key) || entry.key.endsWith("_lineTotal") ? "preserve" : "reject";
       setSpreadsheetCell(cell, entry.value!, formulaMode);
     }
     info.zip.file(sheet.path, serializer.serializeToString(document));

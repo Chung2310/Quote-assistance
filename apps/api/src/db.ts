@@ -2,7 +2,7 @@ import { MongoClient, ObjectId, type Db } from "mongodb";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import type { Company, UserAccount } from "./types.js";
+import type { Company, PlanContactRequest, SubscriptionPlan, UserAccount } from "./types.js";
 
 const client = new MongoClient(config.mongoUri, {
   appName: "bao-gia-ai-pilot",
@@ -23,12 +23,34 @@ async function ensureCompany(db: Db, name: string): Promise<Company> {
   const now = new Date();
   await companies.updateOne(
     { normalizedName },
-    { $setOnInsert: { code: randomUUID(), name, normalizedName, createdAt: now, updatedAt: now } },
+    { $setOnInsert: { code: randomUUID(), name, normalizedName, planCode: "free", createdAt: now, updatedAt: now } },
     { upsert: true },
   );
   const company = await companies.findOne({ normalizedName });
   if (!company) throw new Error(`Unable to create company record: ${name}`);
   return company;
+}
+
+async function ensureSubscriptionPlans(db: Db) {
+  const plans: Omit<SubscriptionPlan, "_id" | "createdAt" | "updatedAt">[] = [
+    { code: "free", name: "Dùng thử", description: "Khám phá cách Giáo giúp bạn làm báo giá nhanh hơn.", monthlyPrice: 0, quoteLimit: 20, templateLimit: 1, active: true, featured: false, displayOrder: 0 },
+    { code: "starter", name: "Khởi đầu", description: "Dành cho doanh nghiệp có nhu cầu báo giá thường xuyên.", monthlyPrice: 199_000, quoteLimit: 200, templateLimit: 3, active: true, featured: false, displayOrder: 1 },
+    { code: "pro", name: "Pro", description: "Đủ sức cho quy trình báo giá mỗi ngày.", monthlyPrice: 499_000, quoteLimit: 1_000, templateLimit: 10, active: true, featured: true, displayOrder: 2 },
+    { code: "business", name: "Business", description: "Hạn mức rộng rãi cho khối lượng báo giá lớn.", monthlyPrice: 1_490_000, quoteLimit: 3_000, templateLimit: 30, active: true, featured: false, displayOrder: 3 },
+    { code: "enterprise", name: "Enterprise", description: "Gói tùy chỉnh theo nhu cầu của doanh nghiệp.", monthlyPrice: null, quoteLimit: null, templateLimit: null, active: true, featured: false, displayOrder: 4 },
+    { code: "contact", name: "Liên hệ", description: "Trao đổi với chúng tôi để tìm gói phù hợp với doanh nghiệp của bạn.", monthlyPrice: null, quoteLimit: null, templateLimit: null, active: true, featured: false, displayOrder: 5 },
+  ];
+  const collection = db.collection<SubscriptionPlan>("subscriptionPlans");
+  const now = new Date();
+  await Promise.all(plans.map((plan) => collection.updateOne(
+    { code: plan.code },
+    { $setOnInsert: { ...plan, createdAt: now, updatedAt: now } },
+    { upsert: true },
+  )));
+  await db.collection<Company>("companies").updateMany(
+    { $or: [{ planCode: { $exists: false } }, { planCode: { $eq: null as unknown as string } }, { planCode: "" }] },
+    { $set: { planCode: "free", updatedAt: now } },
+  );
 }
 
 async function migrateLegacyTenantData(db: Db, defaultCompany: Company) {
@@ -65,7 +87,7 @@ async function migrateLegacyTenantData(db: Db, defaultCompany: Company) {
       const now = new Date();
       await companies.updateOne(
         { legacyPartitionId: legacyId },
-        { $setOnInsert: { name, normalizedName: normalizeCompanyName(name), legacyPartitionId: legacyId, createdAt: now, updatedAt: now } },
+        { $setOnInsert: { name, normalizedName: normalizeCompanyName(name), legacyPartitionId: legacyId, planCode: "free", createdAt: now, updatedAt: now } },
         { upsert: true },
       );
       company = await companies.findOne({ legacyPartitionId: legacyId });
@@ -211,9 +233,17 @@ export async function connectDatabase() {
       await Promise.all([
         db.collection<Company>("companies").createIndex({ normalizedName: 1 }, { unique: true }),
         db.collection<Company>("companies").createIndex({ legacyPartitionId: 1 }, { unique: true, sparse: true }),
+        db.collection<SubscriptionPlan>("subscriptionPlans").createIndex({ code: 1 }, { unique: true }),
+        db.collection<PlanContactRequest>("planContactRequests").createIndex({ createdAt: -1 }),
+        db.collection<PlanContactRequest>("planContactRequests").createIndex({ status: 1, createdAt: -1 }),
         db.collection<UserAccount>("users").createIndex({ email: 1 }, { unique: true }),
         db.collection("companyFiles").createIndex({ companyId: 1, createdAt: -1 }),
+        db.collection("subscriptionPayments").createIndex({ code: 1 }, { unique: true }),
+        db.collection("subscriptionPayments").createIndex({ sepayTransactionId: 1 }, { unique: true, sparse: true }),
+        db.collection("subscriptionPayments").createIndex({ companyId: 1, status: 1, createdAt: -1 }),
+        db.collection("subscriptionPayments").createIndex({ companyId: 1 }, { unique: true, partialFilterExpression: { status: "pending" } }),
       ]);
+      await ensureSubscriptionPlans(db);
       const defaultCompany = await ensureCompany(db, config.defaultCompanyName);
       if (!defaultCompany._id) throw new Error("Default company record has no id");
       await migrateLegacyTenantData(db, defaultCompany);
@@ -229,6 +259,8 @@ export async function connectDatabase() {
         db.collection("quotes").createIndex({ companyId: 1, idempotencyKey: 1 }, { unique: true, partialFilterExpression: { idempotencyKey: { $type: "string" } } }),
         db.collection("quotes").createIndex({ companyId: 1, status: 1, createdAt: -1 }),
         db.collection("auditLogs").createIndex({ companyId: 1, createdAt: -1 }),
+        db.collection("auditLogs").createIndex({ companyId: 1, action: 1, createdAt: 1 }),
+        db.collection("quoteTemplates").createIndex({ companyId: 1 }),
       ]);
       const platformSettings = db.collection<{ _id: string; createdAt?: Date }>("platformSettings");
       const roleModel = await platformSettings.findOne({ _id: "user-role-model-v2" });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 export type NotificationType = "success" | "error" | "info";
 export type Notify = (message: string, type?: NotificationType) => void;
@@ -9,8 +9,18 @@ export type ConfirmOptions = {
   tone?: "primary" | "danger";
   dismissWithClose?: boolean;
 };
+export type TaskProgressState = { label: string; detail?: string; progress?: number | null };
 
 type Notification = { id: number; message: string; type: NotificationType };
+const NotificationContext = createContext<Notify>(() => undefined);
+
+export function NotificationProvider({ notify, children }: { notify: Notify; children: ReactNode }) {
+  return <NotificationContext.Provider value={notify}>{children}</NotificationContext.Provider>;
+}
+
+export function useAppNotification() {
+  return useContext(NotificationContext);
+}
 
 export function useNotification() {
   const [notification, setNotification] = useState<Notification | null>(null);
@@ -37,6 +47,18 @@ export function NotificationToast({ notification, onDismiss }: { notification: N
     <span className="app-notification-message">{notification.message}</span>
     <button type="button" className="app-notification-close" aria-label="Đóng thông báo" onClick={onDismiss}>×</button>
   </div>;
+}
+
+export function TaskProgress({ label, detail, progress }: TaskProgressState) {
+  const determinate = typeof progress === "number" && Number.isFinite(progress);
+  const value = determinate ? Math.max(0, Math.min(100, progress)) : undefined;
+  return <section className="task-progress" role="status" aria-live="polite" aria-busy="true">
+    <div className="task-progress-heading"><span className="task-progress-spinner" aria-hidden="true" /><strong>{label}</strong>{determinate && <span className="task-progress-percent">{value}%</span>}</div>
+    <div className={`task-progress-track ${determinate ? "is-determinate" : "is-indeterminate"}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} {...(determinate ? { "aria-valuenow": value } : { "aria-valuetext": "Đang xử lý" })}>
+      <span style={determinate ? { width: `${value}%` } : undefined} />
+    </div>
+    {detail && <small>{detail}</small>}
+  </section>;
 }
 
 export function useConfirmation() {
