@@ -7,6 +7,7 @@ export type ConfirmOptions = {
   message: string;
   confirmLabel?: string;
   tone?: "primary" | "danger";
+  dismissWithClose?: boolean;
 };
 
 type Notification = { id: number; message: string; type: NotificationType };
@@ -61,12 +62,13 @@ export function useConfirmation() {
   }, [options, settle]);
 
   const dialog = options ? <div className="app-confirm-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) settle(false); }}>
-    <section className="app-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="app-confirm-title" aria-describedby="app-confirm-message">
+    <section className={`app-confirm-dialog ${options.dismissWithClose ? "is-close-only" : ""}`} role="alertdialog" aria-modal="true" aria-labelledby="app-confirm-title" aria-describedby="app-confirm-message">
+      {options.dismissWithClose && <button type="button" autoFocus className="app-confirm-close" aria-label="Đóng hộp xác nhận" onClick={() => settle(false)}>×</button>}
       <span className={`app-confirm-mark ${options.tone === "danger" ? "is-danger" : ""}`} aria-hidden="true">{options.tone === "danger" ? "!" : "?"}</span>
       <h2 id="app-confirm-title">{options.title}</h2>
       <p id="app-confirm-message">{options.message}</p>
       <div className="app-confirm-actions">
-        <button type="button" autoFocus className="button button-soft" onClick={() => settle(false)}>Hủy</button>
+        {!options.dismissWithClose && <button type="button" autoFocus className="button button-soft" onClick={() => settle(false)}>Hủy</button>}
         <button type="button" className={`button ${options.tone === "danger" ? "button-danger" : "button-primary"}`} onClick={() => settle(true)}>{options.confirmLabel ?? "Xác nhận"}</button>
       </div>
     </section>

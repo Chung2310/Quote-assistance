@@ -62,12 +62,12 @@ export default function FilePreview({ file, onClose }: { file: PreviewFile | nul
   const sheet = content.sheets?.[activeSheet];
   return <dialog ref={dialog} className="file-preview-dialog" aria-label={file ? `Xem trước ${file.name}` : "Xem trước file"} onCancel={(event) => { event.preventDefault(); close(); }}>
     <div className="file-preview-shell">
-      <header className="file-preview-heading"><div><span className="eyebrow">XEM TRƯỚC FILE</span><h2 title={file?.name}>{file?.name}</h2></div><button type="button" className="icon-button" onClick={close} aria-label="Đóng xem trước">×</button></header>
+      <header className="file-preview-heading"><div><span className="eyebrow">Xem trước tệp</span><h2 title={file?.name}>{file?.name}</h2></div><button type="button" className="icon-button" onClick={close} aria-label="Đóng xem trước">×</button></header>
       {content.sheets && <nav className="file-preview-tabs" aria-label="Trang tính">{content.sheets.map((entry, index) => <button type="button" key={`${entry.name}-${index}`} className={activeSheet === index ? "active" : ""} onClick={() => setActiveSheet(index)}>{entry.name}</button>)}</nav>}
       <main className="file-preview-content">
         {busy ? <p role="status">Đang tải file…</p> : error ? <div className="inline-error" role="alert">{error}</div> : content.html ? <iframe className="file-preview-frame" sandbox="" srcDoc={content.html} title={`Nội dung ${file?.name}`} /> : sheet ? <div className="file-preview-table-wrap"><table className="file-preview-table"><tbody>{sheet.rows.map((row, rowIndex) => <tr key={rowIndex}>{row.map((cell, cellIndex) => <td key={cellIndex}>{cell == null ? "" : String(cell)}</td>)}</tr>)}</tbody></table></div> : content.text !== undefined ? <pre className="file-preview-text">{content.text}</pre> : content.url && extension === "pdf" ? <iframe className="file-preview-frame" src={content.url} title={`PDF ${file?.name}`} /> : content.url && ["png", "jpg", "jpeg", "webp", "gif"].includes(extension) ? <img className="file-preview-image" src={content.url} alt={file?.name} /> : content.url ? <div className="file-preview-fallback"><p>Trình duyệt chưa hỗ trợ xem trước định dạng này.</p><a className="button button-primary" href={content.url} download={file?.name}>Tải file</a></div> : null}
       </main>
-      {!busy && !error && content.url && <footer className="file-preview-footer"><a className="text-button" href={content.url} download={file?.name}>Tải file gốc</a><span>{extension.toUpperCase()}</span></footer>}
+      {!busy && !error && content.url && <footer className="file-preview-footer"><a className="text-button" href={content.url} download={file?.name}>Tải file gốc</a><span>{extension.toLowerCase()}</span></footer>}
     </div>
   </dialog>;
 }
