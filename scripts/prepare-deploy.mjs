@@ -19,7 +19,9 @@ const imageTagPrefix = imageRepository + ":";
 if (!env.IMAGE_TAG.startsWith(imageTagPrefix) || !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(env.IMAGE_TAG.slice(imageTagPrefix.length))) {
   throw new Error("Expected IMAGE_TAG for the immutable GHCR image repository");
 }
-const containerName = imageRepository.slice(imageRepository.lastIndexOf("/") + 1).toLowerCase();
+const containerBase = imageRepository.slice(imageRepository.lastIndexOf("/") + 1).toLowerCase();
+const imageTag = env.IMAGE_TAG.slice(imageTagPrefix.length).toLowerCase();
+const containerName = `${containerBase}-${imageTag}`;
 if (!/^[a-z0-9][a-z0-9_.-]*$/.test(containerName)) throw new Error("Could not derive a valid container name from the GitHub repository");
 let app;
 try { app = parseEnv(env.ENV_FILE.replace(/^\uFEFF/, "")); }
@@ -44,6 +46,7 @@ writeFileSync(join(directory, "app.env"), lines.join("\n") + "\n", { mode: 0o600
 writeFileSync(join(directory, "app-port"), app.PORT, { mode: 0o600 });
 writeFileSync(join(directory, "docker-network"), dockerNetwork, { mode: 0o600 });
 writeFileSync(join(directory, "image-tag"), env.IMAGE_TAG, { mode: 0o600 });
+writeFileSync(join(directory, "container-base"), containerBase, { mode: 0o600 });
 writeFileSync(join(directory, "container-name"), containerName, { mode: 0o600 });
 writeFileSync(join(directory, "ssh-key"), env.SSH_KEY.replace(/\r/g, "") + "\n", { mode: 0o600 });
 writeFileSync(join(directory, "ghcr.token"), env.GHCR_TOKEN, { mode: 0o600 });
