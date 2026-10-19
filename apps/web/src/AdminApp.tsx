@@ -290,7 +290,7 @@ function PlanContactRequestDialog({ request, onClose, onSaved }: { request: Plan
 
 function AdminSepay({ onToast }: { onToast: Notify }) {
   const [settings, setSettings] = useState<AdminSepaySettings | null>(null);
-  const [form, setForm] = useState<AdminSepayForm>({ bankCode: "", accountNumber: "", accountName: "", paymentPrefix: "GQ", webhookApiKey: "" });
+  const [form, setForm] = useState<AdminSepayForm>({ bankCode: "", accountNumber: "", accountName: "", paymentPrefix: "BG", webhookApiKey: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -372,7 +372,7 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
         <div className="admin-sepay-info">
           <div className="admin-sepay-endpoint"><code>{webhookUrl}</code><button type="button" className="admin-button admin-button-secondary" onClick={() => void copyWebhookUrl()}>Sao chép</button></div>
           <p>Trong SePay, chọn webhook tiền vào, xác thực API Key và nhập cùng khóa ở đây.</p>
-          <p>Mã chuyển khoản bắt đầu bằng <strong>{form.paymentPrefix || "GQ"}</strong>. Dùng tiền tố này trong cấu hình nhận diện giao dịch của SePay.</p>
+          <p>Mã chuyển khoản bắt đầu bằng <strong>{form.paymentPrefix || "BG"}</strong>. Dùng tiền tố này trong cấu hình nhận diện giao dịch của SePay.</p>
           <p>Ngân hàng, số tài khoản và API Key phải cùng thuộc cấu hình webhook đang sử dụng.</p>
         </div>
       </section>

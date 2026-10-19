@@ -39,7 +39,7 @@ jobs:
   publish-image:
     name: Publish Docker image to GHCR
     needs: build
-    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v'))
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/production' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     outputs:
       image: ${{ steps.image.outputs.name }}
@@ -89,13 +89,13 @@ jobs:
           cache-to: type=gha,mode=max,scope=app-image
 
   deploy:
-    name: Deploy develop to VPS
+    name: Deploy branch to VPS
     needs: publish-image
-    if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
+    if: (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/production') && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: deploy-develop-vps
+      group: deploy-vps
       cancel-in-progress: false
     permissions:
       contents: read
@@ -108,11 +108,11 @@ jobs:
       - name: Deploy and verify container
         shell: bash
         env:
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-          SSH_USER: ${{ secrets.SSH_USER }}
-          SSH_KEY: ${{ secrets.SSH_KEY }}
-          SSH_PORT: ${{ secrets.SSH_PORT }}
-          ENV_FILE: ${{ vars.ENV_FILE }}
+          SSH_HOST: ${{ secrets[github.ref_name == 'production' && 'SSH_HOST_PROD' || 'SSH_HOST'] }}
+          SSH_USER: ${{ secrets[github.ref_name == 'production' && 'SSH_USER_PROD' || 'SSH_USER'] }}
+          SSH_KEY: ${{ secrets[github.ref_name == 'production' && 'SSH_KEY_PROD' || 'SSH_KEY'] }}
+          SSH_PORT: ${{ secrets[github.ref_name == 'production' && 'SSH_PORT_PROD' || 'SSH_PORT'] || '22' }}
+          ENV_FILE: ${{ vars[github.ref_name == 'production' && 'ENV_FILE_PROD' || 'ENV_FILE'] || secrets[github.ref_name == 'production' && 'ENV_FILE_PROD' || 'ENV_FILE'] }}
           IMAGE: ${{ needs.publish-image.outputs.image }}@${{ needs.publish-image.outputs.digest }}
           IMAGE_TAG: ${{ needs.publish-image.outputs.image }}:${{ needs.publish-image.outputs.tag }}
           GHCR_USER: ${{ github.actor }}

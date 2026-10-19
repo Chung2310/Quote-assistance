@@ -1,6 +1,6 @@
 # CI/CD và deploy VPS
 
-Workflow build trên mỗi pull request/push. Push develop, nhánh mặc định hoặc tag v* sẽ publish image lên GHCR. Riêng develop tiếp tục deploy qua SSH. Chạy thủ công: **Actions → CI/CD → Run workflow → develop**.
+Workflow build trên mỗi pull request/push. Push nhánh production sẽ build và publish image lên GHCR; nhánh develop, nhánh mặc định và tag v* cũng publish image. Nhánh develop hoặc production sẽ deploy qua SSH. Chạy thủ công: **Actions → CI/CD → Run workflow**, rồi chọn branch `develop` hoặc `production`.
 
 ## Cấu hình GitHub
 
@@ -36,7 +36,7 @@ VPS Linux x86_64 cần Docker Engine, Bash, tar, flock. SSH_USER phải có quy�
 
 SSH dùng accept-new: nhận host key ở lần kết nối đầu của job, sau đó kiểm tra cùng key trong các kết nối còn lại. Không yêu cầu secret known_hosts riêng.
 
-Container tên bao-gia, restart policy unless-stopped. Image hiển thị theo tag nhánh từ GHCR, ví dụ `ghcr.io/<owner>/<repository>:develop`; bản deploy vẫn được pull theo digest. Cổng host bằng PORT trong ENV_FILE, bind 0.0.0.0 để nhận kết nối trên mọi giao diện VPS. Cấu hình Nginx/Caddy trên VPS có thể chuyển HTTPS tới 127.0.0.1:3013 (hoặc PORT bạn chọn). MongoDB phải truy cập được từ container; localhost trong URI là container ứng dụng, không phải VPS.
+Tên container được lấy từ tên repository và tag nhánh GitHub/GHCR ở cuối image, viết thường; với repository `Chung2310/Quote-assistance`, nhánh production dùng `quote-assistance-production`. Image vẫn được pull theo digest. Khi nâng cấp, deploy nhận diện container của nhánh develop/production, tên repository cũ `quote-assistance`, hoặc tên cũ `bao-gia`, rồi thay thế an toàn. Hai nhánh dùng chung SSH secrets, `ENV_FILE` và cổng nên chỉ có một container của ứng dụng chạy tại một thời điểm; deploy nhánh mới sẽ thay container hiện tại. Deploy in hostname và tài khoản Docker đích để đối chiếu VPS. Các lượt deploy được xếp hàng. Cổng host bằng PORT trong ENV_FILE, bind 0.0.0.0. Cấu hình Nginx/Caddy trên VPS có thể chuyển HTTPS tới 127.0.0.1:3013 (hoặc PORT bạn chọn). MongoDB phải truy cập được từ container; localhost trong URI là container ứng dụng, không phải VPS.
 
 Nếu MongoDB chạy trong container trên cùng VPS, deploy tự tìm network từ hostname/alias trong MONGODB_URI. Nếu URI dùng localhost/127.0.0.1, deploy tìm container đang publish đúng cổng MongoDB rồi chuyển host/port sang địa chỉ nội bộ của container đó; user/password/database/query được giữ nguyên. Không sửa variable ENV_FILE trên GitHub. Nếu có nhiều container trùng cổng hoặc không tìm được container, deploy dừng và báo rõ. MongoDB chạy trực tiếp trên host không được tự chuyển theo cơ chế này.
 
@@ -54,8 +54,8 @@ Deploy dùng digest image vừa build; các lượt chạy tuần tự:
 Có gián đoạn ngắn khi chuyển cổng; rollback container không hoàn tác dữ liệu MongoDB. File cấu hình và token tạm được dọn sau khi chạy. Khi hủy cưỡng bức hoặc mất kết nối, kiểm tra /tmp/bao-gia-deploy.* trên VPS.
 
 ```sh
-docker ps -a --filter name=bao-gia
-docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' bao-gia
+docker ps -a --filter name=quote-assistance-production
+docker inspect --format '{{.State.Status}} {{.State.ExitCode}}' quote-assistance-production
 curl --fail http://127.0.0.1:3013/api/health
 ```
 
