@@ -28,6 +28,7 @@ export interface QuoteTemplate {
   capacity?: number; // Only for previously created placeholder-based quotes.
   createdAt: Date;
   uploadedBy: string;
+  deletedAt?: Date;
 }
 const lineFields = ["sku", "name", "quantity", "unit", "unitPrice", "lineTotal"];
 const tokenPattern = /\{([a-zA-Z][a-zA-Z0-9_]*)\}/g;
@@ -1061,8 +1062,11 @@ export function templateDetails(template: QuoteTemplate) {
 
 export async function currentTemplate(db: Db, companyId: string) {
   const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(companyId) });
-  return company?.quoteTemplateId && ObjectId.isValid(company.quoteTemplateId)
-    ? db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: new ObjectId(company.quoteTemplateId), companyId }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }) : null;
+  const templates = db.collection<QuoteTemplate>("quoteTemplates");
+  const active = { companyId, deletedAt: { $exists: false } };
+  const selected = company?.quoteTemplateId && ObjectId.isValid(company.quoteTemplateId)
+    ? await templates.findOne({ ...active, _id: new ObjectId(company.quoteTemplateId) }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }) : null;
+  return selected ?? templates.find(active, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }).sort({ _id: -1 }).limit(1).next();
 }
 
 export async function savedTemplate(db: Db, companyId: string, snapshot: QuoteTemplateSnapshot) {

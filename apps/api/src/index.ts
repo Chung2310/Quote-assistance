@@ -292,7 +292,7 @@ async function subscriptionUsage(db: Db, companyId: string) {
   const { start, end } = vietnamMonthPeriod();
   const [quoteUsed, templateUsed] = await Promise.all([
     db.collection("auditLogs").countDocuments({ companyId, action: "quote_created", createdAt: { $gte: start, $lt: end } }),
-    db.collection<QuoteTemplate>("quoteTemplates").countDocuments({ companyId }),
+    db.collection<QuoteTemplate>("quoteTemplates").countDocuments({ companyId, deletedAt: { $exists: false } }),
   ]);
   return {
     plan,
@@ -1284,7 +1284,7 @@ app.get("/api/quote-templates", requireRole("user"), async (request, response) =
   if (request.query.cursor !== undefined && !cursor) return fail(response, "Trang danh sách mẫu không hợp lệ.");
   const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) }, { projection: { quoteTemplateId: 1 } });
   const templates = await db.collection<QuoteTemplate>("quoteTemplates")
-    .find({ companyId: user.companyId, ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } })
+    .find({ companyId: user.companyId, deletedAt: { $exists: false }, ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } })
     .sort({ _id: -1 }).limit(13).toArray();
   const page = templates.slice(0, 12);
   response.json({ templates: page.map(templateDetails), defaultTemplateId: company?.quoteTemplateId ?? null, nextCursor: templates.length > 12 ? page[11]._id!.toHexString() : null });
@@ -1320,6 +1320,30 @@ app.post("/api/quote-template", requireRole("user"), enforceTemplateQuota, expre
   await db.collection<Company>("companies").updateOne({ _id: companyId }, { $set: { quoteTemplateId: result.insertedId.toHexString(), updatedAt: new Date() } });
   await writeAudit(db, user, "quote_template_uploaded", "company", user.companyId, { templateId: result.insertedId.toHexString(), originalFilename });
   response.status(201).json({ template: templateDetails(template) });
+});
+
+app.delete("/api/quote-template/:id", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã mẫu không hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const templates = db.collection<QuoteTemplate>("quoteTemplates");
+  const removed = await templates.findOneAndUpdate(
+    { _id: id, companyId: user.companyId, deletedAt: { $exists: false } },
+    { $set: { deletedAt: new Date() } },
+    { returnDocument: "before", projection: { name: 1, originalFilename: 1 } },
+  );
+  if (!removed) return fail(response, "Không tìm thấy mẫu báo giá.", 404);
+  const replacement = await templates.find({ companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { _id: 1 } })
+    .sort({ _id: -1 }).limit(1).next();
+  await db.collection<Company>("companies").updateOne(
+    { _id: new ObjectId(user.companyId), quoteTemplateId: id.toHexString() },
+    replacement
+      ? { $set: { quoteTemplateId: replacement._id!.toHexString(), updatedAt: new Date() } }
+      : { $set: { updatedAt: new Date() }, $unset: { quoteTemplateId: "" } },
+  );
+  await writeAudit(db, user, "quote_template_deleted", "quoteTemplate", id.toHexString(), { name: removed.name || removed.originalFilename });
+  response.json({ deleted: true });
 });
 
 app.get("/api/quote-template/:id/file", requireRole("user"), async (request, response) => {
@@ -1715,7 +1739,7 @@ app.post("/api/quote-requests", requireRole("user"), async (request, response) =
   }
   const usage = await subscriptionUsage(db, user.companyId);
   if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
-  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } });
+  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } });
   const priceList = priceListId ? await db.collection<PriceList>("priceLists").findOne({ _id: priceListId, companyId: user.companyId }, { projection: { data: 0, analysisRows: 0 } }) : null;
   if (!template || (priceListId && !priceList)) return fail(response, "Mẫu báo giá hoặc bảng giá không thuộc doanh nghiệp hoặc không còn tồn tại.", 404);
   const requestFile = requestFileId ? await db.collection<RequestFile>("requestFiles").findOne({ _id: requestFileId, companyId: user.companyId, uploadedBy: user.id }, { projection: { data: 0 } }) : null;
