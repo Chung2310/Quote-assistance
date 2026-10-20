@@ -17,6 +17,7 @@ import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
+import { makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
 import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
@@ -1950,7 +1951,7 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
       unit: item.unit,
       attributes: requestedAttributes.get(String(item.catalogItemId)) ?? {},
     }));
-    if (!trustedRequestedItems.length && source.suggestedProducts?.length) {
+    if (!trustedRequestedItems.length) {
       totals = { lines: [], subtotal: 0, taxRate: config.taxRate, taxAmount: 0, total: 0, currency: config.currency };
     } else {
       const quoteCatalog = source.priceListId ? (source.candidates ?? []).map((item) => ({ ...item, description: "" })) : [...catalog, ...(source.candidates ?? [])];
@@ -1976,6 +1977,7 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
   const quoteTerms = extractQuoteTerms(source.requestText);
   const informationNeeded = cleanMissingInformation(source.missingFields, totals.lines.length > 0)
     .filter((field) => !isResolvedQuoteTermWarning(field, quoteTerms));
+  if (!totals.lines.length && !source.suggestedProducts?.length) informationNeeded.push("Chưa có sản phẩm trong báo giá.");
   const taxRateConfirmed = !informationNeeded.some(isTaxInformation);
   const shippingFeeConfirmed = !informationNeeded.some(isShippingInformation);
   const shippingFee = shippingFeeConfirmed ? 0 : null;
@@ -2121,7 +2123,7 @@ app.get("/api/quotes/:id/request-file/preview", requireRole("user"), async (requ
 app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   const id = asId(request.params.id);
   const updates = request.body?.items;
-  if (!id || !Array.isArray(updates) || updates.length === 0 || updates.length > 100) return fail(response, "Danh sách dòng hàng không hợp lệ.");
+  if (!id || !Array.isArray(updates) || updates.length > 100) return fail(response, "Danh sách dòng hàng không hợp lệ.");
   const db = await connectDatabase();
   const user = userOf(request);
   const quotes = db.collection<Quote>("quotes");
@@ -2209,9 +2211,11 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   if (completionDate !== null && (!parsedCompletionDate || Number.isNaN(parsedCompletionDate.getTime()) || parsedCompletionDate.toISOString().slice(0, 10) !== completionDate)) return fail(response, "Hạn hoàn thành không hợp lệ.");
   let totals;
   try {
-    const recalculated = recalculateSnapshot(catalogLines, updates.map((item: Record<string, unknown>) => ({
-      catalogItemId: String(item.catalogItemId), quantity: Number(item.quantity),
-    })), taxRateConfirmed ? taxRate : 0);
+    const recalculated = catalogLines.length
+      ? recalculateSnapshot(catalogLines, updates.map((item: Record<string, unknown>) => ({
+        catalogItemId: String(item.catalogItemId), quantity: Number(item.quantity),
+      })), taxRateConfirmed ? taxRate : 0)
+      : { lines: [], subtotal: 0, taxRate, taxAmount: 0, total: 0, currency: quote.currency };
     const lines = [...recalculated.lines, ...supplementalLines];
     const subtotal = roundMoney(lines.reduce((sum, line) => sum + line.lineTotal, 0));
     const taxAmount = roundMoney(subtotal * (taxRateConfirmed ? taxRate : 0));
@@ -2286,11 +2290,9 @@ app.post("/api/quotes/:id/approve", requireRole("user"), async (request, respons
   const db = await connectDatabase();
   const user = userOf(request);
   const quotes = db.collection<Quote>("quotes");
-  const approvableQuote = await quotes.findOne({ _id: id, companyId: user.companyId, status: { $in: ["draft", "pending_review"] } });
-  if (!approvableQuote) return fail(response, "Chỉ có thể duyệt báo giá nháp hoặc đang chờ duyệt.", 409);
-  if (quoteHasUnresolvedInformation(approvableQuote)) return fail(response, "Báo giá còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
+  const approvableStatuses: QuoteStatus[] = ["draft", "needs_info", "pending_review"];
   const result = await quotes.findOneAndUpdate(
-    { _id: id, companyId: user.companyId, status: { $in: ["draft", "pending_review"] } },
+    { _id: id, companyId: user.companyId, status: { $in: approvableStatuses } },
     { $set: { status: "approved", approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date() } },
     { returnDocument: "after" },
   );
@@ -2324,14 +2326,26 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
   const storedQuote = await quotes.findOne({ _id: id, companyId: userOf(request).companyId });
   if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
   const quote = quoteForResponse(storedQuote);
-  if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể xuất báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   const preview = request.query.preview === "1";
   const draftExport = request.query.draft === "1";
+  const excelExport = request.query.excel === "1";
   if (quote.status !== "approved" && !preview && !draftExport) return fail(response, "Chỉ có thể tải file chính thức sau khi báo giá được duyệt.", 409);
+  if (excelExport && quote.status === "approved") {
+    response.setHeader("Content-Type", templateFormats.xlsx);
+    response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.xlsx"`);
+    response.send(makeQuoteExcel(quote));
+    return;
+  }
   try {
     const template = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
-    if (draftExport && (quote.status !== "draft" || template?.extension !== "xlsx")) {
-      return fail(response, "Chỉ có thể xuất bản Excel nháp khi báo giá đã sẵn sàng và dùng mẫu XLSX.", 409);
+    if (draftExport && quote.status === "approved") {
+      return fail(response, "Báo giá đã duyệt; hãy tải file chính thức.", 409);
+    }
+    if (draftExport && (template?.extension !== "xlsx" || quote.lines.length === 0)) {
+      response.setHeader("Content-Type", templateFormats.xlsx);
+      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}-nhap.xlsx"`);
+      response.send(makeQuoteExcel(quote));
+      return;
     }
     const inputContext = await quoteInputContext(db, quote);
     let renderQuote = quote;
@@ -2357,7 +2371,15 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     const filename = `${quote.quoteNumber}${draftExport ? "-nhap" : ""}.${extension}`;
     response.setHeader("Content-Disposition", `${preview ? "inline" : "attachment"}; filename="${filename}"`);
     response.send(bytes);
-  } catch (error) { return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu.", 422); }
+  } catch (error) {
+    if (draftExport && !response.headersSent) {
+      response.setHeader("Content-Type", templateFormats.xlsx);
+      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}-nhap.xlsx"`);
+      response.send(makeQuoteExcel(quote));
+      return;
+    }
+    return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu.", 422);
+  }
 });
 
 app.get("/api/quotes/:id/pdf", requireRole("user"), async (request, response) => {
