@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { api, formatDate } from "./api";
 import { NotificationProvider, NotificationToast, TaskProgress, useAppNotification, useConfirmation, useNotification, type ConfirmOptions, type Notify, type TaskProgressState } from "./Feedback";
 import type { User } from "./types";
@@ -10,10 +11,8 @@ type ManagedUser = User & { active: boolean; createdAt: string; updatedAt: strin
 type ContactStatus = "new" | "contacted" | "closed";
 type PlanContactRequest = { id: string; name: string; companyName: string; email: string; phone: string; message: string; status: ContactStatus; adminNote?: string; createdAt: string; updatedAt: string };
 type SessionState = "checking" | "anonymous" | "allowed" | "forbidden";
-type AdminSection = "businesses" | "plans" | "contacts" | "email" | "payments";
+type AdminSection = "businesses" | "plans" | "contacts" | "payments";
 type AccountDraft = { name: string; email: string; active: boolean; companyName: string; taxId: string; address: string; phone: string; businessEmail: string; representativeName: string; planCode: string };
-type AdminEmailSettings = { configured: boolean; host: string; port: number; secure: boolean; user: string; from: string; passwordSet: boolean };
-type AdminEmailForm = { host: string; port: string; secure: boolean; user: string; password: string; from: string };
 type AdminSepaySettings = { configured: boolean; bankCode: string; accountNumber: string; accountName: string; paymentPrefix: string; webhookApiKeySet: boolean; webhookApiKeySource: "admin" | "environment" | "none" };
 type AdminSepayForm = { bankCode: string; accountNumber: string; accountName: string; paymentPrefix: string; webhookApiKey: string };
 
@@ -31,13 +30,159 @@ function AdminIcon({ name, size = 18 }: { name: string; size?: number }) {
     quote: <><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></>,
     close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     arrow: <><path d="M5 12h14M13 6l6 6-6 6" /></>,
-    mail: <><rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" /></>,
     messages: <><path d="M21 11.5a8.5 8.5 0 0 1-12.2 7.6L3 21l1.9-5.6a8.5 8.5 0 1 1 16.1-3.9Z" /><path d="M8 11h8M8 15h5" /></>,
     lock: <><rect width="18" height="11" x="3" y="11" rx="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></>,
     plans: <><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5M3 16l9 5 9-5" /></>,
     bank: <><path d="M3 10h18M5 10v9m5-9v9m4-9v9m5-9v9M3 21h18M12 3 2 8v2h20V8L12 3Z" /></>,
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.users}</svg>;
+}
+
+type AdminSelectOption = { value: string; label: string };
+type AdminSelectProps = {
+  value: string;
+  options: AdminSelectOption[];
+  onChange: (value: string) => void;
+  ariaLabel?: string;
+  variant?: "field" | "filter";
+};
+
+function AdminSelect({ value, options, onChange, ariaLabel, variant = "field" }: AdminSelectProps) {
+  const selectId = `admin-select-${useId()}`;
+  const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0, width: 0, maxHeight: 280 });
+  const selectedIndex = Math.max(0, options.findIndex((option) => option.value === value));
+  const selectedOption = options[selectedIndex];
+  const activeOption = options[activeIndex];
+
+  const updateMenuPosition = () => {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const maxHeight = Math.min(280, window.innerHeight - 24);
+    const estimatedHeight = Math.min(maxHeight, options.length * 42 + 10);
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const opensUp = spaceBelow < estimatedHeight && spaceAbove > spaceBelow;
+    const availableHeight = opensUp ? spaceAbove : spaceBelow;
+    const visibleHeight = Math.max(80, Math.min(estimatedHeight, availableHeight));
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - rect.width - 8));
+    setMenuPosition({
+      top: opensUp ? Math.max(8, rect.top - visibleHeight - 8) : Math.min(rect.bottom + 8, window.innerHeight - visibleHeight - 8),
+      left,
+      width: rect.width,
+      maxHeight: visibleHeight,
+    });
+  };
+
+  const openMenu = (nextIndex = selectedIndex) => {
+    if (!options.length) return;
+    setActiveIndex(Math.max(0, Math.min(nextIndex, options.length - 1)));
+    updateMenuPosition();
+    setIsOpen(true);
+  };
+
+  const chooseOption = (option: AdminSelectOption) => {
+    onChange(option.value);
+    setIsOpen(false);
+    triggerRef.current?.focus();
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setIsOpen(false);
+    };
+    const reposition = () => updateMenuPosition();
+    document.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("resize", reposition);
+    window.addEventListener("scroll", reposition, true);
+    return () => {
+      document.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("resize", reposition);
+      window.removeEventListener("scroll", reposition, true);
+    };
+  }, [isOpen, options.length]);
+
+  useEffect(() => {
+    if (isOpen && activeOption) document.getElementById(`${selectId}-option-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
+  }, [isOpen, activeIndex, activeOption, selectId]);
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (!isOpen && ["ArrowDown", "ArrowUp", "Enter", " "].includes(event.key)) {
+      event.preventDefault();
+      openMenu(event.key === "ArrowDown" ? selectedIndex + 1 : event.key === "ArrowUp" ? selectedIndex - 1 : selectedIndex);
+      return;
+    }
+    if (!isOpen) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const delta = event.key === "ArrowDown" ? 1 : -1;
+      setActiveIndex((index) => (index + delta + options.length) % options.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setActiveIndex(event.key === "Home" ? 0 : options.length - 1);
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      if (activeOption) chooseOption(activeOption);
+    } else if (event.key === "Escape" || event.key === "Tab") {
+      setIsOpen(false);
+    }
+  };
+
+  return <div className={`admin-select admin-select-${variant}`} ref={rootRef} onBlur={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsOpen(false);
+  }}>
+    <button
+      ref={triggerRef}
+      id={`${selectId}-trigger`}
+      type="button"
+      className={`admin-select-trigger ${isOpen ? "is-open" : ""}`}
+      role="combobox"
+      aria-haspopup="listbox"
+      aria-expanded={isOpen}
+      aria-controls={`${selectId}-listbox`}
+      aria-activedescendant={isOpen && activeOption ? `${selectId}-option-${activeIndex}` : undefined}
+      aria-label={ariaLabel}
+      onClick={() => isOpen ? setIsOpen(false) : openMenu()}
+      onKeyDown={handleKeyDown}
+    >
+      <span className="admin-select-value">{selectedOption?.label ?? ""}</span>
+      <svg className="admin-select-chevron" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 7.5 5 5 5-5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>
+    </button>
+    {isOpen && createPortal(<div
+      ref={menuRef}
+      id={`${selectId}-listbox`}
+      className="admin-select-menu"
+      role="listbox"
+      aria-label={ariaLabel}
+      style={{ top: menuPosition.top, left: menuPosition.left, width: menuPosition.width, maxHeight: menuPosition.maxHeight }}
+    >
+      {options.map((option, index) => {
+        const isSelected = option.value === value;
+        const isActive = index === activeIndex;
+        return <div
+          key={option.value}
+          id={`${selectId}-option-${index}`}
+          className={`admin-select-option ${isSelected ? "is-selected" : ""} ${isActive ? "is-active" : ""}`}
+          role="option"
+          aria-selected={isSelected}
+          aria-posinset={index + 1}
+          aria-setsize={options.length}
+          onMouseDown={(event) => event.preventDefault()}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => chooseOption(option)}
+        >
+          <span>{option.label}</span>
+          <span className="admin-select-check" aria-hidden="true">{isSelected ? "✓" : ""}</span>
+        </div>;
+      })}
+    </div>, document.body)}
+  </div>;
 }
 
 export default function AdminApp() {
@@ -113,7 +258,7 @@ export default function AdminApp() {
   };
 
   if (sessionState === "checking") {
-    return <div className="admin-splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" /><span>Đang kiểm tra phiên quản trị…</span></div>;
+    return <div className="admin-splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /><span>Đang kiểm tra phiên quản trị…</span></div>;
   }
   if (sessionState !== "allowed") return null;
 
@@ -122,15 +267,14 @@ export default function AdminApp() {
 
   return <NotificationProvider notify={notify}><div className="admin-shell">
     <aside className="admin-sidebar">
-      <a className="admin-brand" href="/quan-tri" aria-label="Trang quản trị iGen Baogia">
-        <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Baogia — Trợ lý báo giá" />
+      <a className="admin-brand" href="/quan-tri" aria-label="Trang quản trị iGen Trợ lí báo giá">
+        <img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" />
       </a>
       <div className="admin-nav-label">Quản lý</div>
       <nav className="admin-nav">
         <button type="button" className={`admin-nav-item ${activeSection === "businesses" ? "is-active" : ""}`} onClick={() => setActiveSection("businesses")}><AdminIcon name="users" /><span>Doanh nghiệp</span></button>
         <button type="button" className={`admin-nav-item ${activeSection === "plans" ? "is-active" : ""}`} onClick={() => setActiveSection("plans")}><AdminIcon name="plans" /><span>Gói dịch vụ</span></button>
         <button type="button" className={`admin-nav-item ${activeSection === "contacts" ? "is-active" : ""}`} onClick={() => setActiveSection("contacts")}><AdminIcon name="messages" /><span>Yêu cầu liên hệ</span></button>
-        <button type="button" className={`admin-nav-item ${activeSection === "email" ? "is-active" : ""}`} onClick={() => setActiveSection("email")}><AdminIcon name="mail" /><span>Email toàn hệ thống</span></button>
         <button type="button" className={`admin-nav-item ${activeSection === "payments" ? "is-active" : ""}`} onClick={() => setActiveSection("payments")}><AdminIcon name="bank" /><span>Thanh toán</span></button>
       </nav>
       <div className="admin-profile">
@@ -160,9 +304,13 @@ export default function AdminApp() {
               <div><h2>Danh sách doanh nghiệp</h2><span>{users.length} doanh nghiệp</span></div>
               <div className="admin-filters">
                 <label className="admin-search"><AdminIcon name="search" size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, mã số thuế hoặc email" aria-label="Tìm doanh nghiệp" /></label>
-                <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as "all" | "active" | "inactive")} aria-label="Lọc theo trạng thái">
-                  <option value="all">Tất cả trạng thái</option><option value="active">Đang hoạt động</option><option value="inactive">Đã khóa</option>
-                </select>
+                <AdminSelect
+                  variant="filter"
+                  value={statusFilter}
+                  onChange={(value) => setStatusFilter(value as "all" | "active" | "inactive")}
+                  ariaLabel="Lọc theo trạng thái"
+                  options={[{ value: "all", label: "Tất cả trạng thái" }, { value: "active", label: "Đang hoạt động" }, { value: "inactive", label: "Đã khóa" }]}
+                />
               </div>
             </div>
             {loadError && <div className="admin-inline-error" role="alert">{loadError}<button onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div>}
@@ -191,7 +339,6 @@ export default function AdminApp() {
           </article>)}</div>}
           <p className="admin-plan-note">Gói miễn phí luôn được giữ hoạt động và dùng làm mặc định cho doanh nghiệp mới.</p>
         </section>}
-        {activeSection === "email" && <AdminEmail onToast={notify} confirm={confirm} />}
         {activeSection === "payments" && <AdminSepay onToast={notify} />}
         {activeSection === "contacts" && <PlanContactRequestsPage requests={contactRequests} loading={loadingUsers} error={Boolean(loadError)} onRetry={() => setReloadKey((key) => key + 1)} onOpen={setDialogContact} />}
       </main>
@@ -280,7 +427,7 @@ function PlanContactRequestDialog({ request, onClose, onSaved }: { request: Plan
       <div className="admin-contact-details"><div><small>Người liên hệ</small><strong>{request.name}</strong></div><div><small>Email</small><a href={`mailto:${request.email}`}>{request.email}</a></div><div><small>Số điện thoại</small>{request.phone ? <a href={`tel:${request.phone}`}>{request.phone}</a> : <span>Chưa cung cấp</span>}</div></div>
       <section className="admin-contact-message-full"><span>Nhu cầu của khách hàng</span><p>{request.message}</p></section>
       <form className="admin-account-form" onSubmit={(event) => void submit(event)}>
-        <label>Trạng thái xử lý<select value={status} onChange={(event) => setStatus(event.target.value as ContactStatus)}><option value="new">Mới</option><option value="contacted">Đã liên hệ</option><option value="closed">Đã đóng</option></select></label>
+        <label>Trạng thái xử lý<AdminSelect value={status} onChange={(value) => setStatus(value as ContactStatus)} options={[{ value: "new", label: "Mới" }, { value: "contacted", label: "Đã liên hệ" }, { value: "closed", label: "Đã đóng" }]} /></label>
         <label>Ghi chú nội bộ<textarea rows={4} maxLength={2000} value={adminNote} onChange={(event) => setAdminNote(event.target.value)} placeholder="Ghi lại nội dung trao đổi hoặc việc cần làm tiếp theo…" /></label>
         <div className="admin-modal-actions"><button type="button" className="admin-button admin-button-secondary" onClick={onClose}>Đóng</button><button className="admin-button admin-button-primary" disabled={busy}>{busy && <span className="admin-spinner admin-spinner-light" />}{busy ? "Đang lưu…" : "Lưu xử lý"}</button></div>
       </form>
@@ -351,10 +498,10 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
     </div>
     {taskProgress && <TaskProgress {...taskProgress} />}
     {loadFailed && <button className="admin-button admin-button-secondary" onClick={() => void load()}>Tải lại cài đặt thanh toán</button>}
-    <div className="admin-mail-grid admin-sepay-grid">
-      <section className="admin-users-card admin-mail-card">
+    <div className="admin-settings-grid admin-sepay-grid">
+      <section className="admin-users-card admin-settings-card">
         <div className="admin-users-toolbar"><div><h2>Ngân hàng nhận tiền</h2><span className={`admin-status ${settings?.configured ? "is-active" : "is-inactive"}`}><i />{settings?.configured ? "Đã sẵn sàng" : "Chưa cấu hình đủ"}</span></div></div>
-        <form className="admin-account-form admin-mail-form" onSubmit={(event) => void save(event)}>
+        <form className="admin-account-form admin-settings-form" onSubmit={(event) => void save(event)}>
           <div className="admin-sepay-fields">
             <label>Mã ngân hàng<input value={form.bankCode} onChange={(event) => setForm((current) => ({ ...current, bankCode: event.target.value }))} placeholder="MB, VCB…" maxLength={30} autoComplete="off" required /></label>
             <label>Số tài khoản<input value={form.accountNumber} onChange={(event) => setForm((current) => ({ ...current, accountNumber: event.target.value }))} maxLength={19} autoComplete="off" required /></label>
@@ -362,12 +509,12 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
             <label>Mã nội dung chuyển khoản<input value={form.paymentPrefix} onChange={(event) => setForm((current) => ({ ...current, paymentPrefix: event.target.value.toUpperCase() }))} minLength={2} maxLength={5} pattern="[A-Za-z]{2,5}" required /></label>
             <label className="admin-sepay-wide">API Key webhook SePay<input type="password" value={form.webhookApiKey} onChange={(event) => setForm((current) => ({ ...current, webhookApiKey: event.target.value }))} placeholder={settings?.webhookApiKeySet ? "Để trống để giữ khóa hiện tại" : "Nhập API Key đã cấu hình trên SePay"} maxLength={1024} autoComplete="new-password" /></label>
           </div>
-          <p className="admin-mail-hint">Khóa webhook được mã hóa khi lưu. {settings?.webhookApiKeySource === "environment" ? "Đang dùng khóa từ biến môi trường; nhập khóa mới để thay thế." : "Khóa lấy từ cấu hình SePay mục API Key."}</p>
-          <div className="admin-mail-actions"><button className="admin-button admin-button-primary" disabled={saving}>{saving ? "Đang lưu…" : "Lưu cài đặt"}</button></div>
+          <p className="admin-settings-hint">Khóa webhook được mã hóa khi lưu. {settings?.webhookApiKeySource === "environment" ? "Đang dùng khóa từ biến môi trường; nhập khóa mới để thay thế." : "Khóa lấy từ cấu hình SePay mục API Key."}</p>
+          <div className="admin-settings-actions"><button className="admin-button admin-button-primary" disabled={saving}>{saving ? "Đang lưu…" : "Lưu cài đặt"}</button></div>
         </form>
       </section>
 
-      <section className="admin-users-card admin-mail-card admin-sepay-info-card">
+      <section className="admin-users-card admin-settings-card admin-sepay-info-card">
         <div className="admin-users-toolbar"><div><h2>Kết nối webhook</h2><span>SePay gọi địa chỉ này khi có tiền vào</span></div></div>
         <div className="admin-sepay-info">
           <div className="admin-sepay-endpoint"><code>{webhookUrl}</code><button type="button" className="admin-button admin-button-secondary" onClick={() => void copyWebhookUrl()}>Sao chép</button></div>
@@ -375,139 +522,6 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
           <p>Mã chuyển khoản bắt đầu bằng <strong>{form.paymentPrefix || "BG"}</strong>. Dùng tiền tố này trong cấu hình nhận diện giao dịch của SePay.</p>
           <p>Ngân hàng, số tài khoản và API Key phải cùng thuộc cấu hình webhook đang sử dụng.</p>
         </div>
-      </section>
-    </div>
-  </>;
-}
-
-function AdminEmail({ onToast, confirm }: { onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
-  const [settings, setSettings] = useState<AdminEmailSettings | null>(null);
-  const [form, setForm] = useState<AdminEmailForm>({ host: "", port: "587", secure: false, user: "", password: "", from: "" });
-  const [recipientCount, setRecipientCount] = useState(0);
-  const [subject, setSubject] = useState("");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [loadFailed, setLoadFailed] = useState(false);
-  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setLoadFailed(false);
-    setTaskProgress({ label: "Đang tải cấu hình email", detail: "Đang đọc cài đặt và danh sách người nhận…" });
-    try {
-      const [{ settings: saved }, { recipientCount: count }] = await Promise.all([
-        api<{ settings: AdminEmailSettings }>("/api/admin/settings/email"),
-        api<{ recipientCount: number }>("/api/admin/email/recipients"),
-      ]);
-      setSettings(saved);
-      setForm({ host: saved.host, port: String(saved.port), secure: saved.secure, user: saved.user, password: "", from: saved.from });
-      setRecipientCount(count);
-    } catch (cause) {
-      setLoadFailed(true);
-      onToast(cause instanceof Error ? cause.message : "Không tải được cài đặt email.", "error");
-    } finally {
-      setLoading(false);
-      setTaskProgress(null);
-    }
-  };
-  useEffect(() => { void load(); }, []);
-
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
-    setSaving(true);
-    setTaskProgress({ label: "Đang lưu cấu hình SMTP", detail: "Đang cập nhật cài đặt máy chủ…" });
-    try {
-      const { settings: saved } = await api<{ settings: AdminEmailSettings }>("/api/admin/settings/email", {
-        method: "PUT",
-        body: JSON.stringify({ ...form, port: Number(form.port) }),
-      });
-      setSettings(saved);
-      setForm((current) => ({ ...current, password: "" }));
-      onToast("Đã lưu SMTP gửi email toàn hệ thống.");
-    } catch (cause) {
-      onToast(cause instanceof Error ? cause.message : "Không lưu được cấu hình SMTP.", "error");
-    } finally {
-      setSaving(false);
-      setTaskProgress(null);
-    }
-  };
-
-  const testConnection = async () => {
-    setTesting(true);
-    setTaskProgress({ label: "Đang kiểm tra kết nối SMTP", detail: "Đang kết nối với máy chủ email…" });
-    try {
-      await api("/api/admin/settings/email/test", { method: "POST" });
-      onToast("Kết nối SMTP thành công.");
-    } catch (cause) {
-      onToast(cause instanceof Error ? cause.message : "Không kiểm tra được SMTP.", "error");
-    } finally {
-      setTesting(false);
-      setTaskProgress(null);
-    }
-  };
-
-  const sendBroadcast = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!await confirm({
-      title: "Gửi email cho toàn bộ người dùng?",
-      message: `Email “${subject.trim()}” sẽ được gửi đến ${recipientCount} tài khoản. Người nhận sẽ không thấy địa chỉ email của nhau.`,
-      confirmLabel: "Gửi email",
-      tone: "danger",
-    })) return;
-    setSending(true);
-    setTaskProgress({ label: `Đang gửi email đến ${recipientCount} tài khoản`, detail: "Thời gian gửi tùy thuộc vào số lượng người nhận…" });
-    try {
-      const result = await api<{ sentCount: number }>("/api/admin/email/broadcast", {
-        method: "POST",
-        body: JSON.stringify({ subject, message }),
-      });
-      onToast(`Đã gửi email đến ${result.sentCount} tài khoản.`);
-    } catch (cause) {
-      onToast(cause instanceof Error ? cause.message : "Không gửi được email thông báo.", "error");
-    } finally {
-      setSending(false);
-      setTaskProgress(null);
-    }
-  };
-
-  if (loading) return <TaskProgress label="Đang tải cấu hình email" detail="Đang đọc cài đặt và danh sách người nhận…" />;
-  return <>
-    <div className="admin-page-heading">
-      <div><span className="admin-eyebrow">Thông báo</span><h1>Email toàn hệ thống</h1><p>Cấu hình máy chủ gửi thư và gửi thông báo đến các tài khoản người dùng.</p></div>
-    </div>
-    {taskProgress && <TaskProgress {...taskProgress} />}
-    {loadFailed && <button className="admin-button admin-button-secondary" onClick={() => void load()}>Tải lại cài đặt email</button>}
-    <div className="admin-mail-grid">
-      <section className="admin-users-card admin-mail-card">
-        <div className="admin-users-toolbar"><div><h2>Cấu hình SMTP quản trị</h2><span className={`admin-status ${settings?.configured ? "is-active" : "is-inactive"}`}>{settings?.configured ? "Đã cấu hình" : "Chưa cấu hình"}</span></div></div>
-        <form className="admin-account-form admin-mail-form" onSubmit={(event) => void save(event)}>
-          <label>Máy chủ SMTP<input value={form.host} onChange={(event) => setForm((current) => ({ ...current, host: event.target.value }))} placeholder="smtp.congty.vn" required /></label>
-          <div className="admin-mail-row">
-            <label>Cổng<input type="number" min="1" max="65535" value={form.port} onChange={(event) => setForm((current) => ({ ...current, port: event.target.value }))} required /></label>
-            <label>Bảo mật<select value={form.secure ? "tls" : "starttls"} onChange={(event) => setForm((current) => ({ ...current, secure: event.target.value === "tls" }))}><option value="starttls">STARTTLS · cổng 587</option><option value="tls">TLS · cổng 465</option></select></label>
-          </div>
-          <label>Tên đăng nhập SMTP<input value={form.user} onChange={(event) => setForm((current) => ({ ...current, user: event.target.value }))} autoComplete="username" /></label>
-          <label>Mật khẩu SMTP<input type="password" value={form.password} onChange={(event) => setForm((current) => ({ ...current, password: event.target.value }))} placeholder={settings?.passwordSet ? "Để trống để giữ mật khẩu đã lưu" : "Nhập mật khẩu SMTP"} autoComplete="new-password" /></label>
-          <label>Email người gửi<input value={form.from} onChange={(event) => setForm((current) => ({ ...current, from: event.target.value }))} placeholder="Quản trị hệ thống <admin@congty.vn>" required /></label>
-          <p className="admin-mail-hint">Mật khẩu được mã hóa khi lưu. Cấu hình này dùng riêng cho email thông báo toàn hệ thống.</p>
-          <div className="admin-mail-actions">
-            {settings?.configured && <button type="button" className="admin-button admin-button-secondary" disabled={saving || testing} onClick={() => void testConnection()}>{testing ? "Đang kiểm tra…" : "Kiểm tra kết nối"}</button>}
-            <button className="admin-button admin-button-primary" disabled={saving || testing}>{saving ? "Đang lưu…" : "Lưu SMTP"}</button>
-          </div>
-        </form>
-      </section>
-
-      <section className="admin-users-card admin-mail-card">
-        <div className="admin-users-toolbar"><div><h2>Gửi email thông báo</h2><span>{recipientCount} tài khoản nhận · BCC ẩn địa chỉ</span></div></div>
-        <form className="admin-account-form admin-mail-form" onSubmit={(event) => void sendBroadcast(event)}>
-          <label>Tiêu đề email<input value={subject} onChange={(event) => setSubject(event.target.value)} maxLength={200} required /></label>
-          <label>Nội dung<textarea value={message} onChange={(event) => setMessage(event.target.value)} maxLength={10000} rows={8} required /></label>
-          <p className="admin-mail-hint">Email dạng văn bản sẽ được gửi đến tất cả tài khoản doanh nghiệp có email hợp lệ.</p>
-          <div className="admin-mail-actions"><button className="admin-button admin-button-primary" disabled={!settings?.configured || recipientCount === 0 || sending}>{sending ? "Đang gửi…" : `Gửi đến ${recipientCount} người dùng`}</button></div>
-        </form>
       </section>
     </div>
   </>;
@@ -574,8 +588,8 @@ function AccountDialog({ user, plans, onClose, onSaved, confirm }: { user: Manag
           <label>Họ và tên người dùng<input autoComplete="name" maxLength={200} value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="Nguyễn Văn An" required /></label>
           <label>Email đăng nhập<input type="email" autoComplete="username" maxLength={250} value={draft.email} onChange={(event) => setDraft({ ...draft, email: event.target.value })} placeholder="admin@congty.vn" required /></label>
         </>}
-        <label>{user ? "Gói dịch vụ" : "Gói cấp cho tài khoản"}<select value={draft.planCode} onChange={(event) => setDraft({ ...draft, planCode: event.target.value })}>{plans.filter((plan) => plan.active || plan.code === draft.planCode).map((plan) => <option value={plan.code} key={plan.code}>{plan.name}{plan.monthlyPrice === null ? " · Theo nhu cầu" : ` · ${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ/tháng`}</option>)}</select><small>{user ? "Thay đổi gói áp dụng ngay cho doanh nghiệp này." : "Gói được cấp ngay khi tạo tài khoản test; mặc định là Dùng thử miễn phí."}</small>{selectedPlan && <small className="admin-account-plan-summary">Hạn mức: {quoteLimitSummary} · Mẫu báo giá: {templateLimitSummary}</small>}</label>
-        {user ? <label>Trạng thái<select value={draft.active ? "active" : "inactive"} onChange={(event) => setDraft({ ...draft, active: event.target.value === "active" })}><option value="active">Đang hoạt động</option><option value="inactive">Đã khóa</option></select><small>Khóa sẽ chặn tài khoản đăng nhập vào doanh nghiệp.</small></label> : <label>Mật khẩu ban đầu<input type="password" autoComplete="new-password" minLength={7} maxLength={200} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Ít nhất 7 ký tự" required /><small>Mật khẩu cần có từ 7 đến 200 ký tự.</small></label>}
+        <label>{user ? "Gói dịch vụ" : "Gói cấp cho tài khoản"}<AdminSelect value={draft.planCode} onChange={(value) => setDraft({ ...draft, planCode: value })} options={plans.filter((plan) => plan.active || plan.code === draft.planCode).map((plan) => ({ value: plan.code, label: `${plan.name}${plan.monthlyPrice === null ? " · Theo nhu cầu" : ` · ${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ/tháng`}` }))} /><small>{user ? "Thay đổi gói áp dụng ngay cho doanh nghiệp này." : "Gói được cấp ngay khi tạo tài khoản test; mặc định là Dùng thử miễn phí."}</small>{selectedPlan && <small className="admin-account-plan-summary">Hạn mức: {quoteLimitSummary} · Mẫu báo giá: {templateLimitSummary}</small>}</label>
+        {user ? <label>Trạng thái<AdminSelect value={draft.active ? "active" : "inactive"} onChange={(value) => setDraft({ ...draft, active: value === "active" })} options={[{ value: "active", label: "Đang hoạt động" }, { value: "inactive", label: "Đã khóa" }]} /><small>Khóa sẽ chặn tài khoản đăng nhập vào doanh nghiệp.</small></label> : <label>Mật khẩu ban đầu<input type="password" autoComplete="new-password" minLength={7} maxLength={200} value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Ít nhất 7 ký tự" required /><small>Mật khẩu cần có từ 7 đến 200 ký tự.</small></label>}
         <div className="admin-modal-actions"><button type="button" className="admin-button admin-button-secondary" onClick={onClose}>Hủy</button><button className="admin-button admin-button-primary" disabled={busy}>{busy && <span className="admin-spinner admin-spinner-light" />}{busy ? "Đang lưu…" : user ? "Lưu doanh nghiệp" : "Tạo doanh nghiệp và tài khoản"}</button></div>
       </form>
     </section>

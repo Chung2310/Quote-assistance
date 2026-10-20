@@ -10,34 +10,59 @@ const webDirectory = path.resolve(moduleDirectory, "../../web");
 
 const legacyRoutes: Record<string, string> = {
   "/login": "/dang-nhap",
-  "/app": "/ung-dung",
+  "/app": "/tong-quan",
   "/admin": "/quan-tri",
+  "/ung-dung": "/tong-quan",
+  "/ung-dung/bao-gia": "/bao-gia",
+  "/ung-dung/mau-bao-gia": "/mau-bao-gia",
+  "/ung-dung/bang-gia": "/bang-gia",
+  "/ung-dung/tai-khoan": "/tai-khoan",
 };
 
 const pageMetadata: Record<string, { title: string; description: string; robots: string }> = {
   "/": {
-    title: "Giáo — Tạo báo giá chuyên nghiệp bằng AI",
-    description: "Tạo báo giá nhanh từ yêu cầu khách hàng và bảng giá doanh nghiệp. Quản lý mẫu, duyệt trước khi gửi và xuất Excel, PDF với Giáo.",
+    title: "iGen Trợ lí báo giá — Tạo báo giá chuyên nghiệp bằng AI",
+    description: "Tạo báo giá nhanh từ yêu cầu khách hàng và bảng giá doanh nghiệp. Quản lý mẫu, duyệt trước khi gửi và xuất Excel, PDF với iGen Trợ lí báo giá.",
     robots: "index,follow",
   },
   "/dang-nhap": {
-    title: "Đăng nhập — Giáo",
+    title: "Đăng nhập — iGen Trợ lí báo giá",
     description: "Đăng nhập vào không gian tạo và quản lý báo giá của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
   "/dang-ky": {
-    title: "Đăng ký doanh nghiệp — Giáo",
+    title: "Đăng ký doanh nghiệp — iGen Trợ lí báo giá",
     description: "Tạo tài khoản doanh nghiệp để quản lý bảng giá, mẫu và quy trình báo giá.",
     robots: "noindex,nofollow",
   },
-  "/ung-dung": {
-    title: "Không gian báo giá — Giáo",
+  "/tong-quan": {
+    title: "Không gian báo giá — iGen Trợ lí báo giá",
     description: "Không gian làm việc báo giá của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
+  "/bao-gia": {
+    title: "Báo giá — iGen Trợ lí báo giá",
+    description: "Quản lý báo giá của doanh nghiệp.",
+    robots: "noindex,nofollow",
+  },
+  "/mau-bao-gia": {
+    title: "Mẫu báo giá — iGen Trợ lí báo giá",
+    description: "Quản lý mẫu báo giá của doanh nghiệp.",
+    robots: "noindex,nofollow",
+  },
+  "/bang-gia": {
+    title: "Bảng giá — iGen Trợ lí báo giá",
+    description: "Quản lý bảng giá của doanh nghiệp.",
+    robots: "noindex,nofollow",
+  },
+  "/tai-khoan": {
+    title: "Trang cá nhân — iGen Trợ lí báo giá",
+    description: "Quản lý tài khoản và cài đặt của doanh nghiệp.",
+    robots: "noindex,nofollow",
+  },
   "/quan-tri": {
-    title: "Quản trị — Giáo",
-    description: "Khu vực quản trị hệ thống Giáo.",
+    title: "Quản trị — iGen Trợ lí báo giá",
+    description: "Khu vực quản trị hệ thống iGen Trợ lí báo giá.",
     robots: "noindex,nofollow",
   },
 };
@@ -70,7 +95,8 @@ function pagePath(request: import("express").Request) {
 
 function redirectOldOrTrailingPath(request: import("express").Request, response: import("express").Response) {
   const pathname = pagePath(request);
-  let targetPath = legacyRoutes[pathname] ?? pathname;
+  const oldQuoteDetail = pathname.match(/^\/ung-dung\/bao-gia\/([a-f0-9]{24})$/i);
+  let targetPath = oldQuoteDetail ? `/bao-gia/${oldQuoteDetail[1]}` : legacyRoutes[pathname] ?? pathname;
   const url = new URL(request.originalUrl, "http://local");
   if (pathname === "/login" && url.searchParams.get("mode") === "register") targetPath = "/dang-ky";
   if (targetPath === "/dang-nhap" || targetPath === "/dang-ky") url.searchParams.delete("mode");
@@ -85,11 +111,16 @@ function redirectOldOrTrailingPath(request: import("express").Request, response:
 
 function renderPageMetadata(html: string, request: import("express").Request) {
   const pathname = pagePath(request);
-  const page = pageMetadata[pathname] ?? {
-    title: "Không tìm thấy trang — Giáo",
+  const quoteDetailPage = /^\/bao-gia\/[a-f0-9]{24}$/i.test(pathname);
+  const page = pageMetadata[pathname] ?? (quoteDetailPage ? {
+    title: "Chi tiết báo giá — iGen Trợ lí báo giá",
+    description: "Xem và chỉnh sửa báo giá của doanh nghiệp.",
+    robots: "noindex,nofollow",
+  } : {
+    title: "Không tìm thấy trang — iGen Trợ lí báo giá",
     description: "Không tìm thấy trang bạn đang tìm.",
     robots: "noindex,follow",
-  };
+  });
   const canonical = pathname === "/" ? new URL("/", siteOrigin(request)).href : "";
   const meta = (name: string, content: string) => `<meta name="${name}" content="${escapeAttribute(content)}" />`;
   const property = (name: string, content: string) => `<meta property="${name}" content="${escapeAttribute(content)}" />`;
@@ -109,7 +140,7 @@ function renderPageMetadata(html: string, request: import("express").Request) {
     const structuredData = {
       "@context": "https://schema.org",
       "@type": "SoftwareApplication",
-      name: "Giáo",
+      name: "iGen Trợ lí báo giá",
       description: page.description,
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
@@ -119,7 +150,7 @@ function renderPageMetadata(html: string, request: import("express").Request) {
     const json = JSON.stringify(structuredData).replace(/</g, "\\u003c");
     result = result.replace("</head>", `    <script id="application-structured-data" type="application/ld+json">${json}</script>\n  </head>`);
   }
-  return { html: result, status: pageMetadata[pathname] ? 200 : 404 };
+  return { html: result, status: pageMetadata[pathname] || quoteDetailPage ? 200 : 404 };
 }
 
 function attachSeoEndpoints(app: Express) {

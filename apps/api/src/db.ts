@@ -33,7 +33,7 @@ async function ensureCompany(db: Db, name: string): Promise<Company> {
 
 async function ensureSubscriptionPlans(db: Db) {
   const plans: Omit<SubscriptionPlan, "_id" | "createdAt" | "updatedAt">[] = [
-    { code: "free", name: "Dùng thử", description: "Khám phá cách Giáo giúp bạn làm báo giá nhanh hơn.", monthlyPrice: 0, quoteLimit: 20, templateLimit: 1, active: true, featured: false, displayOrder: 0 },
+    { code: "free", name: "Dùng thử", description: "Khám phá cách iGen Trợ lí báo giá giúp bạn làm báo giá nhanh hơn.", monthlyPrice: 0, quoteLimit: 20, templateLimit: 1, active: true, featured: false, displayOrder: 0 },
     { code: "starter", name: "Khởi đầu", description: "Dành cho doanh nghiệp có nhu cầu báo giá thường xuyên.", monthlyPrice: 199_000, quoteLimit: 200, templateLimit: 3, active: true, featured: false, displayOrder: 1 },
     { code: "pro", name: "Pro", description: "Đủ sức cho quy trình báo giá mỗi ngày.", monthlyPrice: 499_000, quoteLimit: 1_000, templateLimit: 10, active: true, featured: true, displayOrder: 2 },
     { code: "business", name: "Business", description: "Hạn mức rộng rãi cho khối lượng báo giá lớn.", monthlyPrice: 1_490_000, quoteLimit: 3_000, templateLimit: 30, active: true, featured: false, displayOrder: 3 },
@@ -47,6 +47,10 @@ async function ensureSubscriptionPlans(db: Db) {
     { $setOnInsert: { ...plan, createdAt: now, updatedAt: now } },
     { upsert: true },
   )));
+  await collection.updateOne(
+    { code: "free", description: "Khám phá cách Giáo giúp bạn làm báo giá nhanh hơn." },
+    { $set: { description: plans[0].description, updatedAt: now } },
+  );
   await db.collection<Company>("companies").updateMany(
     { $or: [{ planCode: { $exists: false } }, { planCode: { $eq: null as unknown as string } }, { planCode: "" }] },
     { $set: { planCode: "free", updatedAt: now } },
@@ -242,6 +246,11 @@ export async function connectDatabase() {
         db.collection("subscriptionPayments").createIndex({ sepayTransactionId: 1 }, { unique: true, sparse: true }),
         db.collection("subscriptionPayments").createIndex({ companyId: 1, status: 1, createdAt: -1 }),
         db.collection("subscriptionPayments").createIndex({ companyId: 1 }, { unique: true, partialFilterExpression: { status: "pending" } }),
+      ]);
+      // Remove encrypted credentials left by the retired SMTP feature.
+      await Promise.all([
+        db.collection("companies").updateMany({ smtpSettings: { $exists: true } }, { $unset: { smtpSettings: "" } }),
+        db.collection<{ _id: string }>("platformSettings").deleteOne({ _id: "smtp" }),
       ]);
       await ensureSubscriptionPlans(db);
       const defaultCompany = await ensureCompany(db, config.defaultCompanyName);

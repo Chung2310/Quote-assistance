@@ -1,5 +1,5 @@
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import { NotificationToast, useNotification } from "./Feedback";
 import "./landing.css";
@@ -17,7 +17,7 @@ type PublicPlan = {
 };
 
 const fallbackPlans: PublicPlan[] = [
-  { code: "free", name: "Dùng thử", description: "Khám phá cách Giáo giúp bạn làm báo giá nhanh hơn.", monthlyPrice: 0, quoteLimit: 20, templateLimit: 1, active: true, featured: false, displayOrder: 0 },
+  { code: "free", name: "Dùng thử", description: "Khám phá cách iGen Trợ lí báo giá giúp bạn làm báo giá nhanh hơn.", monthlyPrice: 0, quoteLimit: 20, templateLimit: 1, active: true, featured: false, displayOrder: 0 },
   { code: "starter", name: "Khởi đầu", description: "Dành cho doanh nghiệp có nhu cầu báo giá thường xuyên.", monthlyPrice: 199_000, quoteLimit: 200, templateLimit: 3, active: true, featured: false, displayOrder: 1 },
   { code: "pro", name: "Pro", description: "Đủ sức cho quy trình báo giá mỗi ngày của đội ngũ kinh doanh.", monthlyPrice: 499_000, quoteLimit: 1_000, templateLimit: 10, active: true, featured: true, displayOrder: 2 },
   { code: "business", name: "Business", description: "Hạn mức rộng rãi cho khối lượng báo giá lớn và đa chi nhánh.", monthlyPrice: 1_490_000, quoteLimit: 3_000, templateLimit: 30, active: true, featured: false, displayOrder: 3 },
@@ -106,226 +106,80 @@ function LandingIcon({ name, size = 20 }: { name: string; size?: number }) {
 
 function Brand() {
   return (
-    <a className="landing-brand" href="/" aria-label="Giáo — Trang chủ">
-      <span className="landing-brand-mark">G</span>
-      <span className="landing-brand-name">
-        giáo<small>TRỢ LÝ BÁO GIÁ AI</small>
-      </span>
+    <a className="landing-brand" href="/" aria-label="iGen Trợ lí báo giá — Trang chủ">
+      <img src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" width={148} height={74} />
     </a>
   );
 }
 
-type DemoScenario = {
-  id: string;
-  category: string;
-  title: string;
-  clientMessage: string;
-  clientSender: string;
-  companyName: string;
-  quoteNumber: string;
-  matchedCount: number;
-  items: {
-    name: string;
-    code: string;
-    unit: string;
-    quantity: number;
-    price: number;
-    total: number;
-  }[];
-  totalAmount: number;
-};
+function AnimatedStat({
+  value,
+  prefix = "",
+  suffix = "",
+}: {
+  value: number;
+  prefix?: string;
+  suffix?: string;
+}) {
+  const [count, setCount] = useState(0);
+  const statRef = useRef<HTMLElement | null>(null);
 
-const demoScenarios: DemoScenario[] = [
-  {
-    id: "construction",
-    category: "Vật liệu xây dựng",
-    title: "Xi măng & Thép công trình",
-    clientSender: "Anh Hùng (Chỉ huy trưởng CT-02)",
-    clientMessage: "Em ơi check bảng giá gửi gấp anh 120 bao xi măng PCB40 với 40 cây thép D16 về kho trước 4h chiều nhé!",
-    companyName: "CÔNG TY CP VẬT LIỆU TOÀN CẦU",
-    quoteNumber: "BG-2026-00382",
-    matchedCount: 2,
-    items: [
-      { name: "Xi măng PCB40 Hoàng Thạch", code: "XM-HT-40", unit: "Bao 50kg", quantity: 120, price: 105_000, total: 12_600_000 },
-      { name: "Thép xây dựng D16 Hòa Phát", code: "THEP-HP-16", unit: "Cây 11.7m", quantity: 40, price: 720_000, total: 28_800_000 },
-    ],
-    totalAmount: 41_400_000,
-  },
-  {
-    id: "electrical",
-    category: "Cơ điện & M&E",
-    title: "Aptomat & Dây cáp điện",
-    clientSender: "Chị Lan (Ban QLDA Tòa nhà Sunrise)",
-    clientMessage: "Báo giá nhanh cho bên chị: 15 cái Aptomat 3P 63A Schneider và 3 cuộn Cáp điện đơn Cadisun 4.0 để duyệt thầu.",
-    companyName: "THIẾT BỊ ĐIỆN CÔNG NGHIỆP THÁI DƯƠNG",
-    quoteNumber: "BG-2026-00419",
-    matchedCount: 2,
-    items: [
-      { name: "Aptomat 3P 63A Schneider EasyPact", code: "CB-SCH-63", unit: "Cái", quantity: 15, price: 450_000, total: 6_750_000 },
-      { name: "Dây cáp điện đơn Cadisun Cu/PVC 1x4.0", code: "CAP-CADI-40", unit: "Cuộn 100m", quantity: 3, price: 1_280_000, total: 3_840_000 },
-    ],
-    totalAmount: 10_590_000,
-  },
-  {
-    id: "furniture",
-    category: "Nội thất văn phòng",
-    title: "Bàn họp & Ghế công thái học",
-    clientSender: "Anh Tuấn (Công ty Công nghệ Nova)",
-    clientMessage: "Shop làm báo giá giúp mình: 1 Bàn họp dài 2m4 x 1m2 chân sắt sơn tĩnh điện và 8 ghế xoay lưới chống mỏi lưng.",
-    companyName: "NỘI THẤT VĂN PHÒNG HIỆN ĐẠI AN PHÁT",
-    quoteNumber: "BG-2026-00507",
-    matchedCount: 2,
-    items: [
-      { name: "Bàn họp chân sắt mặt gỗ MFC 2.4m", code: "BH-MFC-24", unit: "Chiếc", quantity: 1, price: 5_600_000, total: 5_600_000 },
-      { name: "Ghế xoay lưới Ergonomic cao cấp", code: "GHE-ERGO-01", unit: "Chiếc", quantity: 8, price: 950_000, total: 7_600_000 },
-    ],
-    totalAmount: 13_200_000,
-  },
-];
+  useEffect(() => {
+    const element = statRef.current;
+    if (!element) return;
 
-function InteractiveQuotePreview() {
-  const [activeScenarioId, setActiveScenarioId] = useState<string>("construction");
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
+    let frameId = 0;
+    let hasStarted = false;
+    let observer: IntersectionObserver | undefined;
 
-  const activeScenario = demoScenarios.find((s) => s.id === activeScenarioId) ?? demoScenarios[0];
+    const startCount = () => {
+      if (hasStarted) return;
+      hasStarted = true;
 
-  const handleSelectScenario = (id: string) => {
-    if (id === activeScenarioId) return;
-    setIsProcessing(true);
-    setTimeout(() => {
-      setActiveScenarioId(id);
-      setIsProcessing(false);
-    }, 280);
-  };
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        setCount(value);
+        return;
+      }
 
+      const duration = 1400;
+      let startTime: number | null = null;
+      const tick = (time: number) => {
+        if (startTime === null) startTime = time;
+        const progress = Math.min((time - startTime) / duration, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setCount(Math.round(value * eased));
+        if (progress < 1) frameId = requestAnimationFrame(tick);
+      };
+
+      frameId = requestAnimationFrame(tick);
+    };
+
+    if (!("IntersectionObserver" in window)) {
+      startCount();
+    } else {
+      observer = new IntersectionObserver(
+        ([entry]) => {
+          if (entry.isIntersecting) {
+            startCount();
+            observer?.disconnect();
+          }
+        },
+        { threshold: 0.35 },
+      );
+      observer.observe(element);
+    }
+
+    return () => {
+      observer?.disconnect();
+      cancelAnimationFrame(frameId);
+    };
+  }, [value]);
+
+  const format = (number: number) => new Intl.NumberFormat("vi-VN").format(number);
   return (
-    <div className="landing-preview-wrap" aria-label="Mô phỏng trực quan tương tác tạo báo giá thông minh bằng AI">
-      {/* Dynamic Ambient Glow Behind Card */}
-      <div className="preview-glow-bg" />
-      <div className="preview-orbit preview-orbit-one" />
-      <div className="preview-orbit preview-orbit-two" />
-
-      {/* Floating Badge Top */}
-      <div className="preview-float preview-float-top">
-        <span className="preview-float-icon">
-          <LandingIcon name="spark" size={17} />
-        </span>
-        <span>
-          <strong>AI nhận diện chuẩn xác</strong>
-          <small>Khớp 100% mã hàng trong bảng giá</small>
-        </span>
-        <i className="pulse-indicator" />
-      </div>
-
-      {/* Main Interactive Container */}
-      <div className="landing-demo-card">
-        {/* Scenario Switcher Tabs */}
-        <div className="demo-tabs-bar">
-          <span className="demo-tabs-label">
-            <LandingIcon name="cpu" size={14} /> Thử kịch bản:
-          </span>
-          <div className="demo-tabs-group">
-            {demoScenarios.map((scenario) => (
-              <button
-                key={scenario.id}
-                type="button"
-                className={`demo-tab-btn ${scenario.id === activeScenarioId ? "active" : ""}`}
-                onClick={() => handleSelectScenario(scenario.id)}
-              >
-                {scenario.category}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Input Message Simulation */}
-        <div className="demo-client-bubble">
-          <div className="demo-client-meta">
-            <span className="demo-client-dot" />
-            <span className="demo-client-sender">{activeScenario.clientSender}</span>
-            <span className="demo-client-tag">Tin nhắn Zalo/Email</span>
-          </div>
-          <p className="demo-client-text">“{activeScenario.clientMessage}”</p>
-        </div>
-
-        {/* Processing Indicator Beam */}
-        <div className={`demo-ai-bridge ${isProcessing ? "processing" : ""}`}>
-          <span className="ai-bridge-pill">
-            <LandingIcon name="zap" size={13} />
-            {isProcessing ? "AI đang đối chiếu bảng giá..." : "Đã đối chiếu bảng giá doanh nghiệp"}
-          </span>
-        </div>
-
-        {/* Generated Quote Sheet Preview */}
-        <article className={`quote-preview-card ${isProcessing ? "fade-out" : "fade-in"}`}>
-          <div className="quote-preview-top">
-            <span className="preview-company-mark">G</span>
-            <span>
-              <strong>{activeScenario.companyName}</strong>
-              <small>Bảng giá đã đồng bộ · Cập nhật hôm nay</small>
-            </span>
-            <span className="preview-status-badge">SẴN SÀNG GỬI</span>
-          </div>
-
-          <div className="quote-preview-title">
-            <div className="quote-preview-subline">
-              <small>BẢN BÁO GIÁ ĐÃ KHỚP GIÁ</small>
-              <span>{activeScenario.quoteNumber}</span>
-            </div>
-            <h3>{activeScenario.title}</h3>
-          </div>
-
-          <div className="quote-preview-table">
-            <div className="quote-preview-row preview-table-head">
-              <span>SẢN PHẨM KHỚP ĐƯỢC</span>
-              <span>ĐVT</span>
-              <span>SL</span>
-              <span>THÀNH TIỀN</span>
-            </div>
-            {activeScenario.items.map((item) => (
-              <div className="quote-preview-row" key={item.code}>
-                <span>
-                  <b>{item.name}</b>
-                  <small>Mã: {item.code}</small>
-                </span>
-                <span>{item.unit}</span>
-                <span className="row-qty">{item.quantity}</span>
-                <b>{new Intl.NumberFormat("vi-VN").format(item.total)}đ</b>
-              </div>
-            ))}
-          </div>
-
-          <div className="quote-preview-total">
-            <div className="total-label-wrap">
-              <span>Tổng cộng tiền hàng</span>
-              <small>Đã bao gồm thuế GTGT & chiết khấu</small>
-            </div>
-            <strong>{new Intl.NumberFormat("vi-VN").format(activeScenario.totalAmount)}đ</strong>
-          </div>
-
-          <div className="quote-preview-bottom">
-            <span>
-              <i className="status-dot-green" /> Đơn giá trích xuất trực tiếp từ bảng giá gốc
-            </span>
-            <div className="preview-export-badges">
-              <span>Xuất Excel</span>
-              <span>Xuất PDF</span>
-            </div>
-          </div>
-        </article>
-      </div>
-
-      {/* Floating Badge Bottom */}
-      <div className="preview-float preview-float-bottom">
-        <span className="preview-check">
-          <LandingIcon name="check" size={18} />
-        </span>
-        <span>
-          <strong>Không lo lệch giá</strong>
-          <small>Bạn luôn kiểm tra & duyệt trước khi gửi khách</small>
-        </span>
-      </div>
-    </div>
+    <strong ref={(element) => { statRef.current = element; }} aria-label={`${prefix}${format(value)}${suffix}`}>
+      {prefix}{format(count)}{suffix}
+    </strong>
   );
 }
 
@@ -351,6 +205,38 @@ export default function LandingPage() {
     };
   }, [notify]);
 
+  useEffect(() => {
+    if (
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      !("IntersectionObserver" in window)
+    ) {
+      return;
+    }
+
+    const elements = document.querySelectorAll<HTMLElement>(
+      ".landing-section-heading, .landing-feature-card, .comparison-column, .landing-process-copy, .landing-step, .landing-trust-inner, .landing-stat-item, .landing-plan-card, .faq-item, .landing-final-inner",
+    );
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add("is-visible");
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.12, rootMargin: "0px 0px -24px 0px" },
+    );
+
+    elements.forEach((element, index) => {
+      element.classList.add("landing-reveal");
+      element.style.setProperty("--landing-reveal-delay", `${(index % 3) * 75}ms`);
+      observer.observe(element);
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   const freePlan = plans.find((plan) => plan.code === "free");
 
   const closeContact = () => {
@@ -374,16 +260,16 @@ export default function LandingPage() {
 
   const faqs = [
     {
-      q: "Giáo có tự ý 'bịa' giá hoặc lấy giá từ trên mạng không?",
-      a: "Hoàn toàn không. Giáo hoạt động dựa trên nguyên tắc nghiêm ngặt: toàn bộ đơn giá và thông số sản phẩm bắt buộc phải đối chiếu khớp với file bảng giá Excel/PDF mà doanh nghiệp của bạn tải lên. AI chỉ hỗ trợ đọc hiểu văn bản yêu cầu và tra cứu nhanh.",
+      q: "iGen Trợ lí báo giá có tự ý 'bịa' giá hoặc lấy giá từ trên mạng không?",
+      a: "Hoàn toàn không. iGen Trợ lí báo giá hoạt động dựa trên nguyên tắc nghiêm ngặt: toàn bộ đơn giá và thông số sản phẩm bắt buộc phải đối chiếu khớp với file bảng giá Excel/PDF mà doanh nghiệp của bạn tải lên. AI chỉ hỗ trợ đọc hiểu văn bản yêu cầu và tra cứu nhanh.",
     },
     {
-      q: "Công ty tôi có mẫu báo giá riêng (màu sắc, logo, điều khoản), Giáo có hỗ trợ không?",
-      a: "Có! Bạn có thể tải mẫu Excel/Word hoặc định dạng mẫu của doanh nghiệp lên hệ thống. Khi xuất file báo giá, Giáo sẽ tự động điền toàn bộ thông tin vào đúng mẫu sẵn có của bạn mà không làm thay đổi định dạng hay thương hiệu công ty.",
+      q: "Công ty tôi có mẫu báo giá riêng (màu sắc, logo, điều khoản), iGen Trợ lí báo giá có hỗ trợ không?",
+      a: "Có! Bạn có thể tải mẫu Excel/Word hoặc định dạng mẫu của doanh nghiệp lên hệ thống. Khi xuất file báo giá, iGen Trợ lí báo giá sẽ tự động điền toàn bộ thông tin vào đúng mẫu sẵn có của bạn mà không làm thay đổi định dạng hay thương hiệu công ty.",
     },
     {
       q: "Khách gửi yêu cầu bằng file ảnh chụp, file Word hay tin nhắn Zalo thì làm thế nào?",
-      a: "Bạn chỉ cần copy nguyên văn tin nhắn của khách hoặc tải tệp (ảnh, tài liệu, danh sách) lên. AI của Giáo sẽ tự động trích lọc các mặt hàng, quy cách và số lượng mà khách cần để tiến hành khớp giá.",
+      a: "Bạn chỉ cần copy nguyên văn tin nhắn của khách hoặc tải tệp (ảnh, tài liệu, danh sách) lên. iGen Trợ lí báo giá sẽ tự động trích lọc các mặt hàng, quy cách và số lượng mà khách cần để tiến hành khớp giá.",
     },
     {
       q: "Dữ liệu bảng giá và thông tin khách hàng của công ty có được bảo mật không?",
@@ -430,22 +316,27 @@ export default function LandingPage() {
 
       {/* HERO SECTION */}
       <section className="landing-hero">
-        <div className="landing-container landing-hero-grid">
+        <div className="landing-container landing-hero-stage">
           <div className="landing-hero-copy">
-            <div className="landing-kicker">
-              <span>
-                <LandingIcon name="spark" size={14} />
-              </span>
-              TRỢ LÝ BÁO GIÁ AI THÔNG MINH
-            </div>
             <h1>
-              Tạo báo giá nhanh.<br />
-              <em>Chốt việc tự tin.</em>
+              Tạo báo giá nhanh<br />
+              <em>Chốt đơn hiệu quả</em>
             </h1>
             <p className="landing-hero-description">
-              Biến tin nhắn, email hoặc yêu cầu rời rạc của khách thành bản báo giá chuẩn xác trong 30 giây.
-              Giáo tự động đối chiếu bảng giá riêng của bạn, tính toán thành tiền và xuất file theo đúng mẫu doanh nghiệp.
+              Tạo báo giá chuẩn xác trong 30 giây từ yêu cầu của khách hàng. <span className="landing-brand-gradient">iGen Trợ lí báo giá</span> đối chiếu bảng giá và xuất file theo mẫu doanh nghiệp.
             </p>
+
+            <div className="landing-benefits">
+              <span>
+                <LandingIcon name="check" size={17} /> 100% Đơn giá từ bảng giá chính thức của bạn
+              </span>
+              <span>
+                <LandingIcon name="check" size={17} /> Xuất đúng mẫu Excel &amp; PDF công ty
+              </span>
+              <span>
+                <LandingIcon name="check" size={17} /> Bạn toàn quyền kiểm tra trước khi gửi khách
+              </span>
+            </div>
 
             <div className="landing-hero-actions">
               <a className="landing-button landing-button-hero landing-button-glow" href="/dang-ky">
@@ -459,11 +350,6 @@ export default function LandingPage() {
             </div>
 
             <div className="landing-hero-note">
-              <span className="landing-avatar-stack">
-                <i>XD</i>
-                <i>M&E</i>
-                <i>NT</i>
-              </span>
               <span>
                 <strong>
                   {freePlan?.quoteLimit == null
@@ -475,20 +361,10 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <InteractiveQuotePreview />
-        </div>
-
-        {/* Benefits Strip */}
-        <div className="landing-hero-bottom">
-          <div className="landing-container landing-benefits">
-            <span>
-              <LandingIcon name="check" size={17} /> 100% Đơn giá từ bảng giá chính thức của bạn
-            </span>
-            <span>
-              <LandingIcon name="check" size={17} /> Xuất đúng mẫu Excel &amp; PDF công ty
-            </span>
-            <span>
-              <LandingIcon name="check" size={17} /> Bạn toàn quyền kiểm tra trước khi gửi khách
+          <div className="landing-hero-product">
+            <img src="/images/landing-hero-person.png" alt="Giao diện iGen Trợ lí báo giá cùng chuyên viên sử dụng sản phẩm" width={1808} height={870} />
+            <span className="landing-hero-screen-logo" aria-hidden="true">
+              <img src="/images/logo-baogia.png" alt="" />
             </span>
           </div>
         </div>
@@ -499,22 +375,22 @@ export default function LandingPage() {
         <div className="landing-container">
           <div className="landing-stats-grid">
             <div className="landing-stat-item">
-              <strong>10.000+</strong>
+              <AnimatedStat value={1000} suffix="+" />
               <span>Bản báo giá đã được tạo thành công</span>
             </div>
             <div className="landing-stat-divider" />
             <div className="landing-stat-item">
-              <strong>&lt; 2 phút</strong>
+              <AnimatedStat value={2} prefix={"< "} suffix=" phút" />
               <span>Thời gian phản hồi khách hàng trung bình</span>
             </div>
             <div className="landing-stat-divider" />
             <div className="landing-stat-item">
-              <strong>99.4%</strong>
+              <AnimatedStat value={99} suffix="%" />
               <span>Độ chính xác đối chiếu đơn giá &amp; mã hàng</span>
             </div>
             <div className="landing-stat-divider" />
             <div className="landing-stat-item">
-              <strong>5x</strong>
+              <AnimatedStat value={5} suffix="x" />
               <span>Tốc độ hoàn thiện báo giá so với làm tay</span>
             </div>
           </div>
@@ -532,7 +408,7 @@ export default function LandingPage() {
             </h2>
             <p>
               Loại bỏ hoàn toàn công đoạn gõ tay từng dòng, lục lọi file Excel cũ hay tính toán nhầm lẫn.
-              Giáo làm thay bạn những việc lặp lại nhàm chán nhất.
+              iGen Trợ lí báo giá làm thay bạn những việc lặp lại nhàm chán nhất.
             </p>
           </div>
 
@@ -544,7 +420,7 @@ export default function LandingPage() {
               </span>
               <h3>AI đọc hiểu mọi định dạng</h3>
               <p>
-                Dán nguyên văn tin nhắn Zalo, email hay tải file đính kèm. Giáo tự động bóc tách từng mặt hàng, quy cách và số lượng mà khách cần.
+                Dán nguyên văn tin nhắn Zalo, email hay tải file đính kèm. iGen Trợ lí báo giá tự động bóc tách từng mặt hàng, quy cách và số lượng mà khách cần.
               </p>
               <div className="feature-pill">Nhận diện thông minh</div>
               <span className="feature-index">01</span>
@@ -584,7 +460,7 @@ export default function LandingPage() {
         <div className="landing-container">
           <div className="landing-section-heading">
             <span className="landing-eyebrow">HIỆU QUẢ VƯỢT TRỘI</span>
-            <h2>Tại sao các đội ngũ kinh doanh chuyển sang dùng Giáo?</h2>
+            <h2>Tại sao các đội ngũ kinh doanh chuyển sang dùng iGen Trợ lí báo giá?</h2>
             <p>Xem sự khác biệt rõ rệt giữa cách làm báo giá thủ công và khi có Trợ lý AI đồng hành.</p>
           </div>
 
@@ -617,7 +493,7 @@ export default function LandingPage() {
 
             <div className="comparison-column comparison-new">
               <div className="comparison-col-header">
-                <span className="comparison-badge badge-new">VỚI GIÁO AI</span>
+                <span className="comparison-badge badge-new">VỚI IGEN TRỢ LÍ BÁO GIÁ</span>
                 <h3>Trợ lý báo giá tự động</h3>
                 <p>Nhanh chóng, chuẩn xác và chốt đơn tự tin</p>
               </div>
@@ -655,7 +531,7 @@ export default function LandingPage() {
             </h2>
             <p>
               Bạn không cần cài đặt phần mềm phức tạp. Chỉ cần tải bảng giá sản phẩm lên một lần,
-              Giáo sẽ phụ trách toàn bộ việc tra cứu và tính toán cho bạn.
+              iGen Trợ lí báo giá sẽ phụ trách toàn bộ việc tra cứu và tính toán cho bạn.
             </p>
             <a className="landing-button landing-button-outline" href="/dang-ky">
               <span>Tạo tài khoản dùng thử</span>
@@ -709,7 +585,7 @@ export default function LandingPage() {
           <div>
             <h2>Bảo mật tuyệt đối &amp; Dữ liệu luôn nằm trong tay bạn</h2>
             <p>
-              Giáo chỉ sử dụng bảng giá bạn tải lên để phục vụ việc tính toán riêng của doanh nghiệp bạn.
+              iGen Trợ lí báo giá chỉ sử dụng bảng giá bạn tải lên để phục vụ việc tính toán riêng của doanh nghiệp bạn.
               Mọi bản báo giá đều cần bạn duyệt trước khi gửi, đảm bảo kiểm soát 100%.
             </p>
           </div>
@@ -856,7 +732,7 @@ export default function LandingPage() {
           <div className="landing-section-heading">
             <span className="landing-eyebrow">GIẢI ĐÁP THẮC MẮC</span>
             <h2>Câu hỏi thường gặp</h2>
-            <p>Những băn khoăn phổ biến trước khi các doanh nghiệp đưa Giáo vào quy trình hàng ngày.</p>
+            <p>Những băn khoăn phổ biến trước khi các doanh nghiệp đưa iGen Trợ lí báo giá vào quy trình hàng ngày.</p>
           </div>
 
           <div className="faq-accordion-wrap">
@@ -893,7 +769,7 @@ export default function LandingPage() {
           <div className="final-cta-content">
             <span className="landing-eyebrow">SẴN SÀNG TĂNG TỐC BÁO GIÁ?</span>
             <h2>
-              Để Giáo lo phần nhập liệu.<br />
+              Để iGen Trợ lí báo giá lo phần nhập liệu.<br />
               Bạn tập trung chốt hợp đồng.
             </h2>
             <p>Bắt đầu ngay hôm nay và trải nghiệm tốc độ làm báo giá chưa từng có.</p>
@@ -909,7 +785,7 @@ export default function LandingPage() {
       <footer className="landing-footer">
         <div className="landing-container landing-footer-inner">
           <Brand />
-          <span className="footer-copyright">© 2026 Giáo · Trợ lý thông minh cho quy trình báo giá doanh nghiệp</span>
+          <span className="footer-copyright">© 2026 iGen Trợ lí báo giá · Trợ lí thông minh cho quy trình báo giá doanh nghiệp</span>
           <div className="footer-links">
             <a href="/dang-nhap">Đăng nhập</a>
             <a href="#tinh-nang">Tính năng</a>
@@ -931,7 +807,7 @@ export default function LandingPage() {
               <div>
                 <span className="landing-eyebrow">LIÊN HỆ TƯ VẤN</span>
                 <h2 id="landing-contact-title">Tìm gói phù hợp với doanh nghiệp</h2>
-                <p>Để lại thông tin, đội ngũ Giáo sẽ liên hệ trao đổi chi tiết trong vòng 24h.</p>
+                <p>Để lại thông tin, đội ngũ iGen sẽ liên hệ trao đổi chi tiết trong vòng 24h.</p>
               </div>
               <button type="button" className="landing-contact-close" onClick={closeContact} aria-label="Đóng">
                 ×
