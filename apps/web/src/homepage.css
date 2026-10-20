@@ -1863,15 +1863,15 @@ h3 {
 }
 
 #root .quote-back-btn {
-  background: #ffffff !important;
-  border: 1px solid #e2e8f0 !important;
-  color: #475569 !important;
+  background: #00adfc !important;
+  border: 1px solid #00adfc !important;
+  color: #ffffff !important;
 }
 
 #root .quote-back-btn:hover {
-  background: #f8fafc !important;
-  border-color: #cbd5e1 !important;
-  color: #0f172a !important;
+  background: #008fce !important;
+  border-color: #008fce !important;
+  color: #ffffff !important;
 }
 
 #root .quote-copy-badge {

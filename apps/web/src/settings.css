@@ -293,20 +293,20 @@
   gap: 8px;
   padding: 9px 18px;
   border-radius: 10px;
-  background: #ffffff;
-  color: #475569;
+  background: #00adfc;
+  color: #ffffff;
   font-size: 13.5px;
   font-weight: 700;
-  border: 1px solid #e2e8f0;
+  border: 1px solid #00adfc;
   cursor: pointer;
   transition: all 0.18s ease;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .quote-back-btn:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1;
-  color: #0f172a;
+  background: #008fce;
+  border-color: #008fce;
+  color: #ffffff;
 }
 
 .quote-detail-breadcrumb {
