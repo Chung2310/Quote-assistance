@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, api, apiUploadWithProgress, formatDate } from "./api";
 import FilePreview, { type PreviewFile } from "./FilePreview";
-import { TaskProgress, useAppNotification, type TaskProgressState } from "./Feedback";
+import { TaskProgress, useAppNotification, type ConfirmOptions, type TaskProgressState } from "./Feedback";
 
 export interface TemplateDetails {
   id: string;
@@ -14,7 +14,7 @@ export interface TemplateDetails {
 
 interface TemplatePage { templates: TemplateDetails[]; defaultTemplateId: string | null; nextCursor: string | null }
 
-export function QuoteTemplatePanel({ canManage, onContinue, onManage, templateUsage, usageLoading = false, usageError = false, onRefreshUsage, onUsageChanged }: { canManage: boolean; onContinue?: (template: TemplateDetails) => void; onManage?: () => void; templateUsage?: { used: number; limit: number | null; remaining: number | null } | null; usageLoading?: boolean; usageError?: boolean; onRefreshUsage?: () => void; onUsageChanged?: () => void }) {
+export function QuoteTemplatePanel({ canManage, confirm, onContinue, onManage, templateUsage, usageLoading = false, usageError = false, onRefreshUsage, onUsageChanged }: { canManage: boolean; confirm: (options: ConfirmOptions) => Promise<boolean>; onContinue?: (template: TemplateDetails) => void; onManage?: () => void; templateUsage?: { used: number; limit: number | null; remaining: number | null } | null; usageLoading?: boolean; usageError?: boolean; onRefreshUsage?: () => void; onUsageChanged?: () => void }) {
   const [template, setTemplate] = useState<TemplateDetails | null>(null);
   const [templates, setTemplates] = useState<TemplateDetails[]>([]);
   const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
@@ -23,6 +23,7 @@ export function QuoteTemplatePanel({ canManage, onContinue, onManage, templateUs
   const selecting = Boolean(onContinue);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
   const notify = useAppNotification();
   const [preview, setPreview] = useState<PreviewFile | null>(null);
@@ -65,6 +66,23 @@ export function QuoteTemplatePanel({ canManage, onContinue, onManage, templateUs
     } catch (cause) { notify(cause instanceof Error ? cause.message : "Không tải thêm được mẫu báo giá.", "error"); }
     finally { setLoadingMore(false); }
   };
+  const deleteTemplate = async (entry: TemplateDetails) => {
+    if (deletingId || !await confirm({
+      title: "Xóa mẫu báo giá?",
+      message: `Mẫu “${entry.name || entry.originalFilename}” sẽ không còn dùng cho báo giá mới. Các báo giá đã tạo vẫn giữ mẫu này.`,
+      confirmLabel: "Xóa mẫu",
+      tone: "danger",
+    })) return;
+    setDeletingId(entry.id);
+    try {
+      await api(`/api/quote-template/${entry.id}`, { method: "DELETE" });
+      setPreview(null);
+      await load();
+      onUsageChanged?.();
+      notify("Đã xóa mẫu báo giá.", "success");
+    } catch (cause) { notify(cause instanceof Error ? cause.message : "Không xóa được mẫu báo giá.", "error"); }
+    finally { setDeletingId(null); }
+  };
   return <section className={`content-card email-settings-card quote-template-panel ${!loading && templates.length === 0 ? "is-empty" : ""}`}>
     <div className="settings-card-heading"><div><h2>{onContinue ? "Mẫu được tự động chọn" : "Mẫu đã khai báo"}</h2>{canManage && !onContinue && templateUsage && <p className="template-usage-count">Đã dùng {templateUsage.used.toLocaleString("vi-VN")}{templateUsage.limit === null ? " mẫu · không giới hạn" : ` / ${templateUsage.limit.toLocaleString("vi-VN")} mẫu`}</p>}</div>{canManage && !onContinue && <button className="button button-primary template-create-button" disabled={loading || loadingMore || uploadBlocked} title={uploadBlocked ? uploadBlockedMessage : undefined} onClick={() => setCreating(true)}>Tạo mẫu</button>}</div>
     {canManage && !onContinue && uploadBlocked && <div className="quota-blocked-notice" role="status">{uploadBlockedMessage}{usageError && onRefreshUsage && <button type="button" className="text-button" onClick={onRefreshUsage}>Tải lại hạn mức</button>}</div>}
@@ -75,6 +93,7 @@ export function QuoteTemplatePanel({ canManage, onContinue, onManage, templateUs
         <div className="quote-template-card-content"><h3>{template.name || template.originalFilename}</h3><p className="quote-template-filename" title={template.originalFilename}>{template.originalFilename}</p><p className="quote-template-meta">{(template.bytes / 1024).toLocaleString("vi-VN", { maximumFractionDigits: 0 })} KB · {formatDate(template.createdAt)}</p></div>
         <button type="button" className="button button-soft quote-template-download" onClick={() => setPreview({ name: template.originalFilename, url: `/api/quote-template/${template.id}/file?preview=1` })}>Xem trước mẫu</button>
         <a className="text-button quote-template-download-link" href={`/api/quote-template/${template.id}/file`}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3" /></svg>Tải mẫu gốc</a>
+        {canManage && !selecting && <button type="button" className="text-button quote-template-delete" disabled={Boolean(deletingId)} onClick={() => void deleteTemplate(template)}>{deletingId === template.id ? "Đang xóa…" : "Xóa mẫu"}</button>}
       </article>)}
     </div> : <div className="empty-state template-empty-state setup-empty-state"><span className="empty-icon"><img src="/images/template-empty-3d.svg" alt="" /></span><h3>{canManage ? "Bắt đầu với mẫu báo giá đầu tiên" : "Chưa có mẫu báo giá"}</h3><p>{canManage ? "Tải mẫu lên để sử dụng khi tạo báo giá cho khách hàng." : "Liên hệ quản trị hệ thống để được hỗ trợ."}</p>{canManage && !onContinue && <button type="button" className="button button-primary template-empty-cta" onClick={() => setCreating(true)}>Tạo mẫu báo giá</button>}</div>}
     {!onContinue && nextCursor && <div className="preview-actions"><button className="button button-soft" disabled={loading || loadingMore} onClick={() => void loadMore()}>{loadingMore ? "Đang tải…" : "Xem thêm mẫu"}</button></div>}

@@ -86,6 +86,8 @@
 .quote-template-download { width: 100%; text-decoration: none; }
 .quote-template-download-link { display: flex; align-items: center; justify-content: center; gap: 7px; margin: 9px auto 0; text-align: center; text-decoration: none; }
 #root .quote-template-download-link { color: #00adfc !important; }
+.quote-template-delete { justify-content: center; width: 100%; margin: 2px auto 0; color: #b42318; }
+#root .quote-template-delete { color: #b42318 !important; }
 .quota-blocked-notice { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 10px 0 0; padding: 10px 12px; border: 1px solid #f0d7b8; border-radius: 9px; background: #fff9ef; color: #795a32; font-size: 11px; line-height: 1.5; }
 .quota-blocked-notice .text-button { color: #2d6fba; }
 .quota-usage-count { margin: 7px 0 0; color: #7b8980; font-size: 10px; }
