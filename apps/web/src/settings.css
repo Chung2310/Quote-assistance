@@ -1038,6 +1038,20 @@
   transition: all 0.2s ease;
 }
 
+.quote-terms-panel input[type="number"],
+.quote-products-card input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.quote-terms-panel input[type="number"]::-webkit-inner-spin-button,
+.quote-terms-panel input[type="number"]::-webkit-outer-spin-button,
+.quote-products-card input[type="number"]::-webkit-inner-spin-button,
+.quote-products-card input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .quote-qty-input:focus {
   border-color: #00ADFC;
   box-shadow: 0 0 0 3px rgba(0, 173, 252, 0.15);
@@ -1351,6 +1365,10 @@
   padding: 0 12px;
   font-size: 12px;
   border-radius: 7px;
+}
+
+.quote-doc-actions a.button {
+  text-decoration: none;
 }
 
 /* Meta Card */
@@ -2046,18 +2064,6 @@
   outline: 2px solid #00ADFC;
   outline-offset: 3px;
 }
-
-/* Status accent line on top */
-.quote-card-accent-bar {
-  height: 4px;
-  width: 100%;
-}
-
-.status-bg-draft { background: #94a3b8; }
-.status-bg-pending_review { background: #f59e0b; }
-.status-bg-approved { background: #10b981; }
-.status-bg-needs_info { background: #00ADFC; }
-.status-bg-rejected { background: #ef4444; }
 
 /* Card Header */
 .quote-card-header {

@@ -1,0 +1,66 @@
+#root .vi-date-picker { width: 100%; min-width: 0; }
+#root button.vi-date-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; height: 42px; padding: 0 13px;
+  border: 1px solid #d7e3ee; border-radius: 10px;
+  background: #fff; color: #17243e !important;
+  font: inherit; font-size: 14px; font-weight: 400; text-align: left;
+  cursor: pointer; transition: border-color .18s, box-shadow .18s, background-color .18s;
+}
+#root button.vi-date-trigger * { color: inherit !important; }
+#root button.vi-date-trigger .is-placeholder { color: #8796a3 !important; }
+#root button.vi-date-trigger svg { flex: none; color: #607393 !important; }
+#root button.vi-date-trigger:hover:not(:disabled) { border-color: #8dcfff; background: #fbfdff; }
+#root button.vi-date-trigger:focus-visible, #root .vi-date-picker.is-open button.vi-date-trigger {
+  outline: none; border-color: #00adfc; box-shadow: 0 0 0 3px rgba(0, 173, 252, .14);
+}
+#root button.vi-date-trigger:disabled { opacity: .55; cursor: not-allowed; }
+.vi-date-popup {
+  position: fixed; z-index: 10050; box-sizing: border-box; max-height: calc(100dvh - 16px); overflow-y: auto; padding: 12px;
+  border: 1px solid #d9e8f3; border-radius: 14px;
+  background: #fff; box-shadow: 0 16px 40px rgba(16, 59, 91, .18), 0 2px 8px rgba(16, 59, 91, .06);
+  color: #17243e;
+}
+.vi-date-popup button { font: inherit; cursor: pointer; }
+.vi-date-header { display: flex; align-items: center; justify-content: space-between; gap: 2px; margin-bottom: 12px; }
+.vi-date-header strong { flex: 1; color: #17243e; font-size: 14px; font-weight: 650; text-align: center; white-space: nowrap; }
+.vi-date-header button {
+  display: grid; place-items: center; flex: none; width: 29px; height: 30px;
+  padding: 0; border: 0; border-radius: 8px; background: transparent; color: #415777;
+}
+.vi-date-header button:hover, .vi-date-header button:focus-visible { outline: none; background: #eaf7ff; color: #008fe8; }
+.vi-date-weekdays, .vi-date-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
+.vi-date-weekdays { padding-bottom: 6px; border-bottom: 1px solid #eaf0f5; margin-bottom: 6px; }
+.vi-date-weekdays span { display: grid; place-items: center; height: 26px; color: #607393; font-size: 12px; font-weight: 600; }
+.vi-date-weekdays span:last-child { color: #ed7468; }
+.vi-date-days button {
+  display: grid; place-items: center; width: 100%; height: 36px;
+  padding: 0; border: 1px solid transparent; border-radius: 9px;
+  background: transparent; color: #17243e; font-size: 13px;
+}
+.vi-date-days button.is-outside { color: #a7b4c3; }
+.vi-date-days button.is-today { border-color: #8dcfff; color: #008fe8; font-weight: 600; }
+.vi-date-days button:hover, .vi-date-days button:focus-visible { outline: none; background: #eaf7ff; color: #008fe8; }
+.vi-date-days button.is-selected, .vi-date-days button.is-selected:hover, .vi-date-days button.is-selected:focus-visible {
+  border-color: #0795f2; background: #0795f2; color: #fff; font-weight: 700;
+}
+.vi-date-footer { display: flex; justify-content: space-between; gap: 8px; padding-top: 10px; margin-top: 9px; border-top: 1px solid #eaf0f5; }
+.vi-date-footer button { padding: 7px 9px; border: 0; border-radius: 8px; background: transparent; color: #008fe8; font-size: 13px; font-weight: 600; }
+.vi-date-footer button:hover, .vi-date-footer button:focus-visible { outline: none; background: #eaf7ff; }
+#root .cqd-input-wrap .vi-date-trigger { padding-left: 38px; }
+#root .cqd-input-wrap > svg { z-index: 1; }
+#root .price-list-date-field { display: grid; gap: 7px; min-width: 0; }
+#root .price-list-date-field > label { color: #59675f; font-size: 13px; font-weight: 700; }
+#root .quote-date-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+#root .quote-date-field > label { color: #334155; font-size: 13.5px; font-weight: 700; }
+#root .cqd-input-wrap .vi-date-trigger svg { position: static; pointer-events: none; }
+#root .vi-date-popup { color: #17243e !important; }
+#root .vi-date-popup .vi-date-header strong, #root .vi-date-popup .vi-date-days button { color: #17243e !important; }
+#root .vi-date-popup .vi-date-header button, #root .vi-date-popup .vi-date-weekdays span { color: #607393 !important; }
+#root .vi-date-popup .vi-date-weekdays span:last-child { color: #ed7468 !important; }
+#root .vi-date-popup .vi-date-days button.is-outside { color: #a7b4c3 !important; }
+#root .vi-date-popup .vi-date-days button.is-today, #root .vi-date-popup .vi-date-footer button { color: #008fe8 !important; }
+#root .vi-date-popup .vi-date-days button:hover, #root .vi-date-popup .vi-date-days button:focus-visible,
+#root .vi-date-popup .vi-date-header button:hover, #root .vi-date-popup .vi-date-header button:focus-visible { color: #008fe8 !important; }
+#root .vi-date-popup .vi-date-days button.is-selected, #root .vi-date-popup .vi-date-days button.is-selected:hover,
+#root .vi-date-popup .vi-date-days button.is-selected:focus-visible { color: #fff !important; }
