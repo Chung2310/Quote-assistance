@@ -261,6 +261,7 @@ export async function connectDatabase() {
       await Promise.all([
         db.collection("catalogItems").createIndex({ companyId: 1, sku: 1 }, { unique: true }),
         db.collection("catalogItems").createIndex({ companyId: 1, active: 1, name: 1 }),
+        db.collection("budgetPlans").createIndex({ companyId: 1, createdAt: -1 }),
         db.collection("catalogImportMappings").createIndex({ companyId: 1 }, { unique: true }),
         db.collection("quoteRequests").createIndex({ companyId: 1, createdAt: -1 }),
         db.collection("quoteRequests").createIndex({ companyId: 1, idempotencyKey: 1 }, { unique: true, partialFilterExpression: { idempotencyKey: { $type: "string" } } }),

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Binary } from "mongodb";
 import PizZip from "pizzip";
 import { PDFDocument } from "pdf-lib";
-import { createTemplateFillPlan, createXlsxTemplateFillPlan, inspectTemplate, renderTemplate, templateAiContent, validateFillPlan, type QuoteTemplate } from "./quote-template.js";
+import { createTemplateFillPlan, createXlsxTemplateFillPlan, inspectTemplate, renderCustomerXlsxTemplate, renderTemplate, templateAiContent, validateFillPlan, type QuoteTemplate } from "./quote-template.js";
 import { config } from "./config.js";
 import type { Quote } from "./types.js";
 
@@ -36,6 +36,30 @@ function structuredXlsxTemplateFixture() {
   zip.file("xl/styles.xml", "original-styles");
   return template(zip.generate({ type: "nodebuffer" }), "xlsx");
 }
+
+test("báo giá khách điền mẫu Excel và bỏ số lượng, thành tiền, tổng tiền", async () => {
+  const source = structuredXlsxTemplateFixture();
+  const customerQuote: Quote = { ...quote, kind: "customer", lines: [{ ...quote.lines[0]!, quantity: 1, lineTotal: 0 }], subtotal: 0, taxAmount: 0, total: 0 };
+  const output = new PizZip(await renderCustomerXlsxTemplate(source, customerQuote));
+  const xml = output.file("xl/worksheets/sheet1.xml")!.asText();
+  assert.match(xml, /Máy lọc nước/);
+  assert.match(xml, /Công ty An &amp; Bình &lt;Việt&gt;/);
+  assert.match(xml, /<c r="G4" s="5"><v>10000<\/v><\/c>/);
+  assert.doesNotMatch(xml, /Sản phẩm cũ|Mô tả cũ|<f>/);
+  assert.match(xml, /<row r="5" hidden="1"/);
+  assert.match(xml, /<row r="7" hidden="1"/);
+  assert.equal(output.file("xl/styles.xml")!.asText(), "original-styles");
+  assert.match(output.file("xl/drawings/drawing1.xml")!.asText(), /<xdr:row>0<\/xdr:row>/);
+});
+
+test("mẫu Excel báo giá khách ghi rõ sản phẩm chưa có và để trống giá", async () => {
+  const customerQuote: Quote = { ...quote, kind: "customer", missingProducts: ["Bộ phát Wi-Fi"], lines: [{ ...quote.lines[0]!, quantity: 1, lineTotal: 0 }], subtotal: 0, taxAmount: 0, total: 0 };
+  const output = new PizZip(await renderCustomerXlsxTemplate(structuredXlsxTemplateFixture(), customerQuote));
+  const xml = output.file("xl/worksheets/sheet1.xml")!.asText();
+  assert.match(xml, /Chưa có trong danh mục: Bộ phát Wi-Fi/);
+  assert.match(xml, /<c r="G5" s="5"\/>/);
+  assert.doesNotMatch(xml, /<c r="G5"[^>]*><v>0<\/v>/);
+});
 function xlsxPlan() {
   return {
     cells: [{ key: "customerName", sheet: "Estimate", cell: "B1" }, { key: "total", sheet: "Estimate", cell: "D7" }],
