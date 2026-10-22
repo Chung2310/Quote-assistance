@@ -270,11 +270,13 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
               ? { label: `Đang đọc bảng giá ${fileIndex + 1} / ${selectedFiles.length}`, detail: selected.name }
               : { label: `Đang tải file ${fileIndex + 1} / ${selectedFiles.length}`, progress, detail: selected.name }),
           );
-          previews.push({ file: selected, sheets: result.preview.sheets.map((sheet) => {
-            const header = sheet.headerRows.find((row) => row.row === sheet.headerRow);
-            const roles = header?.roles ?? [];
-            return { ...sheet, roles, included: roles.includes("name") && roles.includes("price") };
-          }) });
+          previews.push({
+            file: selected, sheets: result.preview.sheets.map((sheet) => {
+              const header = sheet.headerRows.find((row) => row.row === sheet.headerRow);
+              const roles = header?.roles ?? [];
+              return { ...sheet, roles, included: roles.includes("name") && roles.includes("price") };
+            })
+          });
         } catch (cause) { errors.push(`${selected.name}: ${cause instanceof Error ? cause.message : "Không đọc được file để xem trước."}`); }
       }
       setPendingImports(previews);
@@ -313,9 +315,9 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
         });
         try {
           const headers = {
-              "Content-Type": "application/octet-stream",
-              "X-File-Name": encodeURIComponent(pending.file.name),
-              "X-Catalog-Import-Mapping": encodeURIComponent(JSON.stringify(mappings)),
+            "Content-Type": "application/octet-stream",
+            "X-File-Name": encodeURIComponent(pending.file.name),
+            "X-Catalog-Import-Mapping": encodeURIComponent(JSON.stringify(mappings)),
           };
           setTaskProgress({ label: `Đang nhập bảng giá ${importIndex + 1} / ${pendingImports.length}`, detail: pending.file.name });
           const result = await apiUploadWithProgress<{ file: StoredPriceList; imported: { inserted: number; updated: number; skippedRows: number } }>(
@@ -356,7 +358,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
 
   return <div className={`page-stack price-list-page ${!loading && products.length === 0 ? "is-empty" : ""}`}>
     <section className="page-heading-row price-list-heading">
-      <div><div className="price-list-title-row"><h1>Bảng giá</h1>{!loading && <span className="price-list-total-badge">{products.length} sản phẩm</span>}</div><p className="muted">Quản lý sản phẩm và đơn giá từ các tài liệu của doanh nghiệp.</p></div>
+      <div><div className="price-list-title-row"><h1>Bảng giá</h1>{!loading && <span className="price-list-total-badge">{products.length} sản phẩm</span>}</div></div>
       {(loading || products.length > 0) && <button className="button button-primary price-list-add-button" disabled={busy || loading || pendingImports.length > 0} onClick={() => input.current?.click()}>{busy ? "Đang đọc tài liệu…" : "Thêm bảng giá"}</button>}
       <input ref={input} type="file" hidden multiple disabled={busy || pendingImports.length > 0} accept=".csv,.xlsx,.xls" onChange={(event) => void upload(event)} />
     </section>

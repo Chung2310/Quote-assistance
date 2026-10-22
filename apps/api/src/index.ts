@@ -10,6 +10,8 @@ import { connectDatabase, closeDatabase } from "./db.js";
 import { login, logout, requireAuth, requireSystemAdmin, requireRole } from "./auth.js";
 import { hashPassword } from "./password.js";
 import { analyzeRequest, suggestUnmatchedExplicitRequestLines } from "./ai.js";
+import { parseCustomerQuotePrompt, suggestCustomerQuote } from "./customer-quote-ai.js";
+import { recomputeBudgetPlanTotals, suggestBudgetPlan, type SavedBudgetPlan } from "./budget-planner.js";
 import { analyzePriceList, extractPriceListRows, type PriceList, type PriceListAnalysisRow } from "./price-list.js";
 import { requestFileContent, type RequestFile } from "./request-file.js";
 import { decryptCompanySecret, encryptCompanySecret } from "./secrets.js";
@@ -19,7 +21,7 @@ import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole,
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
-import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
+import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderCustomerXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
@@ -64,6 +66,27 @@ function quoteForResponse(quote: Quote): Quote {
     shippingFeeConfirmed,
     total: Math.round((quote.subtotal + (taxRateConfirmed ? quote.taxAmount : 0) + (shippingFeeConfirmed ? quote.shippingFee ?? 0 : 0) + Number.EPSILON) * 100) / 100,
     status,
+  };
+}
+
+async function customerQuoteWithPrices(db: Db, quote: Quote): Promise<Quote> {
+  if (quote.kind !== "customer" || quote.customerPricesCaptured || !quote.lines.some((line) => line.unitPrice === 0)) return quote;
+  const ids = quote.lines.map((line) => asId(line.catalogItemId)).filter((id): id is ObjectId => id !== null);
+  const skus = quote.lines.map((line) => line.sku).filter(Boolean);
+  const products = ids.length || skus.length
+    ? await db.collection<CatalogItem>("catalogItems").find({ companyId: quote.companyId, $or: [{ _id: { $in: ids } }, { sku: { $in: skus } }] }).toArray()
+    : [];
+  const byId = new Map(products.map((item) => [String(item._id), item]));
+  const bySku = new Map(products.map((item) => [item.sku, item]));
+  return {
+    ...quote,
+    lines: quote.lines.map((line) => {
+      if (line.unitPrice !== 0) return line;
+      const product = byId.get(line.catalogItemId) ?? bySku.get(line.sku);
+      return product
+        ? { ...line, unitPrice: product.price, priceFromCurrentCatalog: true }
+        : { ...line, priceUnavailable: true };
+    }),
   };
 }
 
@@ -1456,11 +1479,11 @@ app.get("/api/dashboard", requireRole("user"), async (request, response) => {
   const user = userOf(request);
   const quotes = db.collection<Quote>("quotes");
   const [total, drafts, pending, approved, recent] = await Promise.all([
-    quotes.countDocuments({ companyId: user.companyId }),
-    quotes.countDocuments({ companyId: user.companyId, status: "draft" }),
-    quotes.countDocuments({ companyId: user.companyId, status: "pending_review" }),
-    quotes.countDocuments({ companyId: user.companyId, status: "approved" }),
-    quotes.find({ companyId: user.companyId }).sort({ createdAt: -1, _id: -1 }).limit(3).toArray(),
+    quotes.countDocuments({ companyId: user.companyId, kind: { $ne: "customer" } }),
+    quotes.countDocuments({ companyId: user.companyId, kind: { $ne: "customer" }, status: "draft" }),
+    quotes.countDocuments({ companyId: user.companyId, kind: { $ne: "customer" }, status: "pending_review" }),
+    quotes.countDocuments({ companyId: user.companyId, kind: { $ne: "customer" }, status: "approved" }),
+    quotes.find({ companyId: user.companyId, kind: { $ne: "customer" } }).sort({ createdAt: -1, _id: -1 }).limit(3).toArray(),
   ]);
   response.json({ counts: { total, drafts, pending, approved }, recent });
 });
@@ -1881,6 +1904,8 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const collection = db.collection<Quote>("quotes");
   const status = request.query.status;
   const filter: Document = { companyId: user.companyId };
+  if (request.query.kind === "customer") filter.kind = "customer";
+  else filter.kind = { $ne: "customer" };
   if (typeof status === "string" && ["draft", "needs_info", "pending_review", "approved", "rejected"].includes(status)) filter.status = status;
   if (request.query.page === undefined) {
     const quotes = await collection.find(filter).sort({ createdAt: -1, _id: -1 }).limit(100).toArray();
@@ -1911,7 +1936,7 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const [total, statusRows] = await Promise.all([
     collection.countDocuments(filter),
     collection.aggregate<{ _id: QuoteStatus; count: number; revenue: number }>([
-      { $match: { companyId: user.companyId } },
+      { $match: { companyId: user.companyId, kind: filter.kind } },
       { $group: { _id: "$status", count: { $sum: 1 }, revenue: { $sum: { $cond: [{ $eq: ["$status", "approved"] }, "$total", 0] } } } },
     ]).toArray(),
   ]);
@@ -1935,6 +1960,104 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
       approvedRevenue: statusRows.reduce((sum, row) => sum + row.revenue, 0),
     },
   });
+});
+
+app.post("/api/customer-quotes/suggest", requireRole("user"), async (request, response) => {
+  const prompt = request.body?.prompt;
+  if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 3000) return fail(response, "Hãy nhập yêu cầu báo giá, tối đa 3.000 ký tự.");
+  const inputs = parseCustomerQuotePrompt(prompt);
+  const db = await connectDatabase();
+  const catalog = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(userOf(request).companyId)).sort({ sku: 1 }).limit(1000).toArray();
+  try { response.json(await suggestCustomerQuote(inputs, catalog)); }
+  catch (error) { fail(response, error instanceof Error ? error.message : "Không thể đề xuất hạng mục.", 422); }
+});
+
+app.get("/api/budget-plans", requireRole("user"), async (request, response) => {
+  const plans = await (await connectDatabase()).collection<SavedBudgetPlan>("budgetPlans")
+    .find({ companyId: userOf(request).companyId }).sort({ createdAt: -1, _id: -1 }).limit(30).toArray();
+  response.json({ plans: plans.map(({ _id, input, result, createdAt }) => ({ id: String(_id), input, result: recomputeBudgetPlanTotals(result), createdAt })) });
+});
+
+app.post("/api/budget-plans/suggest", requireRole("user"), async (request, response) => {
+  const { description, budget, area, floors } = request.body ?? {};
+  if (typeof description !== "string" || !description.trim() || description.length > 3000
+    || typeof budget !== "number" || !Number.isFinite(budget) || budget <= 0 || budget > 1_000_000_000_000
+    || (area !== undefined && (typeof area !== "number" || !Number.isFinite(area) || area <= 0 || area > 1_000_000))
+    || (floors !== undefined && (!Number.isInteger(floors) || floors <= 0 || floors > 200))) {
+    return fail(response, "Mô tả, ngân sách hoặc quy mô không hợp lệ.");
+  }
+  const db = await connectDatabase();
+  const catalog = await db.collection<CatalogItem>("catalogItems")
+    .find(currentCatalogFilter(userOf(request).companyId)).sort({ sku: 1 }).limit(1000).toArray();
+  if (!catalog.length) return fail(response, "Bảng giá chưa có sản phẩm đang áp dụng.", 422);
+  try {
+    const user = userOf(request);
+    const input = { description: description.trim(), budget, ...(area === undefined ? {} : { area }), ...(floors === undefined ? {} : { floors }) };
+    const result = await suggestBudgetPlan(input, catalog);
+    const createdAt = new Date();
+    const saved: SavedBudgetPlan = { companyId: user.companyId, createdBy: user.id, input, result, createdAt };
+    const inserted = await db.collection<SavedBudgetPlan>("budgetPlans").insertOne(saved);
+    response.status(201).json({ id: inserted.insertedId.toHexString(), input, result, createdAt });
+  }
+  catch (error) { fail(response, error instanceof Error ? error.message : "Không thể tạo phương án sơ bộ.", 422); }
+});
+
+app.post("/api/customer-quotes", requireRole("user"), async (request, response) => {
+  const user = userOf(request);
+  const rawItems = request.body?.items;
+  const rawMissingProducts = request.body?.missingProducts ?? [];
+  const templateId = request.body?.templateId ? asId(String(request.body.templateId)) : null;
+  const idempotencyKey = request.body?.idempotencyKey;
+  const customerName = request.body?.customerName;
+  const customerEmail = request.body?.customerEmail ?? "";
+  const customerPhone = request.body?.customerPhone ?? "";
+  if ((request.body?.templateId && !templateId) || !validText(idempotencyKey, 100) || !validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail && !validEmail(customerEmail)) || typeof customerPhone !== "string" || customerPhone.length > 50 || !Array.isArray(rawItems) || rawItems.length > 100 || !Array.isArray(rawMissingProducts) || rawMissingProducts.length > 30 || rawMissingProducts.some((name) => !validText(name, 120)) || (!rawItems.length && !rawMissingProducts.length)) return fail(response, "Khách hàng hoặc danh sách sản phẩm không hợp lệ.");
+  const missingProducts = [...new Set((rawMissingProducts as string[]).map((name) => name.trim()))];
+  const db = await connectDatabase();
+  const quotes = db.collection<Quote>("quotes");
+  const existing = await quotes.findOne({ companyId: user.companyId, idempotencyKey });
+  if (existing) return response.json({ quote: quoteForResponse(existing) });
+  const usage = await subscriptionUsage(db, user.companyId);
+  if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
+  const template = templateId ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }) : null;
+  if (templateId && !template) return fail(response, "Không tìm thấy mẫu báo giá.", 404);
+  if (template && template.extension !== "xlsx") return fail(response, "Báo giá khách cần chọn mẫu Excel (.xlsx).", 422);
+  const requested = [] as Array<{ catalogItemId: string; quantity: number; unit: string; attributes: Record<string, string> }>;
+  for (const raw of rawItems) {
+    if (!isRecord(raw) || typeof raw.catalogItemId !== "string" || !asId(raw.catalogItemId) || typeof raw.quantity !== "number" || typeof raw.unit !== "string") return fail(response, "Dòng hàng không hợp lệ.");
+    requested.push({ catalogItemId: raw.catalogItemId, quantity: 1, unit: raw.unit, attributes: {} });
+  }
+  if (new Set(requested.map((item) => item.catalogItemId)).size !== requested.length) return fail(response, "Sản phẩm bị trùng trong báo giá.");
+  const catalogIds = requested.map((item) => asId(item.catalogItemId)!);
+  const catalog = await db.collection<CatalogItem>("catalogItems").find({ _id: { $in: catalogIds }, ...currentCatalogFilter(user.companyId) }).toArray();
+  const catalogById = new Map(catalog.map((item) => [String(item._id), item]));
+  if (catalogById.size !== requested.length) return fail(response, "Một số sản phẩm không còn trong bảng giá.");
+  const totals = {
+    lines: requested.map(({ catalogItemId }) => {
+      const item = catalogById.get(catalogItemId)!;
+      return {
+        catalogItemId, source: "catalog" as const, sku: item.sku, name: item.name,
+        description: item.description, quantity: 1, unit: item.unit, unitPrice: item.price,
+        currency: item.currency, catalogAttributes: {}, attributes: {}, lineTotal: 0,
+      };
+    }),
+    subtotal: 0, taxRate: 0, taxAmount: 0, total: 0, currency: config.currency,
+  };
+  const year = new Date().getFullYear();
+  const counter = await db.collection<{ _id: string; value: number }>("counters").findOneAndUpdate({ _id: `${user.companyId}:${year}` }, { $inc: { value: 1 } }, { upsert: true, returnDocument: "after" });
+  const now = new Date();
+  const quote: Quote = {
+    companyId: user.companyId, kind: "customer", customerPricesCaptured: true, idempotencyKey, missingProducts,
+    ...(template ? { template: { id: template._id!.toHexString(), name: template.name || template.originalFilename, originalFilename: template.originalFilename } } : {}),
+    quoteNumber: `BG-${year}-${String(counter?.value ?? 1).padStart(5, "0")}`,
+    requestId: "", customerName: customerName.trim(), customerEmail: customerEmail.trim(), customerPhone: customerPhone.trim(),
+    ...totals, taxRateConfirmed: true, shippingFee: 0, shippingFeeConfirmed: true,
+    informationNeeded: [], additionalInformation: {}, suggestedProducts: [], informationConfirmed: true,
+    status: "draft", createdBy: user.id, createdAt: now, updatedAt: now,
+  };
+  const result = await quotes.insertOne(quote);
+  await writeAudit(db, user, "customer_quote_created", "quote", result.insertedId.toHexString(), { quoteNumber: quote.quoteNumber, productCount: quote.lines.length });
+  response.status(201).json({ quote: quoteForResponse({ ...quote, _id: result.insertedId }) });
 });
 
 app.post("/api/quotes", requireRole("user"), async (request, response) => {
@@ -2061,7 +2184,7 @@ app.get("/api/quotes/:id", requireRole("user"), async (request, response) => {
     { _id: sourceId, companyId: userOf(request).companyId },
     { projection: { requestText: 1, candidates: 1, suggestedProducts: 1 } },
   ) : null;
-  let quoteResponse = quoteForResponse(quote);
+  let quoteResponse = quoteForResponse(await customerQuoteWithPrices(db, quote));
   if (source) {
     const suggestions = [...(quote.suggestedProducts ?? [])];
     for (const product of source.suggestedProducts ?? []) {
@@ -2302,7 +2425,7 @@ app.post("/api/quotes/:id/submit-review", requireRole("user"), async (request, r
   const quotes = db.collection<Quote>("quotes");
   const quote = await quotes.findOne({ _id: id, companyId: user.companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
-  if (quote.status !== "draft" || quoteHasUnresolvedInformation(quote)) return fail(response, "Hãy xử lý các khoản chưa có giá hoặc điều khoản còn thiếu trước khi gửi duyệt.", 409);
+  if (quote.status !== "draft" || quoteHasUnresolvedInformation(quote)) return fail(response, quote.kind === "customer" ? "Danh sách sản phẩm chưa sẵn sàng để gửi duyệt." : "Hãy xử lý các khoản chưa có giá hoặc điều khoản còn thiếu trước khi gửi duyệt.", 409);
   await quotes.updateOne({ _id: id, companyId: user.companyId }, { $set: { status: "pending_review", updatedAt: new Date() } });
   await writeAudit(db, user, "quote_submitted", "quote", id.toHexString());
   response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
@@ -2349,11 +2472,33 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
   const quotes = db.collection<Quote>("quotes");
   const storedQuote = await quotes.findOne({ _id: id, companyId: userOf(request).companyId });
   if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
-  const quote = quoteForResponse(storedQuote);
+  const quote = quoteForResponse(await customerQuoteWithPrices(db, storedQuote));
   const preview = request.query.preview === "1";
   const draftExport = request.query.draft === "1";
   const excelExport = request.query.excel === "1";
   if (quote.status !== "approved" && !preview && !draftExport) return fail(response, "Chỉ có thể tải file chính thức sau khi báo giá được duyệt.", 409);
+  if (quote.kind === "customer") {
+    const plainExcel = request.query.templateId === "none";
+    const selectedId = request.query.templateId === undefined || plainExcel ? null : asId(String(request.query.templateId));
+    if (request.query.templateId !== undefined && !plainExcel && !selectedId) return fail(response, "Mã mẫu Excel không hợp lệ.");
+    let selected = selectedId
+      ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: selectedId, companyId: quote.companyId, deletedAt: { $exists: false } })
+      : !plainExcel && quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
+    if (selectedId && !selected) return fail(response, "Không tìm thấy mẫu Excel.", 404);
+    if (selected && selected.extension !== "xlsx") {
+      if (selectedId) return fail(response, "Hãy chọn mẫu Excel (.xlsx).", 422);
+      selected = null;
+    }
+    try {
+      const bytes = selected ? await renderCustomerXlsxTemplate(selected, quote) : makeQuoteExcel(quote);
+      response.setHeader("Content-Type", templateFormats.xlsx);
+      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx"`);
+      response.send(bytes);
+    } catch (error) {
+      return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá khách theo mẫu Excel.", 422);
+    }
+    return;
+  }
   if (excelExport && quote.status === "approved") {
     response.setHeader("Content-Type", templateFormats.xlsx);
     response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.xlsx"`);
@@ -2415,6 +2560,7 @@ app.get("/api/quotes/:id/pdf", requireRole("user"), async (request, response) =>
   if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
   const quote = quoteForResponse(storedQuote);
   if (quote.status !== "approved") return fail(response, "Chỉ có thể xuất PDF sau khi báo giá được duyệt.", 409);
+  if (quote.kind === "customer") return fail(response, "Danh sách sản phẩm khách được xuất dưới dạng Excel.", 409);
   if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể xuất báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   if (quote.template) return response.redirect(307, `/api/quotes/${quote._id}/export`);
   const pdf = makePdf(quote);

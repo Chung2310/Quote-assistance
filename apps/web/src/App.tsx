@@ -4,16 +4,21 @@ import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteSta
 import AdminApp from "./AdminApp";
 import LandingPage from "./LandingPage";
 import PriceListPanel from "./PriceListPanel";
+import CustomerQuotes from "./CustomerQuotes";
+import CustomerQuoteDetail from "./CustomerProductListDetail";
+import BudgetPlanner from "./BudgetPlanner";
 import FilePreview, { type PreviewFile } from "./FilePreview";
 import { QuoteTemplatePanel, type TemplateDetails } from "./QuoteTemplate";
 import { NotificationProvider, NotificationToast, TaskProgress, useAppNotification, useConfirmation, useNotification, type ConfirmOptions, type Notify, type TaskProgressState } from "./Feedback";
 import "./settings.css";
 import "./quote-supplement.css";
 
-type Section = "home" | "quotes" | "catalog" | "templates" | "profile";
+type Section = "home" | "quotes" | "budgetPlanner" | "customerQuotes" | "catalog" | "templates" | "profile";
 const sectionPaths: Record<Section, string> = {
   home: "/tong-quan",
   quotes: "/bao-gia",
+  budgetPlanner: "/tu-van-ngan-sach",
+  customerQuotes: "/bao-gia-khach",
   templates: "/mau-bao-gia",
   catalog: "/bang-gia",
   profile: "/tai-khoan",
@@ -27,8 +32,8 @@ function userRouteForPath(pathname: string): { section: Section; quoteId: string
   const path = normalizedPath(pathname);
   const section = (Object.entries(sectionPaths) as Array<[Section, string]>).find(([, value]) => value === path)?.[0];
   if (section) return { section, quoteId: null };
-  const quoteMatch = path.match(/^\/bao-gia\/([a-f0-9]{24})$/i);
-  return quoteMatch ? { section: "quotes", quoteId: quoteMatch[1] } : null;
+  const quoteMatch = path.match(/^\/(bao-gia|bao-gia-khach)\/([a-f0-9]{24})$/i);
+  return quoteMatch ? { section: quoteMatch[1] === "bao-gia-khach" ? "customerQuotes" : "quotes", quoteId: quoteMatch[2] } : null;
 }
 interface SubscriptionUsage {
   plan: SubscriptionPlanSummary;
@@ -216,7 +221,7 @@ function UserApp() {
   const handleLogin = (signedIn: User, planCode?: string) => {
     const requestedPaidPlan = planCode && planCode !== "free" && /^[a-z][a-z0-9-]{0,60}$/i.test(planCode) ? planCode : null;
     const route = requestedPaidPlan ? { section: "profile" as Section, quoteId: null } : initialRoute.current ?? { section: "home" as Section, quoteId: null };
-    window.history.replaceState(null, "", route.quoteId ? `${sectionPaths.quotes}/${route.quoteId}` : sectionPaths[route.section]);
+    window.history.replaceState(null, "", route.quoteId ? `${sectionPaths[route.section]}/${route.quoteId}` : sectionPaths[route.section]);
     setSection(route.section);
     setQuoteId(route.quoteId);
     setRequestedPlanCode(requestedPaidPlan);
@@ -238,6 +243,18 @@ function UserApp() {
   }, []);
   const handleBillingPaid = useCallback(() => { void loadUsage(); }, [loadUsage]);
   const signedInUserId = user?.id;
+  useEffect(() => {
+    if (!signedInUserId || !quoteId || (section !== "quotes" && section !== "customerQuotes")) return;
+    let live = true;
+    void api<{ quote: Quote }>(`/api/quotes/${quoteId}`).then(({ quote }) => {
+      if (!live) return;
+      const correctSection = quote.kind === "customer" ? "customerQuotes" : "quotes";
+      if (correctSection === section) return;
+      window.history.replaceState(null, "", `${sectionPaths[correctSection]}/${quoteId}`);
+      setSection(correctSection);
+    }).catch(() => undefined);
+    return () => { live = false; };
+  }, [signedInUserId, quoteId, section]);
   useEffect(() => {
     if (!signedInUserId) {
       setUsage(null);
@@ -275,16 +292,17 @@ function UserApp() {
     setSection(nextSection);
   };
   const closeQuote = () => {
-    window.history.replaceState(null, "", sectionPaths.quotes);
+    window.history.replaceState(null, "", sectionPaths[section === "customerQuotes" ? "customerQuotes" : "quotes"]);
     setQuoteId(null);
-    setSection("quotes");
+    setSection(section === "customerQuotes" ? "customerQuotes" : "quotes");
   };
   if (checkingSession) return <div className="splash"><img className="brand-logo-image brand-logo-image-splash brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /><span>Đang mở không gian làm việc…</span></div>;
   if (!user) return <NotificationProvider notify={notify}><><Login onLogin={handleLogin} onNotify={notify} />{notification && <NotificationToast notification={notification} onDismiss={dismiss} />}{confirmationDialog}</></NotificationProvider>;
-  const openQuote = (id: string) => {
-    const target = `${sectionPaths.quotes}/${id}`;
+  const openQuote = (id: string, kind: "estimate" | "customer" = "estimate") => {
+    const nextSection = kind === "customer" ? "customerQuotes" : "quotes";
+    const target = `${sectionPaths[nextSection]}/${id}`;
     if (normalizedPath(window.location.pathname) !== target) window.history.pushState(null, "", target);
-    setSection("quotes");
+    setSection(nextSection);
     setQuoteId(id);
   };
   const removeQuote = async (quote: Quote) => {
@@ -313,7 +331,9 @@ function UserApp() {
       <div className="brand-lockup"><img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /></div>
       <nav className="side-nav">
         <NavButton icon="home" label="Tổng quan" href={sectionPaths.home} active={!quoteId && section === "home"} onClick={() => navigateSection("home")} />
-        <NavButton icon="quote" label="Báo giá" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
+        <NavButton icon="quote" label="Dự toán" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
+        <NavButton icon="spark" label="Tư vấn ngân sách" href={sectionPaths.budgetPlanner} active={!quoteId && section === "budgetPlanner"} onClick={() => navigateSection("budgetPlanner")} />
+        <NavButton icon="file" label="Báo giá khách" href={sectionPaths.customerQuotes} active={!quoteId && section === "customerQuotes"} onClick={() => navigateSection("customerQuotes")} />
         <NavButton icon="file" label="Mẫu báo giá" href={sectionPaths.templates} active={!quoteId && section === "templates"} onClick={() => navigateSection("templates")} />
         <NavButton icon="box" label="Bảng giá" href={sectionPaths.catalog} active={!quoteId && section === "catalog"} onClick={() => navigateSection("catalog")} />
       </nav>
@@ -322,17 +342,23 @@ function UserApp() {
       </div>
     </aside>
     <div className="main-column">
-      <main className="main-content">{quoteId ?
-        <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} />
-        : section === "home" ?
-          <Dashboard key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} canReview onOpen={openQuote} onCreate={createQuote} onNavigate={navigateSection} onDeleteQuote={(quote) => void removeQuote(quote)} />
-          : section === "quotes" ?
-            <QuoteWorkspace key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} onOpen={openQuote} onCreate={createQuote} onDeleteQuote={(quote) => void removeQuote(quote)} onNavigate={navigateSection} />
-            : section === "templates" ?
-              <div className="page-stack templates-page"><section className="page-heading-row"><div><h1>Mẫu báo giá</h1><p className="muted">Khai báo và cập nhật mẫu mặc định của doanh nghiệp.</p></div></section><QuoteTemplatePanel canManage confirm={confirm} templateUsage={usage?.templates ?? null} usageLoading={usageLoading} usageError={Boolean(usageError)} onRefreshUsage={() => void loadUsage()} onUsageChanged={() => void loadUsage()} /></div>
-              : section === "catalog" ?
-                <PriceListPanel key={refreshKey} onToast={notify} />
-                : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
+      <main className="main-content">{quoteId && section === "customerQuotes" ?
+        <CustomerQuoteDetail key={quoteId} id={quoteId} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} />
+        : quoteId ?
+          <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} />
+          : section === "home" ?
+            <Dashboard key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} canReview onOpen={openQuote} onCreate={createQuote} onNavigate={navigateSection} onDeleteQuote={(quote) => void removeQuote(quote)} />
+            : section === "quotes" ?
+              <QuoteWorkspace key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} onOpen={openQuote} onCreate={createQuote} onDeleteQuote={(quote) => void removeQuote(quote)} onNavigate={navigateSection} />
+              : section === "budgetPlanner" ?
+                <BudgetPlanner />
+                : section === "customerQuotes" ?
+                  <CustomerQuotes onOpen={(id) => openQuote(id, "customer")} onCreated={refresh} onQuotaExceeded={() => void loadUsage()} />
+                  : section === "templates" ?
+                    <QuoteTemplatePanel canManage confirm={confirm} templateUsage={usage?.templates ?? null} usageLoading={usageLoading} usageError={Boolean(usageError)} onRefreshUsage={() => void loadUsage()} onUsageChanged={() => void loadUsage()} />
+                    : section === "catalog" ?
+                      <PriceListPanel key={refreshKey} onToast={notify} />
+                      : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
     {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
@@ -659,8 +685,8 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, usage, quoteUsageL
       <article className="dashboard-banner dashboard-banner-primary">
         <img src="/images/quote-banner.png" alt="" />
         <div className="dashboard-banner-copy">
-          <h1>Báo giá nhanh, rõ ràng</h1>
-          <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo báo giá</button>
+          <h1>Dự toán nhanh, rõ ràng</h1>
+          <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo dự toán</button>
           <QuoteUsageWidget
             usage={usage}
             quoteUsageLabel={quoteUsageLabel}
@@ -685,7 +711,7 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, usage, quoteUsageL
     </section>
     <section className="content-card recent-card">
       <div className="card-heading">
-        <div><h2>Báo giá gần đây</h2></div>
+        <div><h2>Dự toán gần đây</h2></div>
         <button className="text-button" onClick={() => onNavigate("quotes")}>Xem tất cả <Icon name="arrow" size={15} /></button>
       </div>
       <QuoteCards quotes={data?.recent ?? []} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Chưa có báo giá nào" emptyText="" />
@@ -799,7 +825,7 @@ function QuoteWorkspace({
       {/* HEADER ROW */}
       <section className="page-heading-row quote-workspace-header">
         <div className="quote-workspace-heading-left">
-          <h1>Báo giá</h1>
+          <h1>Dự toán</h1>
           <QuoteUsageWidget
             usage={usage}
             quoteUsageLabel={quoteUsageLabel}
@@ -823,7 +849,7 @@ function QuoteWorkspace({
             onClick={onCreate}
           >
             <Icon name="plus" size={17} />
-            <span>Tạo báo giá mới</span>
+            <span>Tạo dự toán mới</span>
           </button>
         </div>
       </section>
@@ -1064,7 +1090,7 @@ function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplat
     return () => { active = false; };
   }, [reloadKey, setError]);
   return <dialog ref={dialog} className="template-dialog quote-creation-dialog" aria-labelledby="new-quote-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
-    <div className="settings-card-heading"><h2 id="new-quote-title">Tạo báo giá mới</h2><button type="button" autoFocus className="icon-button" aria-label="Đóng popup tạo báo giá" disabled={busy} onClick={onClose}><Icon name="close" /></button></div>
+    <div className="settings-card-heading"><h2 id="new-quote-title">Tạo dự toán mới</h2><button type="button" autoFocus className="icon-button" aria-label="Đóng popup tạo dự toán" disabled={busy} onClick={onClose}><Icon name="close" /></button></div>
     <div className="quote-creation-body" aria-busy={busy || loading}>{loading ? <TaskProgress label="Đang tải mẫu và danh mục sản phẩm" detail="Chuẩn bị biểu mẫu tạo báo giá…" /> : loadFailed ? <div className="empty-state"><button className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div> : <NewQuote options={options} canManageTemplate={canManageTemplate} onManageTemplate={onManageTemplate} onCreated={onCreated} onBusyChange={setBusy} onQuotaExceeded={onQuotaExceeded} />}</div>
   </dialog>;
 }

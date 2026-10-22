@@ -164,6 +164,8 @@ export interface QuoteLine {
   quantity: number;
   unit: string;
   unitPrice: number;
+  priceFromCurrentCatalog?: boolean;
+  priceUnavailable?: boolean;
   currency: string;
   catalogAttributes?: Record<string, string>;
   attributes: Record<string, string>;
@@ -171,6 +173,9 @@ export interface QuoteLine {
 }
 
 export interface Quote {
+  kind?: "estimate" | "customer";
+  customerPricesCaptured?: boolean;
+  missingProducts?: string[];
   priceList?: { id: string; originalFilename: string };
   requestFile?: { id: string; originalFilename: string };
   _id?: ObjectId;

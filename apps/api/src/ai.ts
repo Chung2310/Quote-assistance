@@ -380,7 +380,6 @@ export async function analyzeRequest(requestText: string, items: CatalogItem[], 
   const missingFields = [
     ...remainingMissingFields,
     ...feeMissingFields,
-    ...(suggestedProducts.length && !remainingMissingFields.length ? ["xác nhận các mặt hàng chưa ghép"] : []),
   ];
   const resolvedResult = {
     ...result,
