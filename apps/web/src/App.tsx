@@ -2454,7 +2454,10 @@ function AccountProfile({
 
   return (
     <div className="page-stack profile-page">
-      <section className="page-heading-row profile-heading-row">
+      <section
+        className="page-heading-row profile-heading-row"
+        style={{ height: 170, minHeight: 170, paddingBottom: 18 }}
+      >
         <div>
           <h1>Trang cá nhân &amp; Cài đặt</h1>
         </div>
@@ -2770,6 +2773,7 @@ function SubscriptionBillingPanel({
             const current = plan.code === currentPlanCode;
             const hasExpiry = Boolean(subscriptionExpiresAt);
             const isFeatured = plan.featured || plan.code === "pro";
+            const planIcon = plan.code === "pro" ? "crown" : plan.code.toLowerCase().includes("business") ? "business" : "box";
 
             return (
               <article
@@ -2778,6 +2782,20 @@ function SubscriptionBillingPanel({
               >
                 {isFeatured && <span className="profile-plan-featured-tag">ĐƯỢC CHỌN NHIỀU</span>}
                 {current && <span className="profile-plan-current-tag">GÓI ĐANG DÙNG</span>}
+
+                <div className={`profile-plan-icon tone-${planIcon}`} aria-hidden="true">
+                  {planIcon === "crown" ? (
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m3 8 4.5 4L12 5l4.5 7L21 8l-2 10H5L3 8Z" />
+                      <path d="M5.5 21h13" />
+                    </svg>
+                  ) : planIcon === "business" ? (
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="4" y="3" width="11" height="18" rx="1.5" />
+                      <path d="M15 8h5v13h-5M8 7h3M8 11h3M8 15h3M8 19h3M17.5 12h.5M17.5 16h.5" />
+                    </svg>
+                  ) : <Icon name="box" size={26} />}
+                </div>
 
                 <div className="profile-plan-tile-header">
                   <h3>{plan.name}</h3>

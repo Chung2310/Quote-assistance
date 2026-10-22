@@ -4743,3 +4743,475 @@ h3 {
     padding: 18px !important;
   }
 }
+
+/* Account profile and subscription page refresh. */
+#root .app-shell .profile-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  gap: 20px;
+  color: #14233e;
+}
+
+#root .app-shell .profile-heading-row {
+  position: relative;
+  isolation: isolate;
+  box-sizing: border-box;
+  height: 164px;
+  min-height: 164px;
+  margin: -34px -42px 0;
+  padding: 24px 42px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0 0 20px 20px;
+  background:
+    radial-gradient(ellipse 400px 115px at 25% 0%, rgba(0, 173, 252, .11) 0%, transparent 72%),
+    linear-gradient(115deg, #f5fbff 0%, #eaf6ff 58%, #def1ff 100%);
+}
+
+#root .app-shell .profile-heading-row::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: -40px -4% 0 34%;
+  border-radius: 50% 0 0 0;
+  background: repeating-linear-gradient(150deg, transparent 0 115px, rgba(0, 157, 238, .075) 118px 190px, transparent 193px 285px);
+  pointer-events: none;
+}
+
+#root .app-shell .profile-heading-row > div {
+  position: static;
+}
+
+#root .app-shell .profile-heading-row h1 {
+  position: absolute;
+  left: 42px;
+  bottom: 20px;
+  z-index: 1;
+  margin: 0;
+  color: #12213c;
+  font-size: 32px;
+  font-weight: 650;
+  line-height: 1.15;
+  letter-spacing: -0.9px;
+}
+
+#root .app-shell .profile-signout-btn {
+  position: relative;
+  z-index: 2;
+  min-height: 54px;
+  height: 54px;
+  margin: 0 0 0 auto;
+  padding: 0 24px;
+  border: 1px solid #ffd8e2;
+  border-radius: 999px;
+  background: #fff7fa;
+  color: #17243e !important;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 5px 14px rgba(16, 38, 63, .04);
+}
+
+#root .app-shell .profile-signout-btn:hover {
+  border-color: #ffbccc;
+  background: #fff0f4;
+  color: #17243e !important;
+  transform: translateY(-1px);
+}
+
+#root .app-shell .profile-dashboard-layout {
+  grid-template-columns: minmax(320px, .96fr) minmax(0, 1.94fr);
+  align-items: stretch;
+  gap: 16px;
+}
+
+#root .app-shell .profile-sidebar-col,
+#root .app-shell .profile-main-col {
+  gap: 16px;
+}
+
+#root .app-shell .profile-user-card,
+#root .app-shell .profile-quota-card,
+#root .app-shell .profile-billing-card {
+  border: 1px solid #dceaf5;
+  border-radius: 18px;
+  background-color: #fff;
+  box-shadow: 0 9px 28px rgba(41, 105, 150, .055);
+}
+
+#root .app-shell .profile-user-cover {
+  height: 90px;
+  background:
+    linear-gradient(110deg, rgba(0, 160, 237, .96), rgba(0, 173, 252, .78)),
+    url('/images/quote-banner.png') right center / cover no-repeat;
+}
+
+#root .app-shell .profile-user-body {
+  margin-top: -50px;
+  padding: 0 24px 24px;
+}
+
+#root .app-shell .profile-avatar-wrapper {
+  margin-bottom: 14px;
+}
+
+#root .app-shell .profile-avatar-large {
+  width: 90px;
+  height: 90px;
+  border: 3px solid #fff;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #eaf8ff, #cceeff);
+  color: #12213c;
+  font-size: 30px;
+  font-weight: 600;
+  box-shadow: 0 6px 18px rgba(0, 137, 219, .18);
+}
+
+#root .app-shell .profile-user-info h2 {
+  margin-bottom: 7px;
+  color: #14233e;
+  font-size: 21px;
+  font-weight: 650;
+}
+
+#root .app-shell .profile-email-row {
+  gap: 8px;
+  color: #4f6380;
+  font-size: 13px;
+}
+
+#root .app-shell .profile-copy-btn {
+  min-height: 34px;
+  padding: 0 12px;
+  border-color: #cfe8f8;
+  border-radius: 999px;
+  background: #f3faff;
+  color: #17699f;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+#root .app-shell .profile-quota-card {
+  padding: 22px;
+}
+
+#root .app-shell .profile-card-eyebrow {
+  color: #52708f;
+  font-size: 10px;
+  letter-spacing: .9px;
+}
+
+#root .app-shell .profile-quota-header h3 {
+  color: #14233e;
+  font-size: 23px;
+  font-weight: 650;
+}
+
+#root .app-shell .profile-plan-pill-active {
+  padding: 6px 11px;
+  border-radius: 999px;
+  background: #eafbf3;
+  color: #078a60;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+#root .app-shell .profile-quota-desc {
+  color: #405775;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+#root .app-shell .profile-expiry-banner {
+  padding: 10px 13px;
+  border: 1px solid #d8effc;
+  border-radius: 12px;
+  background: #f1f9ff;
+  color: #315875;
+  font-size: 12px;
+}
+
+#root .app-shell .profile-expiry-banner.is-free {
+  border-color: #d8effc;
+  background: #f1f9ff;
+  color: #315875;
+}
+
+#root .app-shell .profile-quota-metrics {
+  gap: 18px;
+  border-color: #e8f0f7;
+}
+
+#root .app-shell .profile-quota-meta {
+  gap: 10px;
+  color: #243954;
+  font-size: 12px;
+}
+
+#root .app-shell .profile-quota-meta .quota-label {
+  color: #354a65;
+  font-weight: 500;
+}
+
+#root .app-shell .profile-quota-meta .quota-value {
+  color: #243954;
+  font-weight: 600;
+  text-align: right;
+}
+
+#root .app-shell .profile-progress-track {
+  height: 9px;
+  background: #e8f0f5;
+}
+
+#root .app-shell .profile-progress-bar {
+  background: linear-gradient(90deg, #00adfc, #078fe8);
+}
+
+#root .app-shell .profile-progress-bar.is-warning {
+  background: linear-gradient(90deg, #ffc850, #f59e0b);
+}
+
+#root .app-shell .profile-progress-bar.is-critical {
+  background: linear-gradient(90deg, #ff6b70, #ef4444);
+}
+
+#root .app-shell .profile-quota-subtext {
+  color: #657b96;
+  font-size: 11px;
+}
+
+#root .app-shell .profile-billing-card {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 24px;
+}
+
+#root .app-shell .profile-section-header {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-color: #e8f0f7;
+}
+
+#root .app-shell .profile-section-header h2 {
+  color: #14233e;
+  font-size: 21px;
+  font-weight: 600;
+}
+
+#root .app-shell .profile-pricing-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 12px;
+}
+
+#root .app-shell .profile-plan-tile {
+  min-width: 0;
+  min-height: 520px;
+  padding: 19px 17px 18px;
+  border: 1px solid #dceaf5;
+  border-radius: 18px;
+  background: linear-gradient(155deg, #fff 0%, #fbfdff 100%);
+  box-shadow: 0 5px 16px rgba(26, 80, 125, .035);
+}
+
+#root .app-shell .profile-plan-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 23px rgba(26, 80, 125, .08);
+}
+
+#root .app-shell .profile-plan-tile.is-featured-plan {
+  border: 2px solid #00adfc;
+  background: linear-gradient(160deg, #f0faff 0%, #fff 68%);
+  box-shadow: 0 9px 24px rgba(0, 157, 238, .13);
+}
+
+#root .app-shell .profile-plan-tile.is-current-plan:not(.is-featured-plan) {
+  border-color: #b9ead7;
+  background: linear-gradient(160deg, #f4fdf9 0%, #fff 70%);
+}
+
+#root .app-shell .profile-plan-icon {
+  display: grid;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 13px;
+  place-items: center;
+  border-radius: 17px;
+}
+
+#root .app-shell .profile-plan-icon.tone-box {
+  background: #e4f5ff;
+  color: #078fe8;
+}
+
+#root .app-shell .profile-plan-icon.tone-crown {
+  background: #ddf8fc;
+  color: #00a6c9;
+}
+
+#root .app-shell .profile-plan-icon.tone-business {
+  background: #f0e8ff;
+  color: #8749e8;
+}
+
+#root .app-shell .profile-plan-featured-tag {
+  top: -13px;
+  padding: 5px 14px;
+  border-radius: 999px;
+  background: linear-gradient(110deg, #00adfc, #078fe8);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .45px;
+  box-shadow: 0 5px 14px rgba(0, 157, 238, .22);
+}
+
+#root .app-shell .profile-plan-current-tag {
+  top: -13px;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: #16b887;
+  font-size: 9px;
+}
+
+#root .app-shell .profile-plan-tile-header h3 {
+  margin-bottom: 5px;
+  color: #14233e;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+#root .app-shell .profile-plan-tile-header p {
+  min-height: 40px;
+  color: #586b85;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+#root .app-shell .profile-plan-tile-price {
+  gap: 4px;
+  margin: 13px 0 15px;
+  padding-bottom: 13px;
+  border-color: #e8f0f7;
+}
+
+#root .app-shell .profile-plan-tile-price strong {
+  color: #14233e;
+  font-size: 23px;
+  font-weight: 600;
+  letter-spacing: -.45px;
+}
+
+#root .app-shell .profile-plan-tile-price span {
+  color: #5f718b;
+  font-size: 12px;
+}
+
+#root .app-shell .profile-plan-features {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+#root .app-shell .profile-plan-features li {
+  gap: 8px;
+  color: #314660;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+#root .app-shell .profile-plan-features svg {
+  color: #078fe8;
+}
+
+#root .app-shell .profile-plan-tile .button {
+  min-height: 54px;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(110deg, #00adfc, #078fe8);
+  color: #fff !important;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 8px 18px rgba(0, 157, 238, .18);
+}
+
+#root .app-shell .profile-plan-tile .button:hover:not(:disabled) {
+  filter: brightness(.97);
+  transform: translateY(-1px);
+}
+
+#root .app-shell .profile-plan-tile .button:disabled {
+  border: 1px solid #dceaf5;
+  background: #f3f7fa;
+  color: #63748a !important;
+  box-shadow: none;
+}
+
+@media (max-width: 1080px) {
+  #root .app-shell .profile-dashboard-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #root .app-shell .profile-pricing-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #root .app-shell .profile-plan-tile {
+    min-height: 490px;
+  }
+}
+
+@media (max-width: 760px) {
+  #root .app-shell .profile-pricing-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  #root .app-shell .profile-heading-row {
+    height: auto;
+    min-height: 146px;
+    margin: -22px -14px 0;
+    padding: 19px 18px 21px;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 18px;
+  }
+
+  #root .app-shell .profile-heading-row h1 {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    align-self: flex-start;
+    font-size: 26px;
+  }
+
+  #root .app-shell .profile-signout-btn {
+    width: auto;
+    min-height: 44px;
+    height: 44px;
+    margin-left: 0;
+    padding: 0 18px;
+  }
+
+  #root .app-shell .profile-pricing-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #root .app-shell .profile-billing-card {
+    padding: 17px;
+  }
+
+  #root .app-shell .profile-plan-tile {
+    min-height: 0;
+    padding: 20px;
+  }
+
+  #root .app-shell .profile-plan-tile-header p {
+    min-height: 0;
+  }
+
+  #root .app-shell .profile-quota-card {
+    padding: 18px;
+  }
+}

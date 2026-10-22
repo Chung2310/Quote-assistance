@@ -497,6 +497,13 @@
   margin-bottom: 6px;
 }
 
+.cq-empty-icon img {
+  width: 128px;
+  height: 128px;
+  max-width: none;
+  object-fit: contain;
+}
+
 .cq-empty-state h3 {
   font-size: 16px;
   font-weight: 800;
@@ -1392,18 +1399,20 @@
 }
 
 #root .customer-quotes-page .cq-empty-icon {
-  width: 84px;
-  height: 84px;
-  margin: 0 0 4px;
-  border-radius: 22px;
-  background: linear-gradient(145deg, #edf8ff 0%, #e7f4fc 100%);
-  color: #14233e !important;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+  width: 128px;
+  height: 128px;
+  flex: 0 0 128px;
+  margin: 0 0 6px;
+  border-radius: 0;
+  background: transparent;
+  color: inherit !important;
+  box-shadow: none;
 }
 
-#root .customer-quotes-page .cq-empty-icon svg {
-  width: 31px;
-  height: 31px;
+#root .customer-quotes-page .cq-empty-icon img {
+  width: 128px;
+  height: 128px;
+  max-width: none;
 }
 
 #root .customer-quotes-page .cq-empty-state h3 {
@@ -1482,7 +1491,8 @@
   #root .customer-quotes-page .cq-table-responsive,
   #root .customer-quotes-page .cq-empty-state { min-height: 340px; }
   #root .customer-quotes-page .cq-empty-state { padding: 28px 18px; }
-  #root .customer-quotes-page .cq-empty-icon { width: 70px; height: 70px; border-radius: 19px; }
+  #root .customer-quotes-page .cq-empty-icon { width: 116px; height: 116px; flex-basis: 116px; border-radius: 0; background: transparent; box-shadow: none; }
+  #root .customer-quotes-page .cq-empty-icon img { width: 116px; height: 116px; }
   #root .customer-quotes-page .cq-empty-state h3 { font-size: 17px; }
   #root .customer-quotes-page .cq-empty-state p { font-size: 13px; }
   #root .customer-quotes-page .cq-empty-state .cq-create-btn { width: auto; max-width: 100%; height: 48px; min-height: 48px; padding: 0 16px; }

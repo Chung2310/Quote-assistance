@@ -240,12 +240,7 @@ export default function CustomerQuotes({
           ) : filteredQuotes.length === 0 ? (
             <div className="cq-empty-state">
               <div className="cq-empty-icon">
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                  <polyline points="14 2 14 8 20 8" />
-                  <line x1="16" y1="13" x2="8" y2="13" />
-                  <line x1="16" y1="17" x2="8" y2="17" />
-                </svg>
+                <img src="/images/quote-empty-3d.svg" alt="" />
               </div>
               <h3>
                 {quotes.length === 0 ? "Chưa có bản báo giá khách hàng nào" : "Không tìm thấy báo giá phù hợp"}

@@ -1324,12 +1324,19 @@
 }
 
 .app-shell .qt-empty-icon {
-  width: 68px;
-  height: 68px;
-  border: 1px solid #dcefff;
-  border-radius: 20px;
-  background: linear-gradient(145deg, #eff9ff, #e3f3ff);
-  box-shadow: 0 8px 20px rgba(40, 135, 197, 0.08);
+  width: 128px;
+  height: 128px;
+  flex: 0 0 128px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell .qt-empty-icon img {
+  width: 128px;
+  height: 128px;
+  object-fit: contain;
 }
 
 .app-shell .qt-empty-state h3 {
@@ -1371,6 +1378,17 @@
 
   .app-shell .qt-header-copy {
     max-width: 100%;
+  }
+
+  .app-shell .qt-empty-icon {
+    width: 116px;
+    height: 116px;
+    flex-basis: 116px;
+  }
+
+  .app-shell .qt-empty-icon img {
+    width: 116px;
+    height: 116px;
   }
 
   .app-shell .qt-header-copy h1 {
