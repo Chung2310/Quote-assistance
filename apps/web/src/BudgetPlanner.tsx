@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { api, formatMoney } from "./api";
+import { ApiError, api, formatMoney } from "./api";
 import type { CatalogItem } from "./types";
 import "./budget-planner.css";
 
@@ -81,7 +81,7 @@ function BudgetIcon({ name, size = 16 }: { name: BudgetIconName; size?: number }
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths}</svg>;
 }
 
-export default function BudgetPlanner() {
+export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [dialogMode, setDialogMode] = useState<"create" | "view" | null>(null);
   const [description, setDescription] = useState("");
@@ -210,6 +210,7 @@ export default function BudgetPlanner() {
           budget: Number(budget),
         }),
       });
+      onAiUsed();
       setResult(saved.result);
       resetEdits();
       setSelectedId(saved.id);
@@ -217,6 +218,7 @@ export default function BudgetPlanner() {
       setHistory((plans) => [saved, ...plans.filter((plan) => plan.id !== saved.id)].slice(0, 30));
       setDialogMode("view");
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 429) onAiUsed();
       setError(cause instanceof Error ? cause.message : "Không thể tạo phương án sơ bộ.");
     } finally {
       setBusy(false);
@@ -253,6 +255,7 @@ export default function BudgetPlanner() {
     setUpdateNotice("");
     try {
       const saved = await api<SavedPlan>(`/api/budget-plans/${selectedId}`, { method: "PATCH", body: JSON.stringify(change) });
+      if (change.action === "answer" || change.action === "recalculate") onAiUsed();
       setResult(saved.result);
       setHistory((plans) => plans.map((plan) => plan.id === saved.id ? saved : plan));
       if (change.action === "answer" || change.action === "recalculate") setUpdateNotice(saved.result.difference === null
@@ -264,6 +267,7 @@ export default function BudgetPlanner() {
           .catch(() => {});
       }
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 429) onAiUsed();
       setError(cause instanceof Error ? cause.message : "Không lưu được thay đổi.");
     } finally {
       setSaving("");
@@ -668,6 +672,7 @@ export default function BudgetPlanner() {
                   <button
                     className="button button-primary"
                     type="submit"
+                    title="Mỗi lần phân tích trừ 1 lượt AI"
                     disabled={
                       busy ||
                       !description.trim() ||
@@ -712,6 +717,7 @@ export default function BudgetPlanner() {
                       <button
                         type="button"
                         className="button button-primary button-compact"
+                        title="Mỗi lần tính lại trừ 1 lượt AI"
                         disabled={!selectedId || Boolean(saving) || exporting}
                         onClick={() => void saveEdit("recalculate", { action: "recalculate" })}
                       >
@@ -913,7 +919,7 @@ export default function BudgetPlanner() {
                           <textarea rows={2} maxLength={500} placeholder="Nhập câu trả lời"
                             value={answers[question] ?? ""}
                             onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} />
-                          <button type="button" className="button button-soft button-compact" disabled={Boolean(saving) || !answers[question]?.trim()}
+                          <button type="button" className="button button-soft button-compact" title="Lưu câu trả lời và tính lại: trừ 1 lượt AI" disabled={Boolean(saving) || !answers[question]?.trim()}
                             onClick={() => void saveEdit(`answer-${question}`, { action: "answer", question, answer: answers[question].trim() })}>{saving === `answer-${question}` ? "AI đang tính lại…" : "Lưu và tính lại"}</button>
                         </div>
                       ))}

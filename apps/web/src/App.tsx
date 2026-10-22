@@ -41,6 +41,7 @@ interface SubscriptionUsage {
   plan: SubscriptionPlanSummary;
   subscriptionExpiresAt: string | null;
   quotes: { used: number; limit: number | null; remaining: number | null; periodStart: string; periodEnd: string };
+  ai: { used: number; limit: number | null; remaining: number | null; periodStart: string; periodEnd: string };
   templates: { used: number; limit: number | null; remaining: number | null };
 }
 interface SupplementalProductDraft { id: string; informationField?: string; name: string; description: string; unit: string; quantity: string; unitPrice: string }
@@ -357,16 +358,16 @@ function UserApp() {
             : section === "quotes" ?
               <QuoteWorkspace key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} userName={user.name} onOpen={openQuote} onCreate={createQuote} onDeleteQuote={(quote) => void removeQuote(quote)} onNavigate={navigateSection} />
               : section === "budgetPlanner" ?
-                <BudgetPlanner />
+                <BudgetPlanner onAiUsed={() => void loadUsage()} />
                 : section === "customerQuotes" ?
-                  <CustomerQuotes onOpen={(id) => openQuote(id, "customer")} onCreated={refresh} onQuotaExceeded={() => void loadUsage()} />
+                  <CustomerQuotes onOpen={(id) => openQuote(id, "customer")} onCreated={refresh} onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} />
                   : section === "templates" ?
                     <QuoteTemplatePanel canManage confirm={confirm} templateUsage={usage?.templates ?? null} usageLoading={usageLoading} usageError={Boolean(usageError)} onRefreshUsage={() => void loadUsage()} onUsageChanged={() => void loadUsage()} />
                     : section === "catalog" ?
                       <PriceListPanel key={refreshKey} onToast={notify} />
                       : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
-    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
+    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
     {confirmationDialog}
   </div></NotificationProvider>;
@@ -1078,7 +1079,7 @@ async function loadQuoteOptions(): Promise<QuoteOptions> {
   return { ...templates, productsAvailable };
 }
 
-function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplate, onQuotaExceeded }: { onClose: () => void; onCreated: (id: string) => void; canManageTemplate: boolean; onManageTemplate: () => void; onQuotaExceeded: () => void }) {
+function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplate, onQuotaExceeded, onAiUsed }: { onClose: () => void; onCreated: (id: string) => void; canManageTemplate: boolean; onManageTemplate: () => void; onQuotaExceeded: () => void; onAiUsed: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const filePickerOpen = useRef(false);
   const ignoreDialogCancelUntil = useRef(0);
@@ -1129,11 +1130,11 @@ function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplat
     if (!busy) onClose();
   }}>
     <div className="settings-card-heading"><h2 id="new-quote-title">Tạo dự toán mới</h2><button type="button" autoFocus className="icon-button" aria-label="Đóng popup tạo dự toán" disabled={busy} onClick={onClose}><Icon name="close" /></button></div>
-    <div className="quote-creation-body" aria-busy={busy || loading}>{loading ? <TaskProgress label="Đang tải mẫu và danh mục sản phẩm" detail="Chuẩn bị biểu mẫu tạo báo giá…" /> : loadFailed ? <div className="empty-state"><button className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div> : <NewQuote options={options} canManageTemplate={canManageTemplate} onManageTemplate={onManageTemplate} onCreated={onCreated} onBusyChange={setBusy} onQuotaExceeded={onQuotaExceeded} onFilePickerOpen={markFilePickerOpen} onFilePickerDismissed={markFilePickerDismissed} onFileSelected={markFileSelected} />}</div>
+    <div className="quote-creation-body" aria-busy={busy || loading}>{loading ? <TaskProgress label="Đang tải mẫu và danh mục sản phẩm" detail="Chuẩn bị biểu mẫu tạo báo giá…" /> : loadFailed ? <div className="empty-state"><button className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div> : <NewQuote options={options} canManageTemplate={canManageTemplate} onManageTemplate={onManageTemplate} onCreated={onCreated} onBusyChange={setBusy} onQuotaExceeded={onQuotaExceeded} onAiUsed={onAiUsed} onFilePickerOpen={markFilePickerOpen} onFilePickerDismissed={markFilePickerDismissed} onFileSelected={markFileSelected} />}</div>
   </dialog>;
 }
 
-function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onBusyChange, onQuotaExceeded, onFilePickerOpen, onFilePickerDismissed, onFileSelected }: { onBusyChange: (busy: boolean) => void; onManageTemplate: () => void; onQuotaExceeded: () => void; onFilePickerOpen: () => void; onFilePickerDismissed: () => void; onFileSelected: () => void; canManageTemplate: boolean; options: QuoteOptions; onCreated: (id: string) => void }) {
+function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onBusyChange, onQuotaExceeded, onAiUsed, onFilePickerOpen, onFilePickerDismissed, onFileSelected }: { onBusyChange: (busy: boolean) => void; onManageTemplate: () => void; onQuotaExceeded: () => void; onAiUsed: () => void; onFilePickerOpen: () => void; onFilePickerDismissed: () => void; onFileSelected: () => void; canManageTemplate: boolean; options: QuoteOptions; onCreated: (id: string) => void }) {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [templateId, setTemplateId] = useState(options.templates.find((entry) => entry.id === options.defaultTemplateId)?.id ?? options.templates[0]?.id ?? "");
   const [requestFile, setRequestFile] = useState<File | null>(null);
@@ -1201,6 +1202,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
       }
       setTaskProgress({ label: "AI đang đối chiếu bảng giá", detail: "Đang phân tích yêu cầu và ghép các sản phẩm phù hợp…" });
       const { analysis: result, candidates } = await api<{ analysis: Analysis; candidates: CatalogItem[] }>(`/api/quote-requests/${id}/analyze`, { method: "POST" });
+      onAiUsed();
       setCatalog(candidates);
       setCustomerName((current) => current.trim() ? current : result.customerName ?? "");
       setCustomerEmail((current) => current.trim() ? current : result.customerEmail ?? "");
@@ -2446,6 +2448,9 @@ function AccountProfile({
   const quotesLimit = usage?.quotes.limit ?? plan?.quoteLimit ?? null;
   const quotesUsed = usage?.quotes.used ?? 0;
   const quotesPercent = quotesLimit ? Math.min(100, Math.round((quotesUsed / quotesLimit) * 100)) : null;
+  const aiLimit = usage?.ai.limit ?? plan?.aiLimit ?? null;
+  const aiUsed = usage?.ai.used ?? 0;
+  const aiPercent = aiLimit ? Math.min(100, Math.round((aiUsed / aiLimit) * 100)) : null;
 
   const templatesLimit = usage?.templates.limit ?? plan?.templateLimit ?? null;
   const templatesUsed = usage?.templates.used ?? 0;
@@ -2551,6 +2556,28 @@ function AccountProfile({
                   <div className="profile-quota-subtext">
                     <span>Còn lại: {Math.max(0, quotesLimit - quotesUsed).toLocaleString("vi-VN")} lượt</span>
                     {quotesPercent !== null && <span>{quotesPercent}% đã dùng</span>}
+                  </div>
+                )}
+              </div>
+
+              <div className="profile-quota-row">
+                <div className="profile-quota-meta">
+                  <span className="quota-label">Lượt dùng AI tháng này</span>
+                  <strong className="quota-value">
+                    {aiLimit === null
+                      ? `${aiUsed.toLocaleString("vi-VN")} lượt (Không giới hạn)`
+                      : `${aiUsed.toLocaleString("vi-VN")} / ${aiLimit.toLocaleString("vi-VN")}`}
+                  </strong>
+                </div>
+                {aiPercent !== null && (
+                  <div className="profile-progress-track">
+                    <div className={`profile-progress-bar ${aiPercent >= 90 ? "is-critical" : aiPercent >= 75 ? "is-warning" : ""}`} style={{ width: `${aiPercent}%` }} />
+                  </div>
+                )}
+                {aiLimit !== null && (
+                  <div className="profile-quota-subtext">
+                    <span>Còn lại: {Math.max(0, aiLimit - aiUsed).toLocaleString("vi-VN")} lượt</span>
+                    <span>{aiPercent}% đã dùng</span>
                   </div>
                 )}
               </div>
@@ -2807,6 +2834,10 @@ function SubscriptionBillingPanel({
                 </div>
 
                 <ul className="profile-plan-features">
+                  <li>
+                    <Icon name="check" size={14} />
+                    <span>{plan.aiLimit == null ? "Không giới hạn lượt AI" : `${new Intl.NumberFormat("vi-VN").format(plan.aiLimit)} lượt AI / tháng`}</span>
+                  </li>
                   <li>
                     <Icon name="check" size={14} />
                     <span>{plan.quoteLimit == null ? "Không giới hạn lượt báo giá" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt tạo báo giá / tháng`}</span>

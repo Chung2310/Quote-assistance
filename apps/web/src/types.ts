@@ -8,6 +8,7 @@ export interface SubscriptionPlanSummary {
   description: string;
   monthlyPrice: number | null;
   quoteLimit: number | null;
+  aiLimit: number | null;
   templateLimit: number | null;
   active: boolean;
   featured: boolean;
