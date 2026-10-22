@@ -26,10 +26,12 @@ export default function CustomerQuotes({
   onOpen,
   onCreated,
   onQuotaExceeded,
+  onAiUsed,
 }: {
   onOpen: (id: string) => void;
   onCreated: () => void;
   onQuotaExceeded: () => void;
+  onAiUsed: () => void;
 }) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -361,6 +363,7 @@ export default function CustomerQuotes({
         <CustomerQuoteDialog
           onClose={() => setCreating(false)}
           onQuotaExceeded={onQuotaExceeded}
+          onAiUsed={onAiUsed}
           onCreated={(id) => {
             setCreating(false);
             setReload((value) => value + 1);
@@ -377,10 +380,12 @@ function CustomerQuoteDialog({
   onClose,
   onCreated,
   onQuotaExceeded,
+  onAiUsed,
 }: {
   onClose: () => void;
   onCreated: (id: string) => void;
   onQuotaExceeded: () => void;
+  onAiUsed: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
@@ -475,11 +480,13 @@ function CustomerQuoteDialog({
         method: "POST",
         body: JSON.stringify({ prompt: prompt.trim() }),
       });
+      onAiUsed();
       setSelected(result.items);
       setMissingProducts(result.missingProducts);
       setQuestions(result.questions);
       setNotes(result.notes);
     } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 429) onAiUsed();
       setError(cause instanceof Error ? cause.message : "Không tạo được đề xuất từ AI.");
     } finally {
       setBusy(false);
@@ -691,6 +698,7 @@ function CustomerQuoteDialog({
               <button
                 type="button"
                 className="cq-ai-suggest-btn"
+                title="Mỗi lần gợi ý trừ 1 lượt AI"
                 disabled={busy || !prompt.trim()}
                 onClick={() => void suggest()}
               >

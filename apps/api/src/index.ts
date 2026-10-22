@@ -268,6 +268,7 @@ function publicPlan(plan: SubscriptionPlan) {
     description: plan.description,
     monthlyPrice: plan.monthlyPrice,
     quoteLimit: plan.quoteLimit,
+    aiLimit: plan.aiLimit === undefined ? plan.quoteLimit : plan.aiLimit,
     templateLimit: plan.templateLimit,
     active: plan.active,
     featured: plan.featured,
@@ -296,13 +297,13 @@ function addCalendarMonth(value: Date) {
 
 async function currentCompanyPlan(db: Db, companyId: string) {
   const companies = db.collection<Company>("companies");
-  let company = await companies.findOne({ _id: new ObjectId(companyId) }, { projection: { planCode: 1, subscriptionExpiresAt: 1, billingPaymentCreatedAt: 1 } });
+  let company = await companies.findOne({ _id: new ObjectId(companyId) }, { projection: { planCode: 1, subscriptionExpiresAt: 1, billingPaymentCreatedAt: 1, aiUsage: 1 } });
   if (company?.planCode && company.planCode !== "free" && company.subscriptionExpiresAt && company.subscriptionExpiresAt <= new Date()) {
     await companies.updateOne(
       { _id: company._id, planCode: company.planCode, subscriptionExpiresAt: company.subscriptionExpiresAt },
       { $set: { planCode: "free", updatedAt: new Date() }, $unset: { subscriptionExpiresAt: "" } },
     );
-    company = await companies.findOne({ _id: new ObjectId(companyId) }, { projection: { planCode: 1, subscriptionExpiresAt: 1, billingPaymentCreatedAt: 1 } });
+    company = await companies.findOne({ _id: new ObjectId(companyId) }, { projection: { planCode: 1, subscriptionExpiresAt: 1, billingPaymentCreatedAt: 1, aiUsage: 1 } });
   }
   const plans = db.collection<SubscriptionPlan>("subscriptionPlans");
   const plan = await plans.findOne({ code: company?.planCode ?? "free" }) ?? await plans.findOne({ code: "free" });
@@ -313,6 +314,8 @@ async function currentCompanyPlan(db: Db, companyId: string) {
 async function subscriptionUsage(db: Db, companyId: string) {
   const { company, plan } = await currentCompanyPlan(db, companyId);
   const { start, end } = vietnamMonthPeriod();
+  const aiLimit = plan.aiLimit === undefined ? plan.quoteLimit : plan.aiLimit;
+  const aiUsed = company?.aiUsage?.periodStart === start.toISOString() ? company.aiUsage.used : 0;
   const [quoteUsed, templateUsed] = await Promise.all([
     db.collection("auditLogs").countDocuments({ companyId, action: "quote_created", createdAt: { $gte: start, $lt: end } }),
     db.collection<QuoteTemplate>("quoteTemplates").countDocuments({ companyId, deletedAt: { $exists: false } }),
@@ -327,6 +330,13 @@ async function subscriptionUsage(db: Db, companyId: string) {
       periodStart: start.toISOString(),
       periodEnd: end.toISOString(),
     },
+    ai: {
+      used: aiUsed,
+      limit: aiLimit,
+      remaining: aiLimit === null ? null : Math.max(0, aiLimit - aiUsed),
+      periodStart: start.toISOString(),
+      periodEnd: end.toISOString(),
+    },
     templates: {
       used: templateUsed,
       limit: plan.templateLimit,
@@ -337,6 +347,44 @@ async function subscriptionUsage(db: Db, companyId: string) {
 
 function quoteQuotaMessage(plan: SubscriptionPlan) {
   return `Gói ${plan.name} đã hết ${plan.quoteLimit} lượt tạo báo giá trong tháng này. Hạn mức sẽ được làm mới vào đầu tháng sau.`;
+}
+
+class AiQuotaExceededError extends Error {}
+
+function aiQuotaMessage(plan: SubscriptionPlan) {
+  const limit = plan.aiLimit === undefined ? plan.quoteLimit : plan.aiLimit;
+  return `Gói ${plan.name} đã hết ${limit} lượt dùng AI trong tháng này. Hạn mức sẽ được làm mới vào đầu tháng sau.`;
+}
+
+async function withAiUsage<T>(db: Db, user: SessionUser, kind: string, work: () => Promise<T>): Promise<T> {
+  const { plan } = await currentCompanyPlan(db, user.companyId);
+  const limit = plan.aiLimit === undefined ? plan.quoteLimit : plan.aiLimit;
+  const periodStart = vietnamMonthPeriod().start.toISOString();
+  const usedInPeriod = { $cond: [{ $eq: ["$aiUsage.periodStart", periodStart] }, { $ifNull: ["$aiUsage.used", 0] }, 0] };
+  const companies = db.collection<Company>("companies");
+  const companyId = new ObjectId(user.companyId);
+  const reservation = await companies.findOneAndUpdate(
+    { _id: companyId, ...(limit === null ? {} : { $expr: { $lt: [usedInPeriod, limit] } }) },
+    [{ $set: { aiUsage: { periodStart, used: { $add: [usedInPeriod, 1] } } } }],
+    { returnDocument: "after", projection: { aiUsage: 1 } },
+  );
+  if (!reservation) throw new AiQuotaExceededError(aiQuotaMessage(plan));
+  try {
+    const value = await work();
+    try {
+      await writeAudit(db, user, "ai_usage", "company", user.companyId, { kind });
+    } catch (auditError) {
+      logger.error("ai_usage.audit_failed", { companyId: user.companyId, kind, error: auditError instanceof Error ? auditError.message : String(auditError) });
+    }
+    return value;
+  } catch (error) {
+    try {
+      await companies.updateOne({ _id: companyId, "aiUsage.periodStart": periodStart, "aiUsage.used": { $gt: 0 } }, { $inc: { "aiUsage.used": -1 } });
+    } catch (refundError) {
+      logger.error("ai_usage.refund_failed", { companyId: user.companyId, kind, error: refundError instanceof Error ? refundError.message : String(refundError) });
+    }
+    throw error;
+  }
 }
 
 function templateQuotaMessage(plan: SubscriptionPlan) {
@@ -376,6 +424,10 @@ function parsePlanInput(body: Record<string, unknown>, code: string, existing?: 
   const quoteLimit = body.quoteLimit === null || body.quoteLimit === ""
     ? null
     : typeof body.quoteLimit === "number" ? body.quoteLimit : Number(body.quoteLimit);
+  const aiLimit = body.aiLimit === undefined
+    ? existing?.aiLimit === undefined ? existing?.quoteLimit ?? null : existing.aiLimit
+    : body.aiLimit === null || body.aiLimit === "" ? null
+    : typeof body.aiLimit === "number" ? body.aiLimit : Number(body.aiLimit);
   const templateLimit = body.templateLimit === null || body.templateLimit === ""
     ? null
     : typeof body.templateLimit === "number" ? body.templateLimit : Number(body.templateLimit);
@@ -386,11 +438,12 @@ function parsePlanInput(body: Record<string, unknown>, code: string, existing?: 
   if (description.length > 300) return { error: "Mô tả gói tối đa 300 ký tự." };
   if (monthlyPrice !== null && (!Number.isFinite(monthlyPrice) || monthlyPrice < 0 || monthlyPrice > 1_000_000_000)) return { error: "Giá tháng không hợp lệ." };
   if (quoteLimit !== null && (!Number.isInteger(quoteLimit) || quoteLimit < 1 || quoteLimit > 1_000_000)) return { error: "Hạn mức báo giá phải là số nguyên dương hoặc để trống." };
+  if (aiLimit !== null && (!Number.isInteger(aiLimit) || aiLimit < 1 || aiLimit > 1_000_000)) return { error: "Hạn mức AI phải là số nguyên dương hoặc để trống." };
   if (templateLimit !== null && (!Number.isInteger(templateLimit) || templateLimit < 1 || templateLimit > 10_000)) return { error: "Hạn mức mẫu phải là số nguyên dương hoặc để trống." };
   if (!Number.isInteger(displayOrder) || displayOrder < 0 || displayOrder > 10_000) return { error: "Thứ tự hiển thị không hợp lệ." };
   if (code === "free" && (monthlyPrice !== 0 || !active)) return { error: "Gói miễn phí phải có giá 0đ và luôn được kích hoạt." };
   if (code === "contact" && (monthlyPrice !== null || !active)) return { error: "Gói Liên hệ phải giữ giá thỏa thuận và luôn được kích hoạt." };
-  return { value: { name, description, monthlyPrice, quoteLimit, templateLimit, active, featured, displayOrder } };
+  return { value: { name, description, monthlyPrice, quoteLimit, aiLimit, templateLimit, active, featured, displayOrder } };
 }
 
 function publicUserAccount(account: UserAccount) {
@@ -1877,9 +1930,18 @@ app.post("/api/quote-requests/:id/analyze", requireRole("user"), async (request,
   const requestFile = quoteRequest.requestFile ? await db.collection<RequestFile>("requestFiles").findOne({ _id: new ObjectId(quoteRequest.requestFile.id), companyId: user.companyId, uploadedBy: quoteRequest.createdBy }) : null;
   if (quoteRequest.requestFile && !requestFile) return fail(response, "Không tìm thấy file yêu cầu.", 404);
   const analysisRequestId = typeof response.locals.requestId === "string" ? response.locals.requestId : undefined;
-  const result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string } = priceLists.length
-    ? await analyzePriceList(quoteRequest.requestText, priceLists, [], requestFile ? await requestFileContent(requestFile) : [], analysisRequestId)
-    : await analyzeRequest(quoteRequest.requestText, catalog, [], requestFile ? await requestFileContent(requestFile) : [], analysisRequestId);
+  let result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string };
+  try {
+    result = await withAiUsage(db, user, "quote_request_analyze", async () => {
+      const fileContent = requestFile ? await requestFileContent(requestFile) : [];
+      return priceLists.length
+        ? analyzePriceList(quoteRequest.requestText, priceLists, [], fileContent, analysisRequestId)
+        : analyzeRequest(quoteRequest.requestText, catalog, [], fileContent, analysisRequestId);
+    });
+  } catch (error) {
+    if (error instanceof AiQuotaExceededError) return fail(response, error.message, 429);
+    throw error;
+  }
   const suggestedProducts = (result.suggestedProducts ?? []).slice(0, 30);
   if (suggestedProducts.length) {
     const boundProducts = suggestedProducts.map((product, index) => ({
@@ -1967,9 +2029,10 @@ app.post("/api/customer-quotes/suggest", requireRole("user"), async (request, re
   if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 3000) return fail(response, "Hãy nhập yêu cầu báo giá, tối đa 3.000 ký tự.");
   const inputs = parseCustomerQuotePrompt(prompt);
   const db = await connectDatabase();
-  const catalog = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(userOf(request).companyId)).sort({ sku: 1 }).limit(1000).toArray();
-  try { response.json(await suggestCustomerQuote(inputs, catalog)); }
-  catch (error) { fail(response, error instanceof Error ? error.message : "Không thể đề xuất hạng mục.", 422); }
+  const user = userOf(request);
+  const catalog = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(user.companyId)).sort({ sku: 1 }).limit(1000).toArray();
+  try { response.json(await withAiUsage(db, user, "customer_quote_suggest", () => suggestCustomerQuote(inputs, catalog))); }
+  catch (error) { fail(response, error instanceof Error ? error.message : "Không thể đề xuất hạng mục.", error instanceof AiQuotaExceededError ? 429 : 422); }
 });
 
 app.get("/api/budget-plans", requireRole("user"), async (request, response) => {
@@ -2002,10 +2065,16 @@ app.patch("/api/budget-plans/:id", requireRole("user"), async (request, response
     const catalog = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(user.companyId)).sort({ sku: 1 }).limit(1000).toArray();
     if (!catalog.length) return fail(response, "Bảng giá chưa có sản phẩm đang áp dụng.", 422);
     try {
-      const proposed = await suggestBudgetPlan(recalculationInput(plan.input, result, clarification), catalog);
-      result = mergeBudgetPlanAfterClarification(result, proposed, clarification);
+      const updatedResult = await withAiUsage(db, user, body.action === "answer" ? "budget_plan_answer" : "budget_plan_recalculate", async () => {
+        const proposed = await suggestBudgetPlan(recalculationInput(plan.input, result, clarification), catalog);
+        const merged = mergeBudgetPlanAfterClarification(result, proposed, clarification);
+        await plans.updateOne({ _id: id, companyId: user.companyId }, { $set: { result: merged } });
+        await writeAudit(db, user, "budget_plan_updated", "budgetPlan", id.toHexString(), { action: body.action });
+        return merged;
+      });
+      return response.json({ id: id.toHexString(), input: plan.input, result: updatedResult, createdAt: plan.createdAt });
     } catch (error) {
-      return fail(response, error instanceof Error ? error.message : "Không thể tính lại phương án.", 422);
+      return fail(response, error instanceof Error ? error.message : "Không thể tính lại phương án.", error instanceof AiQuotaExceededError ? 429 : 422);
     }
   } else if (body.action === "assumption") {
     if (!Number.isInteger(body.index) || body.index < 0 || body.index >= result.assumptions.length || !validText(body.text, 250)) return fail(response, "Giả định không hợp lệ.", 422);
@@ -2077,13 +2146,16 @@ app.post("/api/budget-plans/suggest", requireRole("user"), async (request, respo
   try {
     const user = userOf(request);
     const input = { description: description.trim(), budget, ...(area === undefined ? {} : { area }), ...(floors === undefined ? {} : { floors }) };
-    const result = recomputeBudgetPlanTotals(await suggestBudgetPlan(input, catalog));
-    const createdAt = new Date();
-    const saved: SavedBudgetPlan = { companyId: user.companyId, createdBy: user.id, input, result, createdAt };
-    const inserted = await db.collection<SavedBudgetPlan>("budgetPlans").insertOne(saved);
-    response.status(201).json({ id: inserted.insertedId.toHexString(), input, result, createdAt });
+    const saved = await withAiUsage(db, user, "budget_plan_suggest", async () => {
+      const result = recomputeBudgetPlanTotals(await suggestBudgetPlan(input, catalog));
+      const createdAt = new Date();
+      const plan: SavedBudgetPlan = { companyId: user.companyId, createdBy: user.id, input, result, createdAt };
+      const inserted = await db.collection<SavedBudgetPlan>("budgetPlans").insertOne(plan);
+      return { id: inserted.insertedId.toHexString(), input, result, createdAt };
+    });
+    response.status(201).json(saved);
   }
-  catch (error) { fail(response, error instanceof Error ? error.message : "Không thể tạo phương án sơ bộ.", 422); }
+  catch (error) { fail(response, error instanceof Error ? error.message : "Không thể tạo phương án sơ bộ.", error instanceof AiQuotaExceededError ? 429 : 422); }
 });
 
 app.post("/api/customer-quotes", requireRole("user"), async (request, response) => {

@@ -6,7 +6,7 @@ import type { User } from "./types";
 import "./admin.css";
 import "./admin-portal.css";
 
-type ServicePlan = { code: string; name: string; description: string; monthlyPrice: number | null; quoteLimit: number | null; templateLimit: number | null; active: boolean; featured: boolean; displayOrder: number; assignedBusinesses?: number };
+type ServicePlan = { code: string; name: string; description: string; monthlyPrice: number | null; quoteLimit: number | null; aiLimit: number | null; templateLimit: number | null; active: boolean; featured: boolean; displayOrder: number; assignedBusinesses?: number };
 type ManagedUser = User & { active: boolean; createdAt: string; updatedAt: string; companyName: string; taxId: string; address: string; phone: string; businessEmail: string; representativeName: string; planCode: string; planName: string };
 type ContactStatus = "new" | "contacted" | "closed";
 type PlanContactRequest = { id: string; name: string; companyName: string; email: string; phone: string; message: string; status: ContactStatus; adminNote?: string; createdAt: string; updatedAt: string };
@@ -334,7 +334,7 @@ export default function AdminApp() {
             <div className="admin-plan-card-top"><span className={`admin-status ${plan.active ? "is-active" : "is-inactive"}`}><i />{plan.active ? "Đang mở" : "Đã ẩn"}</span><button className="admin-icon-button" onClick={() => setDialogPlan(plan)} title={`Chỉnh sửa gói ${plan.name}`} aria-label={`Chỉnh sửa gói ${plan.name}`}><AdminIcon name="edit" size={16} /></button></div>
             <h2>{plan.name}</h2><p>{plan.description || "Chưa có mô tả."}</p>
             <strong className="admin-plan-price">{plan.monthlyPrice === null ? "Theo nhu cầu" : plan.monthlyPrice === 0 ? "Miễn phí" : `${new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice)}đ`}<small>{plan.monthlyPrice !== null && plan.monthlyPrice > 0 ? "/ tháng" : ""}</small></strong>
-            <div className="admin-plan-limits"><span>{plan.quoteLimit === null ? "Hạn mức báo giá riêng" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt / tháng`}</span><span>{plan.templateLimit === null ? "Mẫu theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.templateLimit)} mẫu báo giá`}</span></div>
+            <div className="admin-plan-limits"><span>{plan.quoteLimit === null ? "Hạn mức báo giá riêng" : `${new Intl.NumberFormat("vi-VN").format(plan.quoteLimit)} lượt báo giá / tháng`}</span><span>{plan.aiLimit === null ? "AI không giới hạn" : `${new Intl.NumberFormat("vi-VN").format(plan.aiLimit)} lượt AI / tháng`}</span><span>{plan.templateLimit === null ? "Mẫu theo nhu cầu" : `${new Intl.NumberFormat("vi-VN").format(plan.templateLimit)} mẫu báo giá`}</span></div>
             <footer><span>{plan.assignedBusinesses ?? 0} doanh nghiệp đang dùng</span><button className="admin-button admin-button-secondary" onClick={() => setDialogPlan(plan)}>Chỉnh sửa</button></footer>
           </article>)}</div>}
           <p className="admin-plan-note">Gói miễn phí luôn được giữ hoạt động và dùng làm mặc định cho doanh nghiệp mới.</p>
@@ -596,7 +596,7 @@ function AccountDialog({ user, plans, onClose, onSaved, confirm }: { user: Manag
   </div>;
 }
 
-type PlanFormDraft = { name: string; description: string; monthlyPrice: string; quoteLimit: string; templateLimit: string; active: boolean; featured: boolean; displayOrder: string };
+type PlanFormDraft = { name: string; description: string; monthlyPrice: string; quoteLimit: string; aiLimit: string; templateLimit: string; active: boolean; featured: boolean; displayOrder: string };
 
 function PlanDialog({ plan, onClose, onSaved, confirm }: { plan: ServicePlan | null; onClose: () => void; onSaved: () => void; confirm: (options: ConfirmOptions) => Promise<boolean> }) {
   const [draft, setDraft] = useState<PlanFormDraft>(plan ? {
@@ -604,11 +604,12 @@ function PlanDialog({ plan, onClose, onSaved, confirm }: { plan: ServicePlan | n
     description: plan.description,
     monthlyPrice: plan.monthlyPrice === null ? "" : String(plan.monthlyPrice),
     quoteLimit: plan.quoteLimit === null ? "" : String(plan.quoteLimit),
+    aiLimit: plan.aiLimit === null ? "" : String(plan.aiLimit),
     templateLimit: plan.templateLimit === null ? "" : String(plan.templateLimit),
     active: plan.active,
     featured: plan.featured,
     displayOrder: String(plan.displayOrder),
-  } : { name: "", description: "", monthlyPrice: "", quoteLimit: "", templateLimit: "", active: true, featured: false, displayOrder: "10" });
+  } : { name: "", description: "", monthlyPrice: "", quoteLimit: "", aiLimit: "", templateLimit: "", active: true, featured: false, displayOrder: "10" });
   const notify = useAppNotification();
   const setError = (message: string) => { if (message) notify(message, "error"); };
   const [busy, setBusy] = useState(false);
@@ -625,6 +626,7 @@ function PlanDialog({ plan, onClose, onSaved, confirm }: { plan: ServicePlan | n
         ...draft,
         monthlyPrice: isFreePlan ? 0 : draft.monthlyPrice.trim() === "" ? null : Number(draft.monthlyPrice),
         quoteLimit: draft.quoteLimit.trim() === "" ? null : Number(draft.quoteLimit),
+        aiLimit: draft.aiLimit.trim() === "" ? null : Number(draft.aiLimit),
         templateLimit: draft.templateLimit.trim() === "" ? null : Number(draft.templateLimit),
         displayOrder: draft.displayOrder.trim() === "" ? 0 : Number(draft.displayOrder),
       };
@@ -650,6 +652,7 @@ function PlanDialog({ plan, onClose, onSaved, confirm }: { plan: ServicePlan | n
         <div className="admin-plan-input-grid">
           <label>Giá tháng (đ)<input type="number" min="0" step="1000" value={isFreePlan ? "0" : draft.monthlyPrice} onChange={(event) => setDraft({ ...draft, monthlyPrice: event.target.value })} placeholder="Để trống = báo giá riêng" disabled={isFreePlan || isContactPlan} /><small>Để trống nếu giá theo thỏa thuận.</small></label>
           <label>Lượt báo giá / tháng<input type="number" min="1" step="1" value={draft.quoteLimit} onChange={(event) => setDraft({ ...draft, quoteLimit: event.target.value })} placeholder="Để trống = theo nhu cầu" /><small>Để trống nếu không đặt hạn mức cố định.</small></label>
+          <label>Lượt dùng AI / tháng<input type="number" min="1" step="1" value={draft.aiLimit} onChange={(event) => setDraft({ ...draft, aiLimit: event.target.value })} placeholder="Để trống = không giới hạn" /><small>Mỗi lần phân tích, đề xuất hoặc tính lại trừ 1 lượt.</small></label>
           <label>Số mẫu báo giá<input type="number" min="1" step="1" value={draft.templateLimit} onChange={(event) => setDraft({ ...draft, templateLimit: event.target.value })} placeholder="Để trống = theo nhu cầu" /><small>Số mẫu đang sử dụng của doanh nghiệp.</small></label>
           <label>Thứ tự hiển thị<input type="number" min="0" step="1" value={draft.displayOrder} onChange={(event) => setDraft({ ...draft, displayOrder: event.target.value })} /></label>
         </div>

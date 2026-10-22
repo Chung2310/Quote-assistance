@@ -37,6 +37,7 @@ export interface Company extends Partial<CompanyProfileDetails> {
   planCode?: string;
   subscriptionExpiresAt?: Date;
   billingPaymentCreatedAt?: Date;
+  aiUsage?: { periodStart: string; used: number };
   name: string;
   normalizedName: string;
   legacyPartitionId?: string;
@@ -52,6 +53,7 @@ export interface SubscriptionPlan {
   description: string;
   monthlyPrice: number | null;
   quoteLimit: number | null;
+  aiLimit?: number | null;
   templateLimit: number | null;
   active: boolean;
   featured: boolean;
