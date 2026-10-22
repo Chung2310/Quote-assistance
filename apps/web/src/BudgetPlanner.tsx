@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, formatMoney } from "./api";
+import type { CatalogItem } from "./types";
 import "./budget-planner.css";
 
 interface PlanLine {
@@ -29,6 +30,8 @@ interface PlanResult {
   assumptions: string[];
   scenario?: { area?: number; floors?: number };
   provisional?: boolean;
+  clarifications?: Array<{ question: string; answer: string }>;
+  assumptionConfirmations?: boolean[];
 }
 
 interface SavedPlan {
@@ -50,11 +53,21 @@ export default function BudgetPlanner() {
   const [description, setDescription] = useState("");
   const [budget, setBudget] = useState("");
   const [busy, setBusy] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<PlanResult | null>(null);
   const [history, setHistory] = useState<SavedPlan[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState("");
+  const [catalog, setCatalog] = useState<CatalogItem[]>([]);
+  const [saving, setSaving] = useState("");
+  const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [assumptionEdits, setAssumptionEdits] = useState<Record<number, string>>({});
+  const [missingSelections, setMissingSelections] = useState<Record<string, string>>({});
+  const [missingQuantities, setMissingQuantities] = useState<Record<string, string>>({});
+  const [newProducts, setNewProducts] = useState<Record<string, { sku: string; name: string; unit: string; price: string }>>({});
+  const [updateNotice, setUpdateNotice] = useState("");
 
   // Filters & search
   const [search, setSearch] = useState("");
@@ -80,7 +93,18 @@ export default function BudgetPlanner() {
     window.history.replaceState(null, "", "/tu-van-ngan-sach");
   };
 
+  const resetEdits = () => {
+    setUpdateNotice("");
+    setQuantities({});
+    setAnswers({});
+    setAssumptionEdits({});
+    setMissingSelections({});
+    setMissingQuantities({});
+    setNewProducts({});
+  };
+
   const openCreate = () => {
+    resetEdits();
     setDescription("");
     setBudget("");
     setResult(null);
@@ -119,7 +143,17 @@ export default function BudgetPlanner() {
     };
   }, []);
 
+  useEffect(() => {
+    if (dialogMode !== "view") return;
+    let live = true;
+    api<{ items: CatalogItem[] }>("/api/catalog")
+      .then(({ items }) => { if (live) setCatalog(items.filter((item) => item.active)); })
+      .catch(() => { if (live) setCatalog([]); });
+    return () => { live = false; };
+  }, [dialogMode]);
+
   const openSaved = (plan: SavedPlan) => {
+    resetEdits();
     window.history.replaceState(null, "", `/tu-van-ngan-sach?plan=${plan.id}`);
     setSelectedId(plan.id);
     setResult(plan.result);
@@ -143,6 +177,7 @@ export default function BudgetPlanner() {
         }),
       });
       setResult(saved.result);
+      resetEdits();
       setSelectedId(saved.id);
       window.history.replaceState(null, "", `/tu-van-ngan-sach?plan=${saved.id}`);
       setHistory((plans) => [saved, ...plans.filter((plan) => plan.id !== saved.id)].slice(0, 30));
@@ -154,10 +189,57 @@ export default function BudgetPlanner() {
     }
   };
 
+  const exportExcel = async () => {
+    if (!selectedId || exporting) return;
+    setExporting(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/budget-plans/${selectedId}/export`, { credentials: "include" });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || "Không xuất được phương án Excel.");
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `phuong-an-${selectedId}.xlsx`;
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không xuất được phương án Excel.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const saveEdit = async (key: string, change: Record<string, unknown>) => {
+    if (!selectedId || saving) return;
+    setSaving(key);
+    setError("");
+    setUpdateNotice("");
+    try {
+      const saved = await api<SavedPlan>(`/api/budget-plans/${selectedId}`, { method: "PATCH", body: JSON.stringify(change) });
+      setResult(saved.result);
+      setHistory((plans) => plans.map((plan) => plan.id === saved.id ? saved : plan));
+      if (change.action === "answer" || change.action === "recalculate") setUpdateNotice(saved.result.difference === null
+        ? "Đã tính lại phương án. Hãy xử lý các mục còn thiếu để chốt chênh lệch ngân sách."
+        : "Đã cập nhật sản phẩm, số lượng và chênh lệch ngân sách.");
+      if (change.action === "missing" && change.newProduct) {
+        api<{ items: CatalogItem[] }>("/api/catalog")
+          .then(({ items }) => setCatalog(items.filter((item) => item.active)))
+          .catch(() => {});
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không lưu được thay đổi.");
+    } finally {
+      setSaving("");
+    }
+  };
+
   // KPI Calculations
   const stats = useMemo(() => {
     const total = history.length;
-    const inBudget = history.filter((p) => p.result.difference === null || p.result.difference >= 0).length;
+    const inBudget = history.filter((p) => p.result.difference !== null && p.result.difference >= 0).length;
     const overBudget = history.filter((p) => p.result.difference !== null && p.result.difference < 0).length;
     const totalBudget = history.reduce((sum, p) => sum + (p.input.budget || 0), 0);
     const avgBudget = total > 0 ? Math.round(totalBudget / total) : 0;
@@ -168,7 +250,7 @@ export default function BudgetPlanner() {
   const filteredPlans = useMemo(() => {
     return history.filter((plan) => {
       const isOver = plan.result.difference !== null && plan.result.difference < 0;
-      if (filterType === "in_budget" && isOver) return false;
+      if (filterType === "in_budget" && (plan.result.difference === null || isOver)) return false;
       if (filterType === "over_budget" && !isOver) return false;
 
       if (!search.trim()) return true;
@@ -399,9 +481,9 @@ export default function BudgetPlanner() {
                   </div>
 
                   <div className="bp-plan-card-footer">
-                    <span className={`bp-plan-diff-badge ${isOver ? "over-budget" : "in-budget"}`}>
+                    <span className={`bp-plan-diff-badge ${diff === null ? "pending" : isOver ? "over-budget" : "in-budget"}`}>
                       {diff === null
-                        ? "Chưa đủ số lượng"
+                        ? "Cần hoàn thiện"
                         : isOver
                           ? `⚠ Vượt ${formatMoney(-diff, "VND")}`
                           : `✓ Còn ${formatMoney(diff, "VND")}`}
@@ -468,6 +550,7 @@ export default function BudgetPlanner() {
                 {error}
               </div>
             )}
+            {updateNotice && dialogMode === "view" && <div className="bp-update-notice" role="status">{updateNotice}</div>}
 
             {/* CREATE MODE */}
             {dialogMode === "create" && (
@@ -580,20 +663,35 @@ export default function BudgetPlanner() {
                       )}
                     </div>
 
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div className="bp-result-header-actions">
                       <span
-                        className={`bp-plan-diff-badge ${result.difference !== null && result.difference < 0
-                          ? "over-budget"
-                          : "in-budget"
-                          }`}
+                        className={`bp-plan-diff-badge ${result.difference === null ? "pending" : result.difference < 0 ? "over-budget" : "in-budget"}`}
                         style={{ fontSize: 12, padding: "5px 12px" }}
                       >
                         {result.difference === null
-                          ? "Chưa đủ số lượng"
+                          ? "Cần hoàn thiện"
                           : result.difference < 0
                             ? `⚠ Vượt ngân sách ${formatMoney(-result.difference, "VND")}`
                             : `✓ Trong ngân sách (Dư ${formatMoney(result.difference, "VND")})`}
                       </span>
+
+                      <button
+                        type="button"
+                        className="button button-primary button-compact"
+                        disabled={!selectedId || Boolean(saving) || exporting}
+                        onClick={() => void saveEdit("recalculate", { action: "recalculate" })}
+                      >
+                        {saving === "recalculate" ? "Đang tính lại…" : "Tính lại phương án"}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="button button-soft button-compact"
+                        disabled={!selectedId || exporting || Boolean(saving)}
+                        onClick={() => void exportExcel()}
+                      >
+                        {exporting ? "Đang xuất…" : "Xuất Excel"}
+                      </button>
 
                       <button
                         type="button"
@@ -738,21 +836,21 @@ export default function BudgetPlanner() {
                               </td>
 
                               <td style={{ textAlign: "center" }}>
-                                {line.quantity === null ? (
-                                  <span style={{ color: "#d97706", fontSize: 11, fontWeight: 700 }}>
-                                    Cần xác định
-                                  </span>
-                                ) : (
-                                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                                    <strong style={{ fontVariantNumeric: "tabular-nums" }}>
-                                      {line.quantity.toLocaleString("vi-VN")}
-                                    </strong>
-                                    <span className="bp-qty-badge">
-                                      {line.quantityBasis === "estimated" ? "Ước tính" : "Theo đầu vào"}
-                                      {line.quantityNote ? ` · ${line.quantityNote}` : ""}
-                                    </span>
-                                  </div>
-                                )}
+                                <div className="bp-inline-edit">
+                                  <input
+                                    type="number" min="0.01" max="1000000" step="any"
+                                    aria-label={`Số lượng ${line.name}`}
+                                    placeholder="Số lượng"
+                                    value={quantities[line.catalogItemId] ?? line.quantity ?? ""}
+                                    onChange={(event) => setQuantities((current) => ({ ...current, [line.catalogItemId]: event.target.value }))}
+                                  />
+                                  <button type="button" className="button button-soft button-compact"
+                                    disabled={Boolean(saving) || !Number.isFinite(Number(quantities[line.catalogItemId] ?? line.quantity)) || Number(quantities[line.catalogItemId] ?? line.quantity) <= 0}
+                                    onClick={() => void saveEdit(`quantity-${line.catalogItemId}`, { action: "quantity", catalogItemId: line.catalogItemId, quantity: Number(quantities[line.catalogItemId] ?? line.quantity) })}>
+                                    Lưu
+                                  </button>
+                                </div>
+                                {line.quantity === null || line.quantityBasis === "estimated" ? <span className="bp-qty-badge">{line.quantity === null ? "Cần xác định" : "Ước tính"}</span> : null}
                               </td>
 
                               <td style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
@@ -770,16 +868,26 @@ export default function BudgetPlanner() {
 
                 {/* Followup Grid: Questions, Missing, Assumptions */}
                 <div className="bp-followup-grid">
-                  {result.questions.length > 0 && (
+                  {(result.questions.length > 0 || (result.clarifications?.length ?? 0) > 0) && (
                     <div className="bp-followup-card questions">
                       <h4>
                         <span>❓</span> Thông tin cần làm rõ thêm:
                       </h4>
-                      <ul>
-                        {result.questions.map((q, i) => (
-                          <li key={i}>{q}</li>
-                        ))}
-                      </ul>
+                      {result.questions.map((question) => (
+                        <div className="bp-followup-item" key={question}>
+                          <strong>{question}</strong>
+                          <textarea rows={2} maxLength={500} placeholder="Nhập câu trả lời"
+                            value={answers[question] ?? ""}
+                            onChange={(event) => setAnswers((current) => ({ ...current, [question]: event.target.value }))} />
+                          <button type="button" className="button button-soft button-compact" disabled={Boolean(saving) || !answers[question]?.trim()}
+                            onClick={() => void saveEdit(`answer-${question}`, { action: "answer", question, answer: answers[question].trim() })}>{saving === `answer-${question}` ? "AI đang tính lại…" : "Lưu và tính lại"}</button>
+                        </div>
+                      ))}
+                      {result.clarifications?.map((entry) => (
+                        <div className="bp-followup-item" key={entry.question}>
+                          <strong>✓ {entry.question}</strong><span>{entry.answer}</span>
+                        </div>
+                      ))}
                     </div>
                   )}
 
@@ -788,11 +896,36 @@ export default function BudgetPlanner() {
                       <h4>
                         <span>📦</span> Chưa có trong bảng giá:
                       </h4>
-                      <ul>
-                        {result.missingProducts.map((p, i) => (
-                          <li key={i}>{p}</li>
-                        ))}
-                      </ul>
+                      {result.missingProducts.map((name) => {
+                        const selection = missingSelections[name] ?? "";
+                        const product = newProducts[name] ?? { sku: "", name, unit: "", price: "" };
+                        const quantity = missingQuantities[name]?.trim() ? Number(missingQuantities[name]) : null;
+                        const validQuantity = quantity === null || (Number.isFinite(quantity) && quantity > 0);
+                        return <div className="bp-followup-item" key={name}>
+                          <strong>{name}</strong>
+                          <select aria-label={`Sản phẩm thay thế cho ${name}`} value={selection}
+                            onChange={(event) => setMissingSelections((current) => ({ ...current, [name]: event.target.value }))}>
+                            <option value="">Chọn sản phẩm trong bảng giá</option>
+                            {catalog.map((item) => <option key={item._id} value={item._id}>{item.sku} · {item.name} · {formatMoney(item.price, item.currency)}</option>)}
+                            <option value="__new__">+ Thêm sản phẩm mới</option>
+                          </select>
+                          {selection === "__new__" && <div className="bp-new-product-fields">
+                            <input aria-label="Mã SKU mới" placeholder="Mã SKU" maxLength={80} value={product.sku} onChange={(event) => setNewProducts((current) => ({ ...current, [name]: { ...product, sku: event.target.value } }))} />
+                            <input aria-label="Tên sản phẩm mới" placeholder="Tên sản phẩm" maxLength={250} value={product.name} onChange={(event) => setNewProducts((current) => ({ ...current, [name]: { ...product, name: event.target.value } }))} />
+                            <input aria-label="Đơn vị tính mới" placeholder="ĐVT" maxLength={40} value={product.unit} onChange={(event) => setNewProducts((current) => ({ ...current, [name]: { ...product, unit: event.target.value } }))} />
+                            <input aria-label="Đơn giá mới" type="number" min="0" step="any" placeholder="Đơn giá VND" value={product.price} onChange={(event) => setNewProducts((current) => ({ ...current, [name]: { ...product, price: event.target.value } }))} />
+                          </div>}
+                          {selection && <>
+                            <input aria-label={`Số lượng ${name}`} type="number" min="0.01" step="any" placeholder="Số lượng (có thể bổ sung sau)"
+                              value={missingQuantities[name] ?? ""} onChange={(event) => setMissingQuantities((current) => ({ ...current, [name]: event.target.value }))} />
+                            <button type="button" className="button button-soft button-compact"
+                              disabled={Boolean(saving) || !validQuantity || (selection === "__new__" && (!product.sku.trim() || !product.name.trim() || !product.unit.trim() || product.price === "" || !Number.isFinite(Number(product.price)) || Number(product.price) < 0))}
+                              onClick={() => void saveEdit(`missing-${name}`, { action: "missing", name, quantity, ...(selection === "__new__" ? { newProduct: { sku: product.sku.trim(), name: product.name.trim(), unit: product.unit.trim(), price: Number(product.price) } } : { catalogItemId: selection }) })}>
+                              {selection === "__new__" ? "Thêm và áp dụng" : "Áp dụng sản phẩm"}
+                            </button>
+                          </>}
+                        </div>;
+                      })}
                     </div>
                   )}
 
@@ -801,11 +934,19 @@ export default function BudgetPlanner() {
                       <h4>
                         <span>📋</span> Giả định tính toán của AI:
                       </h4>
-                      <ul>
-                        {result.assumptions.map((a, i) => (
-                          <li key={i}>{a}</li>
-                        ))}
-                      </ul>
+                      {result.assumptions.map((assumption, index) => (
+                        <div className="bp-followup-item" key={index}>
+                          <textarea rows={2} maxLength={250} aria-label={`Giả định ${index + 1}`}
+                            value={assumptionEdits[index] ?? assumption}
+                            onChange={(event) => setAssumptionEdits((current) => ({ ...current, [index]: event.target.value }))} />
+                          <button type="button" className="button button-soft button-compact"
+                            disabled={Boolean(saving) || !String(assumptionEdits[index] ?? assumption).trim() || (result.assumptionConfirmations?.[index] === true && (assumptionEdits[index] ?? assumption) === assumption)}
+                            onClick={() => void saveEdit(`assumption-${index}`, { action: "assumption", index, text: (assumptionEdits[index] ?? assumption).trim() })}>
+                            {result.assumptionConfirmations?.[index] ? "Lưu sửa đổi" : "Xác nhận giả định"}
+                          </button>
+                          {result.assumptionConfirmations?.[index] && <span>✓ Đã xác nhận</span>}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>

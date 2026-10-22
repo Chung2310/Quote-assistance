@@ -15,6 +15,9 @@ export interface BudgetPlanResult {
   questions: string[]; missingProducts: string[]; assumptions: string[];
   scenario?: { area?: number; floors?: number };
   provisional?: boolean;
+  clarifications?: Array<{ question: string; answer: string }>;
+  assumptionConfirmations?: boolean[];
+  resolvedMissingProducts?: string[];
 }
 export interface SavedBudgetPlan {
   _id?: ObjectId; companyId: string; createdBy: string; input: BudgetPlanInput;
@@ -27,9 +30,61 @@ export function recomputeBudgetPlanTotals(result: BudgetPlanResult): BudgetPlanR
   const knownTotal = sameCurrency ? Math.round(result.lines.reduce((sum, line) => sum + (line.lineTotal ?? 0), 0) * 100) / 100 : null;
   const pricedLinesComplete = result.lines.length > 0 && result.lines.every((line) => line.quantity !== null && line.lineTotal !== null) && sameCurrency && result.currency === "VND";
   const total = pricedLinesComplete ? knownTotal : null;
-  const difference = total !== null && result.questions.length === 0 && result.missingProducts.length === 0
+  const assumptionsConfirmed = result.assumptions.every((_, index) => result.assumptionConfirmations?.[index] === true);
+  const difference = total !== null && result.questions.length === 0 && result.missingProducts.length === 0 && assumptionsConfirmed
     ? Math.round((result.budget - total) * 100) / 100 : null;
-  return { ...result, knownTotal, total, difference };
+  const provisional = result.lines.some((line) => line.quantityBasis === "estimated" && line.quantity !== null);
+  return { ...result, knownTotal, total, difference, provisional };
+}
+
+export function clarificationInput(input: BudgetPlanInput, clarifications: Array<{ question: string; answer: string }>): BudgetPlanInput {
+  const areaAnswer = [...clarifications].reverse().find(({ question, answer }) => /dien tich/.test(normalize(question)) && /(m²|m2|mét vuông|met vuong)/i.test(answer));
+  const areaMatch = areaAnswer?.answer.match(/(\d+(?:[.,]\d+)?)\s*(?:m²|m2|mét vuông|met vuong)/i);
+  const confirmedArea = areaMatch ? Number(areaMatch[1].replace(",", ".")) : undefined;
+  const confirmedFacts = clarifications.map(({ answer }) => answer).join("; ");
+  return {
+    ...input,
+    ...(confirmedArea && confirmedArea > 0 ? { area: confirmedArea } : {}),
+    description: `Thông tin đã xác nhận, ưu tiên khi khác yêu cầu ban đầu: ${confirmedArea ? `Diện tích ${confirmedArea} m². ` : ""}${confirmedFacts}\nYêu cầu ban đầu: ${input.description}`,
+  };
+}
+
+export function recalculationInput(input: BudgetPlanInput, result: BudgetPlanResult, next?: { question: string; answer: string }): BudgetPlanInput {
+  const clarifications = [...(result.clarifications ?? []), ...(next ? [next] : [])];
+  const clarified = clarifications.length ? clarificationInput(input, clarifications) : input;
+  const confirmedLines = result.lines.filter((line) => line.quantityNote === "Số lượng do người dùng xác nhận" || line.reason.startsWith("Bổ sung cho hạng mục:"));
+  const facts = [
+    ...confirmedLines.map((line) => `${line.name} (SKU ${line.sku}): ${line.quantity ?? "chưa rõ"} ${line.unit}`),
+    ...result.assumptions.flatMap((assumption, index) => result.assumptionConfirmations?.[index] ? [assumption] : []),
+  ];
+  return facts.length ? { ...clarified, description: `${clarified.description}\nSản phẩm, số lượng và giả định đã được người dùng xác nhận; giữ các mục này:\n${facts.join("\n")}` } : clarified;
+}
+
+export function mergeBudgetPlanAfterClarification(
+  previous: BudgetPlanResult,
+  proposed: BudgetPlanResult,
+  clarification?: { question: string; answer: string },
+): BudgetPlanResult {
+  const clarifications = [...(previous.clarifications ?? []), ...(clarification ? [clarification] : [])];
+  const previousById = new Map(previous.lines.map((line) => [line.catalogItemId, line]));
+  const manualLines = previous.lines.filter((line) => line.quantityNote === "Số lượng do người dùng xác nhận" || line.reason.startsWith("Bổ sung cho hạng mục:"));
+  const lines = proposed.lines.map((line) => {
+    const saved = previousById.get(line.catalogItemId);
+    if (saved?.quantityNote !== "Số lượng do người dùng xác nhận" || saved.quantity === null) return line;
+    return { ...line, quantity: saved.quantity, quantityBasis: "measured" as const, quantityNote: saved.quantityNote,
+      lineTotal: Math.round((line.unitPrice * saved.quantity + Number.EPSILON) * 100) / 100 };
+  });
+  for (const line of manualLines) if (!lines.some((entry) => entry.catalogItemId === line.catalogItemId)) lines.push(line);
+  const resolvedMissingProducts = previous.resolvedMissingProducts ?? [];
+  return recomputeBudgetPlanTotals({
+    ...proposed,
+    lines,
+    questions: proposed.questions.filter((question) => !clarifications.some((entry) => entry.question === question)),
+    missingProducts: proposed.missingProducts.filter((name) => !resolvedMissingProducts.includes(name)),
+    clarifications,
+    resolvedMissingProducts,
+    assumptionConfirmations: proposed.assumptions.map((assumption) => previous.assumptions.some((saved, index) => saved === assumption && previous.assumptionConfirmations?.[index] === true)),
+  });
 }
 
 const strings = (value: unknown, max: number) => Array.isArray(value)

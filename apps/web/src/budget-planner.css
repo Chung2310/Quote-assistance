@@ -483,6 +483,11 @@
   color: #b91c1c;
 }
 
+.bp-plan-diff-badge.pending {
+  background: #fef3c7;
+  color: #92400e;
+}
+
 .bp-view-link {
   font-size: 12px;
   font-weight: 700;
@@ -782,6 +787,13 @@
   flex-wrap: wrap;
 }
 
+.bp-result-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .bp-result-scope {
   font-size: 16px;
   font-weight: 800;
@@ -958,6 +970,66 @@
   color: #475569;
   font-size: 10px;
   font-weight: 600;
+}
+
+.bp-inline-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bp-inline-edit input {
+  width: 84px;
+}
+
+.bp-followup-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid currentColor;
+}
+
+.bp-update-notice {
+  padding: 11px 14px;
+  border: 1px solid #a5f3fc;
+  border-radius: 8px;
+  background: #ecfeff;
+  color: #155e75;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bp-followup-item input,
+.bp-followup-item select,
+.bp-followup-item textarea,
+.bp-inline-edit input {
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 7px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.bp-followup-item > input,
+.bp-followup-item > select,
+.bp-followup-item > textarea {
+  width: 100%;
+}
+
+.bp-new-product-fields {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.bp-new-product-fields input {
+  width: 100%;
 }
 
 /* Followup Cards (Questions, Missing, Assumptions) */
