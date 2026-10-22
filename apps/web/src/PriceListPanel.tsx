@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { api, apiUploadWithProgress, formatDate, formatMoney } from "./api";
 import FilePreview, { type PreviewFile } from "./FilePreview";
+import ThemedSelect from "./ThemedSelect";
 import type { CatalogItem } from "./types";
 import type { Notify } from "./Feedback";
 import { TaskProgress, type TaskProgressState } from "./Feedback";
@@ -430,19 +431,19 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
               <SortIcon size={14} />
               <span className="sr-only">Sắp xếp:</span>
             </label>
-            <select
+            <ThemedSelect
               id="price-list-sort-select"
-              className="price-list-sort-select"
+              label="Sắp xếp sản phẩm"
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortOption)}
-              aria-label="Sắp xếp sản phẩm"
-            >
-              <option value="default">Sắp xếp: Mặc định</option>
-              <option value="name_asc">Tên: A → Z</option>
-              <option value="name_desc">Tên: Z → A</option>
-              <option value="price_asc">Đơn giá: Thấp → Cao</option>
-              <option value="price_desc">Đơn giá: Cao → Thấp</option>
-            </select>
+              onChange={(next) => setSortBy(next as SortOption)}
+              options={[
+                { value: "default", label: "Sắp xếp: Mặc định" },
+                { value: "name_asc", label: "Tên: A → Z" },
+                { value: "name_desc", label: "Tên: Z → A" },
+                { value: "price_asc", label: "Đơn giá: Thấp → Cao" },
+                { value: "price_desc", label: "Đơn giá: Cao → Thấp" },
+              ]}
+            />
           </div>
         </div>
 

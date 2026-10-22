@@ -4,6 +4,7 @@ import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteSta
 import AdminApp from "./AdminApp";
 import LandingPage from "./LandingPage";
 import PriceListPanel from "./PriceListPanel";
+import ThemedSelect from "./ThemedSelect";
 import CustomerQuotes from "./CustomerQuotes";
 import CustomerQuoteDetail from "./CustomerProductListDetail";
 import BudgetPlanner from "./BudgetPlanner";
@@ -932,18 +933,19 @@ function QuoteWorkspace({
 
             <div className="quote-sort-wrapper">
               <label htmlFor="quote-sort-select">Sắp xếp:</label>
-              <select
+              <ThemedSelect
                 id="quote-sort-select"
+                label="Sắp xếp dự toán"
                 value={sortBy}
-                onChange={(e) => { setSortBy(e.target.value as QuoteSortKey); setPage(1); }}
-                className="quote-sort-select"
-              >
-                <option value="newest">Mới nhất trước</option>
-                <option value="oldest">Cũ nhất trước</option>
-                <option value="total_desc">Giá trị: Cao đến thấp</option>
-                <option value="total_asc">Giá trị: Thấp đến cao</option>
-                <option value="customer">Tên khách hàng: A-Z</option>
-              </select>
+                onChange={(next) => { setSortBy(next as QuoteSortKey); setPage(1); }}
+                options={[
+                  { value: "newest", label: "Mới nhất trước" },
+                  { value: "oldest", label: "Cũ nhất trước" },
+                  { value: "total_desc", label: "Giá trị: Cao đến thấp" },
+                  { value: "total_asc", label: "Giá trị: Thấp đến cao" },
+                  { value: "customer", label: "Tên khách hàng: A-Z" },
+                ]}
+              />
             </div>
           </div>
 
@@ -1985,18 +1987,14 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
               <div className="quote-fee-control">
                 <label className="quote-fee-label" htmlFor={`shipping-mode-${quote._id}`}>Vận chuyển</label>
                 <div className="quote-fee-row">
-                  <select id={`shipping-mode-${quote._id}`} value={shippingMode} disabled={!editable || busy} onChange={(event) => chooseShippingMode(event.target.value as ShippingMode)}>
-                    <option value="unconfirmed">Chưa chốt</option><option value="free">Miễn phí</option><option value="paid">Tính phí</option>
-                  </select>
+                  <ThemedSelect id={`shipping-mode-${quote._id}`} label="Vận chuyển" value={shippingMode} disabled={!editable || busy} onChange={(next) => chooseShippingMode(next as ShippingMode)} options={[{ value: "unconfirmed", label: "Chưa chốt" }, { value: "free", label: "Miễn phí" }, { value: "paid", label: "Tính phí" }]} />
                   {shippingMode === "paid" && <input type="number" min="0.01" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder={quote.currency} aria-label={`Phí vận chuyển (${quote.currency})`} onChange={(event) => setShippingFeeText(event.target.value)} />}
                 </div>
               </div>
               <div className="quote-fee-control">
                 <label className="quote-fee-label" htmlFor={`tax-mode-${quote._id}`}>Thuế VAT</label>
                 <div className="quote-fee-row">
-                  <select id={`tax-mode-${quote._id}`} value={taxMode} disabled={!editable || busy} onChange={(event) => chooseTaxMode(event.target.value as TaxMode)}>
-                    <option value="unconfirmed">Chưa chốt</option><option value="zero">0%</option><option value="rate">Tính VAT</option>
-                  </select>
+                  <ThemedSelect id={`tax-mode-${quote._id}`} label="Thuế VAT" value={taxMode} disabled={!editable || busy} onChange={(next) => chooseTaxMode(next as TaxMode)} options={[{ value: "unconfirmed", label: "Chưa chốt" }, { value: "zero", label: "0%" }, { value: "rate", label: "Tính VAT" }]} />
                   {taxMode === "rate" && <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} placeholder="%" aria-label="Thuế suất VAT (%)" onChange={(event) => { setTaxRateText(event.target.value); setTaxRateConfirmed(event.target.value.trim() !== "" && Number.isFinite(Number(event.target.value)) && Number(event.target.value) >= 0); }} />}
                 </div>
               </div>

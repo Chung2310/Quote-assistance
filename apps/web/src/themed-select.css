@@ -1,0 +1,42 @@
+#root .theme-select { min-width: 0; }
+#root button.theme-select-trigger {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; height: 44px; padding: 0 14px;
+  border: 1px solid #d7e3ee; border-radius: 10px;
+  background: #fff; color: #17243e !important;
+  font: inherit; font-size: 14px; font-weight: 400; text-align: left;
+  cursor: pointer; transition: border-color .18s, box-shadow .18s, background-color .18s;
+}
+#root button.theme-select-trigger * { color: inherit !important; }
+#root .theme-select-trigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#root .theme-select-trigger svg { flex: none; transition: transform .18s; }
+#root .theme-select.is-open .theme-select-trigger svg { transform: rotate(180deg); }
+#root .theme-select-trigger:hover:not(:disabled) { border-color: #8dcfff; background: #fbfdff; }
+#root .theme-select-trigger:focus-visible, #root .theme-select.is-open .theme-select-trigger {
+  outline: none; border-color: #00adfc; box-shadow: 0 0 0 3px rgba(0, 173, 252, .14);
+}
+#root .theme-select-trigger:disabled { opacity: .55; cursor: not-allowed; }
+.theme-select-menu {
+  position: fixed; z-index: 10050; overflow-y: auto; padding: 6px;
+  border: 1px solid #d9e8f3; border-radius: 12px;
+  background: #fff; box-shadow: 0 14px 36px rgba(16, 59, 91, .16), 0 2px 8px rgba(16, 59, 91, .06);
+}
+.theme-select-menu button {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; min-height: 42px; padding: 8px 12px;
+  border: 0; border-radius: 8px; background: transparent;
+  color: #17243e; font: inherit; font-size: 14px; font-weight: 400; text-align: left;
+  cursor: pointer;
+}
+.theme-select-menu button:hover, .theme-select-menu button:focus-visible { outline: none; background: #eaf7ff; color: #007bd0; }
+.theme-select-menu button[aria-selected="true"] { background: #e6f5ff; color: #008fe8; font-weight: 600; }
+.theme-select-menu button svg { flex: none; }
+#root .quote-sort-wrapper .theme-select { min-width: 187px; }
+#root .quote-sort-wrapper .theme-select-trigger { height: 48px; font-size: 15px; }
+#root .price-list-sort-wrap .theme-select { min-width: 220px; }
+#root .quote-fee-row .theme-select { width: 46%; }
+#root .quote-fee-row .theme-select-trigger { height: 42px; }
+@media (max-width: 680px) {
+  #root .quote-sort-wrapper .theme-select { flex: 1; }
+  #root .price-list-sort-wrap .theme-select { flex: 1; width: 100%; }
+}
