@@ -2047,18 +2047,6 @@
   outline-offset: 3px;
 }
 
-/* Status accent line on top */
-.quote-card-accent-bar {
-  height: 4px;
-  width: 100%;
-}
-
-.status-bg-draft { background: #94a3b8; }
-.status-bg-pending_review { background: #f59e0b; }
-.status-bg-approved { background: #10b981; }
-.status-bg-needs_info { background: #00ADFC; }
-.status-bg-rejected { background: #ef4444; }
-
 /* Card Header */
 .quote-card-header {
   display: flex;

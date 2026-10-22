@@ -3031,9 +3031,6 @@ function QuoteCards({
               }
             }}
           >
-            {/* Top colored accent indicator */}
-            <div className={`quote-card-accent-bar status-bg-${quote.status}`} />
-
             {/* Header: Quote Number & Status */}
             <div className="quote-card-header">
               <span className="quote-number-pill" title={`Mã báo giá: ${quote.quoteNumber}`}>
