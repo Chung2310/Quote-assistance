@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { api, formatMoney } from "./api";
 import type { CatalogItem } from "./types";
 import "./budget-planner.css";
@@ -46,6 +46,40 @@ const PRESETS = [
   { label: "Lắp PC chơi game (25 triệu)", desc: "Lắp một bộ PC chơi game 1080p, RAM 32GB, SSD 1TB; không cần màn hình hoặc phụ kiện.", budget: "25000000" },
   { label: "Cải tạo phòng ngủ 25m² (60 triệu)", desc: "Cải tạo sửa chữa một phòng ngủ 25m², sơn lại tường, làm trần thạch cao và lát sàn gỗ.", budget: "60000000" },
 ];
+
+type BudgetIconName = "lightbulb" | "zap" | "package" | "help" | "clipboard" | "check" | "alert" | "close";
+
+function BudgetIcon({ name, size = 16 }: { name: BudgetIconName; size?: number }) {
+  let paths: ReactNode = null;
+  switch (name) {
+    case "lightbulb":
+      paths = <><path d="M9 18h6M10 22h4M8.5 14.5a6 6 0 1 1 7 0c-1 .8-1.5 1.5-1.5 2.5h-4c0-1-.5-1.7-1.5-2.5Z" /></>;
+      break;
+    case "zap":
+      paths = <path d="m13 2-3 8h7l-6 12 1.5-9H6l7-11Z" />;
+      break;
+    case "package":
+      paths = <><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" /><path d="m12 12 8-4.5M12 12 4 7.5M12 12v9M8 5.25l8 4.5" /></>;
+      break;
+    case "help":
+      paths = <><circle cx="12" cy="12" r="9" /><path d="M9.7 9a2.4 2.4 0 1 1 4.1 1.7c-1.1 1-1.8 1.4-1.8 2.8" /><path d="M12 17h.01" /></>;
+      break;
+    case "clipboard":
+      paths = <><rect x="5" y="4" width="14" height="18" rx="2" /><rect x="9" y="2" width="6" height="4" rx="1" /><path d="M8 11h8M8 15h8M8 18h5" /></>;
+      break;
+    case "check":
+      paths = <><circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" /></>;
+      break;
+    case "alert":
+      paths = <><path d="m10.3 3.9-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3.1l-8-14a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></>;
+      break;
+    case "close":
+      paths = <path d="m6 6 12 12M18 6 6 18" />;
+      break;
+  }
+
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths}</svg>;
+}
 
 export default function BudgetPlanner() {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -343,7 +377,7 @@ export default function BudgetPlanner() {
             </div>
           </div>
           <div className="bp-kpi-body">
-            <span className="bp-kpi-value" style={{ fontSize: 20 }}>
+            <span className="bp-kpi-value">
               {formatMoney(stats.avgBudget, "VND")}
             </span>
             <span className="bp-kpi-sub">Mức đầu tư trung bình mỗi dự án</span>
@@ -417,7 +451,10 @@ export default function BudgetPlanner() {
             </p>
             {history.length === 0 && (
               <button type="button" className="bp-create-btn" onClick={openCreate} style={{ marginTop: 8 }}>
-                + Tạo phương án tư vấn đầu tiên
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                <span>Tạo phương án tư vấn đầu tiên</span>
               </button>
             )}
           </div>
@@ -455,7 +492,7 @@ export default function BudgetPlanner() {
 
                   <div className="bp-plan-tags">
                     <span className="bp-plan-tag">
-                      📦 {plan.result.lines.length} sản phẩm
+                      <BudgetIcon name="package" size={14} /> {plan.result.lines.length} sản phẩm
                     </span>
                   </div>
 
@@ -485,8 +522,8 @@ export default function BudgetPlanner() {
                       {diff === null
                         ? "Cần hoàn thiện"
                         : isOver
-                          ? `⚠ Vượt ${formatMoney(-diff, "VND")}`
-                          : `✓ Còn ${formatMoney(diff, "VND")}`}
+                          ? <><BudgetIcon name="alert" size={13} /> Vượt {formatMoney(-diff, "VND")}</>
+                          : <><BudgetIcon name="check" size={13} /> Còn {formatMoney(diff, "VND")}</>}
                     </span>
 
                     <span className="bp-view-link">
@@ -539,7 +576,7 @@ export default function BudgetPlanner() {
               disabled={busy}
               onClick={closeDialog}
             >
-              ✕
+              <BudgetIcon name="close" size={18} />
             </button>
           </header>
 
@@ -557,7 +594,7 @@ export default function BudgetPlanner() {
               <form className="bp-create-form" onSubmit={(event) => void submit(event)}>
                 {/* Presets */}
                 <div className="bp-presets-row">
-                  <span className="bp-presets-label">💡 Chọn nhanh kịch bản gợi ý mẫu:</span>
+                  <span className="bp-presets-label"><BudgetIcon name="lightbulb" size={15} /> Chọn nhanh kịch bản gợi ý mẫu:</span>
                   <div className="bp-presets-chips">
                     {PRESETS.map((preset, idx) => (
                       <button
@@ -621,16 +658,13 @@ export default function BudgetPlanner() {
                 </div>
 
                 <div className="bp-ai-hint-box">
-                  <span style={{ fontSize: 18 }}>💡</span>
+                  <span className="bp-ai-hint-icon"><BudgetIcon name="lightbulb" size={19} /></span>
                   <div>
                     <strong>Cơ chế tư vấn tự động của AI:</strong> Hệ thống sẽ so khớp yêu cầu với bảng giá hiện có của doanh nghiệp, tính toán định mức khối lượng ước tính và cân đối các hạng mục để đạt mức chi phí tối ưu nhất so với ngân sách bạn đã đặt ra.
                   </div>
                 </div>
 
                 <div className="bp-dialog-footer" style={{ padding: "16px 0 0", background: "transparent" }}>
-                  <button type="button" className="button button-soft" disabled={busy} onClick={closeDialog}>
-                    Hủy bỏ
-                  </button>
                   <button
                     className="button button-primary"
                     type="submit"
@@ -641,7 +675,7 @@ export default function BudgetPlanner() {
                       Number(budget) <= 0
                     }
                   >
-                    {busy ? <span className="spinner" /> : "⚡"}
+                    {busy ? <span className="spinner" /> : <BudgetIcon name="zap" size={16} />}
                     <span>{busy ? "AI đang lập phương án…" : "Phân tích & Đề xuất phương án"}</span>
                   </button>
                 </div>
@@ -671,8 +705,8 @@ export default function BudgetPlanner() {
                         {result.difference === null
                           ? "Cần hoàn thiện"
                           : result.difference < 0
-                            ? `⚠ Vượt ngân sách ${formatMoney(-result.difference, "VND")}`
-                            : `✓ Trong ngân sách (Dư ${formatMoney(result.difference, "VND")})`}
+                            ? <><BudgetIcon name="alert" size={13} /> Vượt ngân sách {formatMoney(-result.difference, "VND")}</>
+                            : <><BudgetIcon name="check" size={13} /> Trong ngân sách (Dư {formatMoney(result.difference, "VND")})</>}
                       </span>
 
                       <button
@@ -871,7 +905,7 @@ export default function BudgetPlanner() {
                   {(result.questions.length > 0 || (result.clarifications?.length ?? 0) > 0) && (
                     <div className="bp-followup-card questions">
                       <h4>
-                        <span>❓</span> Thông tin cần làm rõ thêm:
+                        <BudgetIcon name="help" size={16} /> Thông tin cần làm rõ thêm:
                       </h4>
                       {result.questions.map((question) => (
                         <div className="bp-followup-item" key={question}>
@@ -885,7 +919,7 @@ export default function BudgetPlanner() {
                       ))}
                       {result.clarifications?.map((entry) => (
                         <div className="bp-followup-item" key={entry.question}>
-                          <strong>✓ {entry.question}</strong><span>{entry.answer}</span>
+                          <strong><BudgetIcon name="check" size={14} /> {entry.question}</strong><span>{entry.answer}</span>
                         </div>
                       ))}
                     </div>
@@ -894,7 +928,7 @@ export default function BudgetPlanner() {
                   {result.missingProducts.length > 0 && (
                     <div className="bp-followup-card missing">
                       <h4>
-                        <span>📦</span> Chưa có trong bảng giá:
+                        <BudgetIcon name="package" size={16} /> Chưa có trong bảng giá:
                       </h4>
                       {result.missingProducts.map((name) => {
                         const selection = missingSelections[name] ?? "";
@@ -932,7 +966,7 @@ export default function BudgetPlanner() {
                   {result.assumptions.length > 0 && (
                     <div className="bp-followup-card assumptions">
                       <h4>
-                        <span>📋</span> Giả định tính toán của AI:
+                        <BudgetIcon name="clipboard" size={16} /> Giả định tính toán của AI:
                       </h4>
                       {result.assumptions.map((assumption, index) => (
                         <div className="bp-followup-item" key={index}>
@@ -944,7 +978,7 @@ export default function BudgetPlanner() {
                             onClick={() => void saveEdit(`assumption-${index}`, { action: "assumption", index, text: (assumptionEdits[index] ?? assumption).trim() })}>
                             {result.assumptionConfirmations?.[index] ? "Lưu sửa đổi" : "Xác nhận giả định"}
                           </button>
-                          {result.assumptionConfirmations?.[index] && <span>✓ Đã xác nhận</span>}
+                          {result.assumptionConfirmations?.[index] && <span className="bp-confirmed-mark"><BudgetIcon name="check" size={13} /> Đã xác nhận</span>}
                         </div>
                       ))}
                     </div>
