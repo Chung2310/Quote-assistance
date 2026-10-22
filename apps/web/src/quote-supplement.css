@@ -265,6 +265,17 @@
   font-size: 10px;
 }
 
+.quote-supplement-card input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.quote-supplement-card input[type="number"]::-webkit-inner-spin-button,
+.quote-supplement-card input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 .quote-supplement-product-table td input:focus,
 .quote-supplement-product-table td select:focus {
   outline: 0;
