@@ -529,29 +529,17 @@
 }
 
 .customer-product-template-select {
-  height: 40px;
+  width: 165px;
   max-width: 250px;
+  min-width: 0;
+  flex: 0 1 165px;
+}
+
+#root .customer-product-template-select .theme-select-trigger {
+  height: 40px;
   padding: 0 12px;
-  border: 1px solid var(--cqd-border);
   border-radius: var(--cqd-radius-sm);
-  background: #ffffff;
-  color: var(--cqd-text);
   font-size: 13px;
-  font-weight: 600;
-  outline: 0;
-  cursor: pointer;
-  transition: all 0.16s ease;
-}
-
-.customer-product-template-select:focus {
-  border-color: var(--cqd-primary);
-  box-shadow: 0 0 0 3px var(--cqd-primary-glow);
-}
-
-.customer-product-template-select:disabled {
-  background: #f8fafc;
-  color: var(--cqd-text-muted);
-  cursor: not-allowed;
 }
 
 .cqd-missing-card {

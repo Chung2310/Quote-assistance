@@ -3,6 +3,7 @@ import { api, formatDate, formatMoney } from "./api";
 import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
 import type { ConfirmOptions, Notify } from "./Feedback";
 import type { Quote } from "./types";
+import ThemedSelect from "./ThemedSelect";
 import "./customer-quote-detail.css";
 
 export default function CustomerProductListDetail({
@@ -273,20 +274,20 @@ export default function CustomerProductListDetail({
             )}
 
             {/* Template Selector */}
-            <select
+            <ThemedSelect
+              label="Mẫu Excel xuất báo giá"
               value={templateId}
               disabled={busy}
-              onChange={(event) => setTemplateId(event.target.value)}
-              aria-label="Mẫu Excel xuất báo giá"
+              onChange={setTemplateId}
+              options={[
+                { value: "", label: "Excel mặc định" },
+                ...templates.map((entry) => ({
+                  value: entry.id,
+                  label: entry.name || entry.originalFilename,
+                })),
+              ]}
               className="customer-product-template-select"
-            >
-              <option value="">Excel mặc định</option>
-              {templates.map((entry) => (
-                <option key={entry.id} value={entry.id}>
-                  {entry.name || entry.originalFilename}
-                </option>
-              ))}
-            </select>
+            />
 
             {/* Download Button */}
             <button
