@@ -10,6 +10,8 @@ import { connectDatabase, closeDatabase } from "./db.js";
 import { login, logout, requireAuth, requireSystemAdmin, requireRole } from "./auth.js";
 import { hashPassword } from "./password.js";
 import { analyzeRequest, suggestUnmatchedExplicitRequestLines } from "./ai.js";
+import { parseCustomerQuotePrompt, suggestCustomerQuote } from "./customer-quote-ai.js";
+import { mergeBudgetPlanAfterClarification, recalculationInput, recomputeBudgetPlanTotals, suggestBudgetPlan, type SavedBudgetPlan } from "./budget-planner.js";
 import { analyzePriceList, extractPriceListRows, type PriceList, type PriceListAnalysisRow } from "./price-list.js";
 import { requestFileContent, type RequestFile } from "./request-file.js";
 import { decryptCompanySecret, encryptCompanySecret } from "./secrets.js";
@@ -17,9 +19,9 @@ import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
-import { makeQuoteExcel } from "./quote-excel.js";
+import { makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
-import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
+import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderCustomerXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
@@ -64,6 +66,27 @@ function quoteForResponse(quote: Quote): Quote {
     shippingFeeConfirmed,
     total: Math.round((quote.subtotal + (taxRateConfirmed ? quote.taxAmount : 0) + (shippingFeeConfirmed ? quote.shippingFee ?? 0 : 0) + Number.EPSILON) * 100) / 100,
     status,
+  };
+}
+
+async function customerQuoteWithPrices(db: Db, quote: Quote): Promise<Quote> {
+  if (quote.kind !== "customer" || quote.customerPricesCaptured || !quote.lines.some((line) => line.unitPrice === 0)) return quote;
+  const ids = quote.lines.map((line) => asId(line.catalogItemId)).filter((id): id is ObjectId => id !== null);
+  const skus = quote.lines.map((line) => line.sku).filter(Boolean);
+  const products = ids.length || skus.length
+    ? await db.collection<CatalogItem>("catalogItems").find({ companyId: quote.companyId, $or: [{ _id: { $in: ids } }, { sku: { $in: skus } }] }).toArray()
+    : [];
+  const byId = new Map(products.map((item) => [String(item._id), item]));
+  const bySku = new Map(products.map((item) => [item.sku, item]));
+  return {
+    ...quote,
+    lines: quote.lines.map((line) => {
+      if (line.unitPrice !== 0) return line;
+      const product = byId.get(line.catalogItemId) ?? bySku.get(line.sku);
+      return product
+        ? { ...line, unitPrice: product.price, priceFromCurrentCatalog: true }
+        : { ...line, priceUnavailable: true };
+    }),
   };
 }
 
@@ -245,6 +268,7 @@ function publicPlan(plan: SubscriptionPlan) {
     description: plan.description,
     monthlyPrice: plan.monthlyPrice,
     quoteLimit: plan.quoteLimit,
+    aiLimit: plan.aiLimit === undefined ? plan.quoteLimit : plan.aiLimit,
     templateLimit: plan.templateLimit,
     active: plan.active,
     featured: plan.featured,
@@ -273,13 +297,13 @@ function addCalendarMonth(value: Date) {
 
 async function currentCompanyPlan(db: Db, companyId: string) {
   const companies = db.collection<Company>("companies");
-  let company = await companies.findOne({ _id: new ObjectId(companyId) }, { projection: { planCode: 1, subscriptionExpiresAt: 1, billingPaymentCreatedAt: 1 } });
+  let company = await companies.findOne({ _id: new ObjectId(companyId) }, { projection: { planCode: 1, subscriptionExpiresAt: 1, billingPaymentCreatedAt: 1, aiUsage: 1 } });
   if (company?.planCode && company.planCode !== "free" && company.subscriptionExpiresAt && company.subscriptionExpiresAt <= new Date()) {
     await companies.updateOne(
       { _id: company._id, planCode: company.planCode, subscriptionExpiresAt: company.subscriptionExpiresAt },
       { $set: { planCode: "free", updatedAt: new Date() }, $unset: { subscriptionExpiresAt: "" } },
     );
-    company = await companies.findOne({ _id: new ObjectId(companyId) }, { projection: { planCode: 1, subscriptionExpiresAt: 1, billingPaymentCreatedAt: 1 } });
+    company = await companies.findOne({ _id: new ObjectId(companyId) }, { projection: { planCode: 1, subscriptionExpiresAt: 1, billingPaymentCreatedAt: 1, aiUsage: 1 } });
   }
   const plans = db.collection<SubscriptionPlan>("subscriptionPlans");
   const plan = await plans.findOne({ code: company?.planCode ?? "free" }) ?? await plans.findOne({ code: "free" });
@@ -290,6 +314,8 @@ async function currentCompanyPlan(db: Db, companyId: string) {
 async function subscriptionUsage(db: Db, companyId: string) {
   const { company, plan } = await currentCompanyPlan(db, companyId);
   const { start, end } = vietnamMonthPeriod();
+  const aiLimit = plan.aiLimit === undefined ? plan.quoteLimit : plan.aiLimit;
+  const aiUsed = company?.aiUsage?.periodStart === start.toISOString() ? company.aiUsage.used : 0;
   const [quoteUsed, templateUsed] = await Promise.all([
     db.collection("auditLogs").countDocuments({ companyId, action: "quote_created", createdAt: { $gte: start, $lt: end } }),
     db.collection<QuoteTemplate>("quoteTemplates").countDocuments({ companyId, deletedAt: { $exists: false } }),
@@ -304,6 +330,13 @@ async function subscriptionUsage(db: Db, companyId: string) {
       periodStart: start.toISOString(),
       periodEnd: end.toISOString(),
     },
+    ai: {
+      used: aiUsed,
+      limit: aiLimit,
+      remaining: aiLimit === null ? null : Math.max(0, aiLimit - aiUsed),
+      periodStart: start.toISOString(),
+      periodEnd: end.toISOString(),
+    },
     templates: {
       used: templateUsed,
       limit: plan.templateLimit,
@@ -314,6 +347,44 @@ async function subscriptionUsage(db: Db, companyId: string) {
 
 function quoteQuotaMessage(plan: SubscriptionPlan) {
   return `Gói ${plan.name} đã hết ${plan.quoteLimit} lượt tạo báo giá trong tháng này. Hạn mức sẽ được làm mới vào đầu tháng sau.`;
+}
+
+class AiQuotaExceededError extends Error {}
+
+function aiQuotaMessage(plan: SubscriptionPlan) {
+  const limit = plan.aiLimit === undefined ? plan.quoteLimit : plan.aiLimit;
+  return `Gói ${plan.name} đã hết ${limit} lượt dùng AI trong tháng này. Hạn mức sẽ được làm mới vào đầu tháng sau.`;
+}
+
+async function withAiUsage<T>(db: Db, user: SessionUser, kind: string, work: () => Promise<T>): Promise<T> {
+  const { plan } = await currentCompanyPlan(db, user.companyId);
+  const limit = plan.aiLimit === undefined ? plan.quoteLimit : plan.aiLimit;
+  const periodStart = vietnamMonthPeriod().start.toISOString();
+  const usedInPeriod = { $cond: [{ $eq: ["$aiUsage.periodStart", periodStart] }, { $ifNull: ["$aiUsage.used", 0] }, 0] };
+  const companies = db.collection<Company>("companies");
+  const companyId = new ObjectId(user.companyId);
+  const reservation = await companies.findOneAndUpdate(
+    { _id: companyId, ...(limit === null ? {} : { $expr: { $lt: [usedInPeriod, limit] } }) },
+    [{ $set: { aiUsage: { periodStart, used: { $add: [usedInPeriod, 1] } } } }],
+    { returnDocument: "after", projection: { aiUsage: 1 } },
+  );
+  if (!reservation) throw new AiQuotaExceededError(aiQuotaMessage(plan));
+  try {
+    const value = await work();
+    try {
+      await writeAudit(db, user, "ai_usage", "company", user.companyId, { kind });
+    } catch (auditError) {
+      logger.error("ai_usage.audit_failed", { companyId: user.companyId, kind, error: auditError instanceof Error ? auditError.message : String(auditError) });
+    }
+    return value;
+  } catch (error) {
+    try {
+      await companies.updateOne({ _id: companyId, "aiUsage.periodStart": periodStart, "aiUsage.used": { $gt: 0 } }, { $inc: { "aiUsage.used": -1 } });
+    } catch (refundError) {
+      logger.error("ai_usage.refund_failed", { companyId: user.companyId, kind, error: refundError instanceof Error ? refundError.message : String(refundError) });
+    }
+    throw error;
+  }
 }
 
 function templateQuotaMessage(plan: SubscriptionPlan) {
@@ -353,6 +424,10 @@ function parsePlanInput(body: Record<string, unknown>, code: string, existing?: 
   const quoteLimit = body.quoteLimit === null || body.quoteLimit === ""
     ? null
     : typeof body.quoteLimit === "number" ? body.quoteLimit : Number(body.quoteLimit);
+  const aiLimit = body.aiLimit === undefined
+    ? existing?.aiLimit === undefined ? existing?.quoteLimit ?? null : existing.aiLimit
+    : body.aiLimit === null || body.aiLimit === "" ? null
+    : typeof body.aiLimit === "number" ? body.aiLimit : Number(body.aiLimit);
   const templateLimit = body.templateLimit === null || body.templateLimit === ""
     ? null
     : typeof body.templateLimit === "number" ? body.templateLimit : Number(body.templateLimit);
@@ -363,11 +438,12 @@ function parsePlanInput(body: Record<string, unknown>, code: string, existing?: 
   if (description.length > 300) return { error: "Mô tả gói tối đa 300 ký tự." };
   if (monthlyPrice !== null && (!Number.isFinite(monthlyPrice) || monthlyPrice < 0 || monthlyPrice > 1_000_000_000)) return { error: "Giá tháng không hợp lệ." };
   if (quoteLimit !== null && (!Number.isInteger(quoteLimit) || quoteLimit < 1 || quoteLimit > 1_000_000)) return { error: "Hạn mức báo giá phải là số nguyên dương hoặc để trống." };
+  if (aiLimit !== null && (!Number.isInteger(aiLimit) || aiLimit < 1 || aiLimit > 1_000_000)) return { error: "Hạn mức AI phải là số nguyên dương hoặc để trống." };
   if (templateLimit !== null && (!Number.isInteger(templateLimit) || templateLimit < 1 || templateLimit > 10_000)) return { error: "Hạn mức mẫu phải là số nguyên dương hoặc để trống." };
   if (!Number.isInteger(displayOrder) || displayOrder < 0 || displayOrder > 10_000) return { error: "Thứ tự hiển thị không hợp lệ." };
   if (code === "free" && (monthlyPrice !== 0 || !active)) return { error: "Gói miễn phí phải có giá 0đ và luôn được kích hoạt." };
   if (code === "contact" && (monthlyPrice !== null || !active)) return { error: "Gói Liên hệ phải giữ giá thỏa thuận và luôn được kích hoạt." };
-  return { value: { name, description, monthlyPrice, quoteLimit, templateLimit, active, featured, displayOrder } };
+  return { value: { name, description, monthlyPrice, quoteLimit, aiLimit, templateLimit, active, featured, displayOrder } };
 }
 
 function publicUserAccount(account: UserAccount) {
@@ -1456,11 +1532,11 @@ app.get("/api/dashboard", requireRole("user"), async (request, response) => {
   const user = userOf(request);
   const quotes = db.collection<Quote>("quotes");
   const [total, drafts, pending, approved, recent] = await Promise.all([
-    quotes.countDocuments({ companyId: user.companyId }),
-    quotes.countDocuments({ companyId: user.companyId, status: "draft" }),
-    quotes.countDocuments({ companyId: user.companyId, status: "pending_review" }),
-    quotes.countDocuments({ companyId: user.companyId, status: "approved" }),
-    quotes.find({ companyId: user.companyId }).sort({ createdAt: -1, _id: -1 }).limit(3).toArray(),
+    quotes.countDocuments({ companyId: user.companyId, kind: { $ne: "customer" } }),
+    quotes.countDocuments({ companyId: user.companyId, kind: { $ne: "customer" }, status: "draft" }),
+    quotes.countDocuments({ companyId: user.companyId, kind: { $ne: "customer" }, status: "pending_review" }),
+    quotes.countDocuments({ companyId: user.companyId, kind: { $ne: "customer" }, status: "approved" }),
+    quotes.find({ companyId: user.companyId, kind: { $ne: "customer" } }).sort({ createdAt: -1, _id: -1 }).limit(3).toArray(),
   ]);
   response.json({ counts: { total, drafts, pending, approved }, recent });
 });
@@ -1854,9 +1930,18 @@ app.post("/api/quote-requests/:id/analyze", requireRole("user"), async (request,
   const requestFile = quoteRequest.requestFile ? await db.collection<RequestFile>("requestFiles").findOne({ _id: new ObjectId(quoteRequest.requestFile.id), companyId: user.companyId, uploadedBy: quoteRequest.createdBy }) : null;
   if (quoteRequest.requestFile && !requestFile) return fail(response, "Không tìm thấy file yêu cầu.", 404);
   const analysisRequestId = typeof response.locals.requestId === "string" ? response.locals.requestId : undefined;
-  const result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string } = priceLists.length
-    ? await analyzePriceList(quoteRequest.requestText, priceLists, [], requestFile ? await requestFileContent(requestFile) : [], analysisRequestId)
-    : await analyzeRequest(quoteRequest.requestText, catalog, [], requestFile ? await requestFileContent(requestFile) : [], analysisRequestId);
+  let result: Awaited<ReturnType<typeof analyzeRequest>> & { candidates?: CatalogItem[]; customerName?: string; customerEmail?: string };
+  try {
+    result = await withAiUsage(db, user, "quote_request_analyze", async () => {
+      const fileContent = requestFile ? await requestFileContent(requestFile) : [];
+      return priceLists.length
+        ? analyzePriceList(quoteRequest.requestText, priceLists, [], fileContent, analysisRequestId)
+        : analyzeRequest(quoteRequest.requestText, catalog, [], fileContent, analysisRequestId);
+    });
+  } catch (error) {
+    if (error instanceof AiQuotaExceededError) return fail(response, error.message, 429);
+    throw error;
+  }
   const suggestedProducts = (result.suggestedProducts ?? []).slice(0, 30);
   if (suggestedProducts.length) {
     const boundProducts = suggestedProducts.map((product, index) => ({
@@ -1881,6 +1966,8 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const collection = db.collection<Quote>("quotes");
   const status = request.query.status;
   const filter: Document = { companyId: user.companyId };
+  if (request.query.kind === "customer") filter.kind = "customer";
+  else filter.kind = { $ne: "customer" };
   if (typeof status === "string" && ["draft", "needs_info", "pending_review", "approved", "rejected"].includes(status)) filter.status = status;
   if (request.query.page === undefined) {
     const quotes = await collection.find(filter).sort({ createdAt: -1, _id: -1 }).limit(100).toArray();
@@ -1911,7 +1998,7 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const [total, statusRows] = await Promise.all([
     collection.countDocuments(filter),
     collection.aggregate<{ _id: QuoteStatus; count: number; revenue: number }>([
-      { $match: { companyId: user.companyId } },
+      { $match: { companyId: user.companyId, kind: filter.kind } },
       { $group: { _id: "$status", count: { $sum: 1 }, revenue: { $sum: { $cond: [{ $eq: ["$status", "approved"] }, "$total", 0] } } } },
     ]).toArray(),
   ]);
@@ -1935,6 +2022,198 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
       approvedRevenue: statusRows.reduce((sum, row) => sum + row.revenue, 0),
     },
   });
+});
+
+app.post("/api/customer-quotes/suggest", requireRole("user"), async (request, response) => {
+  const prompt = request.body?.prompt;
+  if (typeof prompt !== "string" || !prompt.trim() || prompt.length > 3000) return fail(response, "Hãy nhập yêu cầu báo giá, tối đa 3.000 ký tự.");
+  const inputs = parseCustomerQuotePrompt(prompt);
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const catalog = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(user.companyId)).sort({ sku: 1 }).limit(1000).toArray();
+  try { response.json(await withAiUsage(db, user, "customer_quote_suggest", () => suggestCustomerQuote(inputs, catalog))); }
+  catch (error) { fail(response, error instanceof Error ? error.message : "Không thể đề xuất hạng mục.", error instanceof AiQuotaExceededError ? 429 : 422); }
+});
+
+app.get("/api/budget-plans", requireRole("user"), async (request, response) => {
+  const plans = await (await connectDatabase()).collection<SavedBudgetPlan>("budgetPlans")
+    .find({ companyId: userOf(request).companyId }).sort({ createdAt: -1, _id: -1 }).limit(30).toArray();
+  response.json({ plans: plans.map(({ _id, input, result, createdAt }) => ({ id: String(_id), input, result: recomputeBudgetPlanTotals(result), createdAt })) });
+});
+
+app.patch("/api/budget-plans/:id", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã phương án không hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const plans = db.collection<SavedBudgetPlan>("budgetPlans");
+  const plan = await plans.findOne({ _id: id, companyId: user.companyId });
+  if (!plan) return fail(response, "Không tìm thấy phương án.", 404);
+  const body = request.body ?? {};
+  let result = structuredClone(plan.result);
+  const validQuantity = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value > 0 && value <= 1_000_000;
+  if (body.action === "quantity") {
+    const line = result.lines.find((entry) => entry.catalogItemId === body.catalogItemId);
+    if (!line || !validQuantity(body.quantity)) return fail(response, "Sản phẩm hoặc số lượng không hợp lệ.", 422);
+    line.quantity = body.quantity;
+    line.lineTotal = Math.round((line.unitPrice * body.quantity + Number.EPSILON) * 100) / 100;
+    line.quantityBasis = "measured";
+    line.quantityNote = "Số lượng do người dùng xác nhận";
+  } else if (body.action === "answer" || body.action === "recalculate") {
+    if (body.action === "answer" && (!validText(body.question, 500) || !result.questions.includes(body.question) || !validText(body.answer, 500))) return fail(response, "Câu hỏi hoặc câu trả lời không hợp lệ.", 422);
+    const clarification = body.action === "answer" ? { question: String(body.question), answer: String(body.answer).trim() } : undefined;
+    const catalog = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(user.companyId)).sort({ sku: 1 }).limit(1000).toArray();
+    if (!catalog.length) return fail(response, "Bảng giá chưa có sản phẩm đang áp dụng.", 422);
+    try {
+      const updatedResult = await withAiUsage(db, user, body.action === "answer" ? "budget_plan_answer" : "budget_plan_recalculate", async () => {
+        const proposed = await suggestBudgetPlan(recalculationInput(plan.input, result, clarification), catalog);
+        const merged = mergeBudgetPlanAfterClarification(result, proposed, clarification);
+        await plans.updateOne({ _id: id, companyId: user.companyId }, { $set: { result: merged } });
+        await writeAudit(db, user, "budget_plan_updated", "budgetPlan", id.toHexString(), { action: body.action });
+        return merged;
+      });
+      return response.json({ id: id.toHexString(), input: plan.input, result: updatedResult, createdAt: plan.createdAt });
+    } catch (error) {
+      return fail(response, error instanceof Error ? error.message : "Không thể tính lại phương án.", error instanceof AiQuotaExceededError ? 429 : 422);
+    }
+  } else if (body.action === "assumption") {
+    if (!Number.isInteger(body.index) || body.index < 0 || body.index >= result.assumptions.length || !validText(body.text, 250)) return fail(response, "Giả định không hợp lệ.", 422);
+    const changed = result.assumptions[body.index] !== body.text.trim();
+    result.assumptions[body.index] = body.text.trim();
+    result.assumptionConfirmations = result.assumptions.map((_, index) => index === body.index || result.assumptionConfirmations?.[index] === true);
+    if (changed) for (const line of result.lines) {
+      if (line.quantityBasis !== "estimated") continue;
+      line.quantity = null;
+      line.lineTotal = null;
+      line.quantityNote = "Giả định đã sửa; cần nhập lại số lượng";
+    }
+  } else if (body.action === "missing") {
+    if (!validText(body.name, 250) || !result.missingProducts.includes(body.name) || (body.quantity !== null && body.quantity !== undefined && !validQuantity(body.quantity))) return fail(response, "Hạng mục hoặc số lượng không hợp lệ.", 422);
+    const catalog = db.collection<CatalogItem>("catalogItems");
+    let item: CatalogItem | null = null;
+    if (body.catalogItemId) {
+      const itemId = asId(body.catalogItemId);
+      if (!itemId) return fail(response, "Sản phẩm thay thế không hợp lệ.", 422);
+      item = await catalog.findOne({ _id: itemId, ...currentCatalogFilter(user.companyId) });
+      if (!item) return fail(response, "Sản phẩm thay thế không còn trong bảng giá.", 422);
+    } else if (isRecord(body.newProduct)) {
+      const product = body.newProduct;
+      if (!validText(product.sku, 80) || !validText(product.name, 250) || !validText(product.unit, 40)
+        || typeof product.price !== "number" || !Number.isFinite(product.price) || product.price < 0 || product.price > 1_000_000_000_000)
+        return fail(response, "Thông tin sản phẩm mới không hợp lệ.", 422);
+      if (await catalog.findOne({ companyId: user.companyId, sku: product.sku.trim() })) return fail(response, "Mã SKU đã tồn tại; hãy chọn sản phẩm trong bảng giá.", 409);
+      const now = new Date();
+      item = { companyId: user.companyId, sku: product.sku.trim(), name: product.name.trim(), unit: product.unit.trim(), description: "Bổ sung từ phương án đề xuất", price: product.price, currency: config.currency, active: true, createdAt: now, updatedAt: now };
+      try { item._id = (await catalog.insertOne(item)).insertedId; }
+      catch (error) { if (isDuplicateKey(error)) return fail(response, "Mã SKU đã tồn tại.", 409); throw error; }
+      await writeAudit(db, user, "catalog_item_created", "catalogItem", item._id.toHexString(), { source: "budget_plan", planId: id.toHexString(), sku: item.sku });
+    } else return fail(response, "Hãy chọn sản phẩm hoặc thêm sản phẩm mới.", 422);
+    if (!result.lines.some((line) => line.catalogItemId === String(item._id))) {
+      result.lines.push({ catalogItemId: String(item._id), sku: item.sku, name: item.name, unit: item.unit, unitPrice: item.price, currency: item.currency, quantity: body.quantity ?? null, lineTotal: body.quantity ? Math.round((item.price * body.quantity + Number.EPSILON) * 100) / 100 : null, reason: `Bổ sung cho hạng mục: ${body.name}`, ...(body.quantity ? { quantityBasis: "measured" as const, quantityNote: "Số lượng do người dùng xác nhận" } : {}) });
+    }
+    result.missingProducts = result.missingProducts.filter((name) => name !== body.name);
+    result.resolvedMissingProducts = [...new Set([...(result.resolvedMissingProducts ?? []), body.name])];
+  } else return fail(response, "Thao tác không hợp lệ.", 422);
+  const updatedResult = recomputeBudgetPlanTotals(result);
+  await plans.updateOne({ _id: id, companyId: user.companyId }, { $set: { result: updatedResult } });
+  await writeAudit(db, user, "budget_plan_updated", "budgetPlan", id.toHexString(), { action: body.action });
+  response.json({ id: id.toHexString(), input: plan.input, result: updatedResult, createdAt: plan.createdAt });
+});
+
+app.get("/api/budget-plans/:id/export", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã phương án không hợp lệ.");
+  const plan = await (await connectDatabase()).collection<SavedBudgetPlan>("budgetPlans")
+    .findOne({ _id: id, companyId: userOf(request).companyId });
+  if (!plan) return fail(response, "Không tìm thấy phương án.", 404);
+  response.setHeader("Content-Type", templateFormats.xlsx);
+  response.setHeader("Content-Disposition", `attachment; filename="phuong-an-${id.toHexString()}.xlsx"`);
+  response.send(makeBudgetPlanExcel(plan));
+});
+
+app.post("/api/budget-plans/suggest", requireRole("user"), async (request, response) => {
+  const { description, budget, area, floors } = request.body ?? {};
+  if (typeof description !== "string" || !description.trim() || description.length > 3000
+    || typeof budget !== "number" || !Number.isFinite(budget) || budget <= 0 || budget > 1_000_000_000_000
+    || (area !== undefined && (typeof area !== "number" || !Number.isFinite(area) || area <= 0 || area > 1_000_000))
+    || (floors !== undefined && (!Number.isInteger(floors) || floors <= 0 || floors > 200))) {
+    return fail(response, "Mô tả, ngân sách hoặc quy mô không hợp lệ.");
+  }
+  const db = await connectDatabase();
+  const catalog = await db.collection<CatalogItem>("catalogItems")
+    .find(currentCatalogFilter(userOf(request).companyId)).sort({ sku: 1 }).limit(1000).toArray();
+  if (!catalog.length) return fail(response, "Bảng giá chưa có sản phẩm đang áp dụng.", 422);
+  try {
+    const user = userOf(request);
+    const input = { description: description.trim(), budget, ...(area === undefined ? {} : { area }), ...(floors === undefined ? {} : { floors }) };
+    const saved = await withAiUsage(db, user, "budget_plan_suggest", async () => {
+      const result = recomputeBudgetPlanTotals(await suggestBudgetPlan(input, catalog));
+      const createdAt = new Date();
+      const plan: SavedBudgetPlan = { companyId: user.companyId, createdBy: user.id, input, result, createdAt };
+      const inserted = await db.collection<SavedBudgetPlan>("budgetPlans").insertOne(plan);
+      return { id: inserted.insertedId.toHexString(), input, result, createdAt };
+    });
+    response.status(201).json(saved);
+  }
+  catch (error) { fail(response, error instanceof Error ? error.message : "Không thể tạo phương án sơ bộ.", error instanceof AiQuotaExceededError ? 429 : 422); }
+});
+
+app.post("/api/customer-quotes", requireRole("user"), async (request, response) => {
+  const user = userOf(request);
+  const rawItems = request.body?.items;
+  const rawMissingProducts = request.body?.missingProducts ?? [];
+  const templateId = request.body?.templateId ? asId(String(request.body.templateId)) : null;
+  const idempotencyKey = request.body?.idempotencyKey;
+  const customerName = request.body?.customerName;
+  const customerEmail = request.body?.customerEmail ?? "";
+  const customerPhone = request.body?.customerPhone ?? "";
+  if ((request.body?.templateId && !templateId) || !validText(idempotencyKey, 100) || !validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail && !validEmail(customerEmail)) || typeof customerPhone !== "string" || customerPhone.length > 50 || !Array.isArray(rawItems) || rawItems.length > 100 || !Array.isArray(rawMissingProducts) || rawMissingProducts.length > 30 || rawMissingProducts.some((name) => !validText(name, 120)) || (!rawItems.length && !rawMissingProducts.length)) return fail(response, "Khách hàng hoặc danh sách sản phẩm không hợp lệ.");
+  const missingProducts = [...new Set((rawMissingProducts as string[]).map((name) => name.trim()))];
+  const db = await connectDatabase();
+  const quotes = db.collection<Quote>("quotes");
+  const existing = await quotes.findOne({ companyId: user.companyId, idempotencyKey });
+  if (existing) return response.json({ quote: quoteForResponse(existing) });
+  const usage = await subscriptionUsage(db, user.companyId);
+  if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
+  const template = templateId ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }) : null;
+  if (templateId && !template) return fail(response, "Không tìm thấy mẫu báo giá.", 404);
+  if (template && template.extension !== "xlsx") return fail(response, "Báo giá khách cần chọn mẫu Excel (.xlsx).", 422);
+  const requested = [] as Array<{ catalogItemId: string; quantity: number; unit: string; attributes: Record<string, string> }>;
+  for (const raw of rawItems) {
+    if (!isRecord(raw) || typeof raw.catalogItemId !== "string" || !asId(raw.catalogItemId) || typeof raw.quantity !== "number" || typeof raw.unit !== "string") return fail(response, "Dòng hàng không hợp lệ.");
+    requested.push({ catalogItemId: raw.catalogItemId, quantity: 1, unit: raw.unit, attributes: {} });
+  }
+  if (new Set(requested.map((item) => item.catalogItemId)).size !== requested.length) return fail(response, "Sản phẩm bị trùng trong báo giá.");
+  const catalogIds = requested.map((item) => asId(item.catalogItemId)!);
+  const catalog = await db.collection<CatalogItem>("catalogItems").find({ _id: { $in: catalogIds }, ...currentCatalogFilter(user.companyId) }).toArray();
+  const catalogById = new Map(catalog.map((item) => [String(item._id), item]));
+  if (catalogById.size !== requested.length) return fail(response, "Một số sản phẩm không còn trong bảng giá.");
+  const totals = {
+    lines: requested.map(({ catalogItemId }) => {
+      const item = catalogById.get(catalogItemId)!;
+      return {
+        catalogItemId, source: "catalog" as const, sku: item.sku, name: item.name,
+        description: item.description, quantity: 1, unit: item.unit, unitPrice: item.price,
+        currency: item.currency, catalogAttributes: {}, attributes: {}, lineTotal: 0,
+      };
+    }),
+    subtotal: 0, taxRate: 0, taxAmount: 0, total: 0, currency: config.currency,
+  };
+  const year = new Date().getFullYear();
+  const counter = await db.collection<{ _id: string; value: number }>("counters").findOneAndUpdate({ _id: `${user.companyId}:${year}` }, { $inc: { value: 1 } }, { upsert: true, returnDocument: "after" });
+  const now = new Date();
+  const quote: Quote = {
+    companyId: user.companyId, kind: "customer", customerPricesCaptured: true, idempotencyKey, missingProducts,
+    ...(template ? { template: { id: template._id!.toHexString(), name: template.name || template.originalFilename, originalFilename: template.originalFilename } } : {}),
+    quoteNumber: `BG-${year}-${String(counter?.value ?? 1).padStart(5, "0")}`,
+    requestId: "", customerName: customerName.trim(), customerEmail: customerEmail.trim(), customerPhone: customerPhone.trim(),
+    ...totals, taxRateConfirmed: true, shippingFee: 0, shippingFeeConfirmed: true,
+    informationNeeded: [], additionalInformation: {}, suggestedProducts: [], informationConfirmed: true,
+    status: "draft", createdBy: user.id, createdAt: now, updatedAt: now,
+  };
+  const result = await quotes.insertOne(quote);
+  await writeAudit(db, user, "customer_quote_created", "quote", result.insertedId.toHexString(), { quoteNumber: quote.quoteNumber, productCount: quote.lines.length });
+  response.status(201).json({ quote: quoteForResponse({ ...quote, _id: result.insertedId }) });
 });
 
 app.post("/api/quotes", requireRole("user"), async (request, response) => {
@@ -2061,7 +2340,7 @@ app.get("/api/quotes/:id", requireRole("user"), async (request, response) => {
     { _id: sourceId, companyId: userOf(request).companyId },
     { projection: { requestText: 1, candidates: 1, suggestedProducts: 1 } },
   ) : null;
-  let quoteResponse = quoteForResponse(quote);
+  let quoteResponse = quoteForResponse(await customerQuoteWithPrices(db, quote));
   if (source) {
     const suggestions = [...(quote.suggestedProducts ?? [])];
     for (const product of source.suggestedProducts ?? []) {
@@ -2302,7 +2581,7 @@ app.post("/api/quotes/:id/submit-review", requireRole("user"), async (request, r
   const quotes = db.collection<Quote>("quotes");
   const quote = await quotes.findOne({ _id: id, companyId: user.companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
-  if (quote.status !== "draft" || quoteHasUnresolvedInformation(quote)) return fail(response, "Hãy xử lý các khoản chưa có giá hoặc điều khoản còn thiếu trước khi gửi duyệt.", 409);
+  if (quote.status !== "draft" || quoteHasUnresolvedInformation(quote)) return fail(response, quote.kind === "customer" ? "Danh sách sản phẩm chưa sẵn sàng để gửi duyệt." : "Hãy xử lý các khoản chưa có giá hoặc điều khoản còn thiếu trước khi gửi duyệt.", 409);
   await quotes.updateOne({ _id: id, companyId: user.companyId }, { $set: { status: "pending_review", updatedAt: new Date() } });
   await writeAudit(db, user, "quote_submitted", "quote", id.toHexString());
   response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
@@ -2316,7 +2595,14 @@ app.post("/api/quotes/:id/approve", requireRole("user"), async (request, respons
   const quotes = db.collection<Quote>("quotes");
   const approvableStatuses: QuoteStatus[] = ["draft", "needs_info", "pending_review"];
   const result = await quotes.findOneAndUpdate(
-    { _id: id, companyId: user.companyId, status: { $in: approvableStatuses } },
+    {
+      _id: id,
+      companyId: user.companyId,
+      $or: [
+        { status: { $in: approvableStatuses } },
+        { kind: "customer", status: "rejected" },
+      ],
+    },
     { $set: { status: "approved", approvedBy: user.id, approvedAt: new Date(), updatedAt: new Date() } },
     { returnDocument: "after" },
   );
@@ -2349,11 +2635,33 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
   const quotes = db.collection<Quote>("quotes");
   const storedQuote = await quotes.findOne({ _id: id, companyId: userOf(request).companyId });
   if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
-  const quote = quoteForResponse(storedQuote);
+  const quote = quoteForResponse(await customerQuoteWithPrices(db, storedQuote));
   const preview = request.query.preview === "1";
   const draftExport = request.query.draft === "1";
   const excelExport = request.query.excel === "1";
   if (quote.status !== "approved" && !preview && !draftExport) return fail(response, "Chỉ có thể tải file chính thức sau khi báo giá được duyệt.", 409);
+  if (quote.kind === "customer") {
+    const plainExcel = request.query.templateId === "none";
+    const selectedId = request.query.templateId === undefined || plainExcel ? null : asId(String(request.query.templateId));
+    if (request.query.templateId !== undefined && !plainExcel && !selectedId) return fail(response, "Mã mẫu Excel không hợp lệ.");
+    let selected = selectedId
+      ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: selectedId, companyId: quote.companyId, deletedAt: { $exists: false } })
+      : !plainExcel && quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
+    if (selectedId && !selected) return fail(response, "Không tìm thấy mẫu Excel.", 404);
+    if (selected && selected.extension !== "xlsx") {
+      if (selectedId) return fail(response, "Hãy chọn mẫu Excel (.xlsx).", 422);
+      selected = null;
+    }
+    try {
+      const bytes = selected ? await renderCustomerXlsxTemplate(selected, quote) : makeQuoteExcel(quote);
+      response.setHeader("Content-Type", templateFormats.xlsx);
+      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx"`);
+      response.send(bytes);
+    } catch (error) {
+      return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá khách theo mẫu Excel.", 422);
+    }
+    return;
+  }
   if (excelExport && quote.status === "approved") {
     response.setHeader("Content-Type", templateFormats.xlsx);
     response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.xlsx"`);
@@ -2415,6 +2723,7 @@ app.get("/api/quotes/:id/pdf", requireRole("user"), async (request, response) =>
   if (!storedQuote) return fail(response, "Không tìm thấy báo giá.", 404);
   const quote = quoteForResponse(storedQuote);
   if (quote.status !== "approved") return fail(response, "Chỉ có thể xuất PDF sau khi báo giá được duyệt.", 409);
+  if (quote.kind === "customer") return fail(response, "Danh sách sản phẩm khách được xuất dưới dạng Excel.", 409);
   if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể xuất báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
   if (quote.template) return response.redirect(307, `/api/quotes/${quote._id}/export`);
   const pdf = makePdf(quote);

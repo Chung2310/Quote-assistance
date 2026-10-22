@@ -1,0 +1,1427 @@
+/* ==========================================================================
+   Quote Template Styling (Quản lý Mẫu Báo Giá)
+   ========================================================================== */
+
+:root {
+  --qt-primary: #00ADFC;
+  --qt-primary-dark: #008fce;
+  --qt-primary-light: #e6f6fe;
+  --qt-primary-glow: rgba(0, 173, 252, 0.22);
+  --qt-text: #1e293b;
+  --qt-text-muted: #64748b;
+  --qt-border: #e2e8f0;
+  --qt-card-bg: #ffffff;
+  --qt-radius: 14px;
+  --qt-radius-sm: 8px;
+  --qt-shadow-sm: 0 2px 8px rgba(15, 23, 42, 0.04);
+  --qt-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --qt-shadow-lg: 0 24px 60px rgba(15, 23, 42, 0.16);
+
+  /* Format Colors */
+  --qt-docx: #2563eb;
+  --qt-docx-bg: #eff6ff;
+  --qt-docx-border: #bfdbfe;
+  --qt-xlsx: #16a34a;
+  --qt-xlsx-bg: #f0fdf4;
+  --qt-xlsx-border: #bbf7d0;
+  --qt-pdf: #dc2626;
+  --qt-pdf-bg: #fef2f2;
+  --qt-pdf-border: #fecaca;
+}
+
+.templates-page {
+  max-width: 1320px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ==========================================================================
+   Header Hero Banner
+   ========================================================================== */
+
+.qt-header-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  background: linear-gradient(135deg, #ffffff 0%, #f0f9ff 60%, #e0f2fe 100%);
+  border: 1px solid #bae6fd;
+  border-radius: var(--qt-radius);
+  padding: 26px 30px;
+  box-shadow: var(--qt-shadow-sm);
+  position: relative;
+  overflow: hidden;
+}
+
+.qt-header-banner::before {
+  content: "";
+  position: absolute;
+  top: -60px;
+  right: -40px;
+  width: 220px;
+  height: 220px;
+  background: radial-gradient(circle, rgba(0, 173, 252, 0.16) 0%, transparent 70%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.qt-header-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1;
+}
+
+.qt-header-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: #0284c7;
+  background: #e0f2fe;
+  padding: 4px 12px;
+  border-radius: 20px;
+  width: fit-content;
+  border: 1px solid #bae6fd;
+}
+
+.qt-header-copy h1 {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.5px;
+  margin: 2px 0 0;
+}
+
+.qt-header-copy p {
+  font-size: 13px;
+  color: var(--qt-text-muted);
+  max-width: 680px;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.qt-header-actions {
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.qt-create-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  height: 44px;
+  padding: 0 22px;
+  background: linear-gradient(135deg, var(--qt-primary) 0%, var(--qt-primary-dark) 100%);
+  color: #fff !important;
+  font-size: 13px;
+  font-weight: 700;
+  border: 0;
+  border-radius: var(--qt-radius-sm);
+  cursor: pointer;
+  box-shadow: 0 4px 16px var(--qt-primary-glow);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+}
+
+.qt-create-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(0, 173, 252, 0.38);
+  background: linear-gradient(135deg, #0eb6ff 0%, #0084c0 100%);
+}
+
+.qt-create-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* ==========================================================================
+   KPI Summary Grid
+   ========================================================================== */
+
+.qt-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.qt-kpi-card {
+  background: var(--qt-card-bg);
+  border: 1px solid var(--qt-border);
+  border-radius: var(--qt-radius);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--qt-shadow-sm);
+  transition: transform 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+
+.qt-kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: #cbd5e1;
+  box-shadow: var(--qt-shadow);
+}
+
+.qt-kpi-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qt-kpi-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--qt-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.qt-kpi-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+}
+
+.qt-kpi-icon.tone-blue {
+  background: #e0f2fe;
+  color: #0284c7;
+}
+
+.qt-kpi-icon.tone-green {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.qt-kpi-icon.tone-amber {
+  background: #fef3c7;
+  color: #d97706;
+}
+
+.qt-kpi-icon.tone-purple {
+  background: #f3e8ff;
+  color: #9333ea;
+}
+
+.qt-kpi-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.qt-kpi-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.5px;
+  line-height: 1.1;
+}
+
+.qt-kpi-sub {
+  font-size: 11px;
+  color: var(--qt-text-muted);
+}
+
+/* Quota progress inside KPI */
+.qt-quota-progress {
+  width: 100%;
+  height: 5px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 4px;
+}
+
+.qt-quota-progress-bar {
+  height: 100%;
+  background: var(--qt-primary);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* ==========================================================================
+   Main Content Card & Toolbar
+   ========================================================================== */
+
+.qt-content-card {
+  background: var(--qt-card-bg);
+  border: 1px solid var(--qt-border);
+  border-radius: var(--qt-radius);
+  box-shadow: var(--qt-shadow-sm);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.qt-toolbar {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--qt-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  background: #fafbfc;
+}
+
+.qt-search-box {
+  position: relative;
+  flex: 1;
+  min-width: 260px;
+  max-width: 440px;
+  display: flex;
+  align-items: center;
+}
+
+.qt-search-icon {
+  position: absolute;
+  left: 12px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.qt-search-input {
+  width: 100%;
+  height: 40px;
+  padding: 0 14px 0 38px;
+  border: 1px solid var(--qt-border);
+  border-radius: var(--qt-radius-sm);
+  background: #ffffff;
+  color: var(--qt-text);
+  font-size: 13px;
+  outline: 0;
+  transition: all 0.16s ease;
+}
+
+.qt-search-input:focus {
+  border-color: var(--qt-primary);
+  box-shadow: 0 0 0 3px var(--qt-primary-glow);
+}
+
+.qt-filter-pills {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow-x: auto;
+}
+
+.qt-filter-btn {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--qt-border);
+  border-radius: 20px;
+  background: #ffffff;
+  color: var(--qt-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.16s ease;
+  white-space: nowrap;
+}
+
+.qt-filter-btn:hover {
+  background: #f1f5f9;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+
+.qt-filter-btn.active {
+  background: var(--qt-primary-light);
+  border-color: var(--qt-primary);
+  color: #0369a1;
+  font-weight: 700;
+}
+
+.qt-filter-count {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  font-size: 10px;
+}
+
+/* ==========================================================================
+   Templates Grid & Cards
+   ========================================================================== */
+
+.qt-templates-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 20px;
+  padding: 24px;
+}
+
+.qt-card {
+  background: #ffffff;
+  border: 1px solid var(--qt-border);
+  border-radius: var(--qt-radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: var(--qt-shadow-sm);
+}
+
+.qt-card:hover {
+  transform: translateY(-3px);
+  border-color: #93d9fa;
+  box-shadow: var(--qt-shadow);
+}
+
+.qt-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qt-format-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+
+.qt-format-pill.docx {
+  background: var(--qt-docx-bg);
+  color: var(--qt-docx);
+  border: 1px solid var(--qt-docx-border);
+}
+
+.qt-format-pill.xlsx {
+  background: var(--qt-xlsx-bg);
+  color: var(--qt-xlsx);
+  border: 1px solid var(--qt-xlsx-border);
+}
+
+.qt-format-pill.pdf {
+  background: var(--qt-pdf-bg);
+  color: var(--qt-pdf);
+  border: 1px solid var(--qt-pdf-border);
+}
+
+.qt-default-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 20px;
+  background: #fef3c7;
+  color: #b45309;
+  border: 1px solid #fde68a;
+}
+
+/* Template Visual Art Showcase */
+.qt-art-box {
+  height: 120px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.qt-card.docx .qt-art-box {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid #bfdbfe;
+  color: var(--qt-docx);
+}
+
+.qt-card.xlsx .qt-art-box {
+  background: linear-gradient(135deg, #f0fdf4 0%, #dcfce7 100%);
+  border: 1px solid #bbf7d0;
+  color: var(--qt-xlsx);
+}
+
+.qt-card.pdf .qt-art-box {
+  background: linear-gradient(135deg, #fef2f2 0%, #fee2e2 100%);
+  border: 1px solid #fecaca;
+  color: var(--qt-pdf);
+}
+
+.qt-art-icon {
+  width: 52px;
+  height: 52px;
+  opacity: 0.88;
+  transition: transform 0.2s ease;
+}
+
+.qt-card:hover .qt-art-icon {
+  transform: scale(1.08);
+}
+
+/* Card Content */
+.qt-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-card-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-card-filename {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--qt-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-card-meta {
+  font-size: 11px;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Card Action Buttons */
+.qt-card-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid #f1f5f9;
+  padding-top: 14px;
+  margin-top: auto;
+}
+
+.qt-card-btn-preview {
+  width: 100%;
+  height: 36px;
+  border-radius: var(--qt-radius-sm);
+  background: var(--qt-primary-light);
+  color: #0284c7;
+  border: 1px solid #bae6fd;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.qt-card-btn-preview:hover {
+  background: #dbeafe;
+  color: #0369a1;
+}
+
+.qt-card-sub-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qt-card-btn-download {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--qt-primary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  text-decoration: none;
+  padding: 4px;
+}
+
+.qt-card-btn-download:hover {
+  color: var(--qt-primary-dark);
+}
+
+.qt-card-btn-delete {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #dc2626;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 4px;
+}
+
+.qt-card-btn-delete:hover:not(:disabled) {
+  color: #b91c1c;
+}
+
+.qt-card-btn-delete:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Empty State */
+.qt-empty-state {
+  padding: 60px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 12px;
+}
+
+.qt-empty-icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  background: #f0f9ff;
+  color: var(--qt-primary);
+  display: grid;
+  place-items: center;
+  margin-bottom: 4px;
+}
+
+.qt-empty-state h3 {
+  font-size: 16px;
+  font-weight: 800;
+  color: #1e293b;
+  margin: 0;
+}
+
+.qt-empty-state p {
+  font-size: 13px;
+  color: var(--qt-text-muted);
+  max-width: 420px;
+  margin: 0;
+}
+
+/* ==========================================================================
+   Upload Modal Dialog
+   ========================================================================== */
+
+.qt-dialog {
+  width: min(620px, calc(100vw - 32px));
+  max-height: 90vh;
+  border: 0;
+  border-radius: 18px;
+  background: #ffffff;
+  box-shadow: var(--qt-shadow-lg);
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.qt-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.qt-dialog-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--qt-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fafbfc;
+}
+
+.qt-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.qt-dialog-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--qt-primary-light);
+  color: var(--qt-primary);
+  display: grid;
+  place-items: center;
+}
+
+.qt-dialog-title h2 {
+  font-size: 17px;
+  font-weight: 800;
+  color: #0f172a;
+  margin: 0;
+}
+
+.qt-dialog-title p {
+  font-size: 12px;
+  color: var(--qt-text-muted);
+  margin: 2px 0 0;
+}
+
+.qt-dialog-close {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  border: 0;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 18px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.qt-dialog-close:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.qt-dialog-body {
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Form Groups */
+.qt-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qt-form-group label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qt-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.qt-input-wrap svg {
+  position: absolute;
+  left: 12px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.qt-input-wrap input {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px 0 38px;
+  border: 1px solid var(--qt-border);
+  border-radius: var(--qt-radius-sm);
+  background: #ffffff;
+  color: var(--qt-text);
+  font-size: 13px;
+  outline: 0;
+  transition: all 0.16s ease;
+  box-sizing: border-box;
+}
+
+.qt-input-wrap input:focus {
+  border-color: var(--qt-primary);
+  box-shadow: 0 0 0 3px var(--qt-primary-glow);
+}
+
+/* Modern Dropzone */
+.qt-dropzone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 28px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.qt-dropzone:hover,
+.qt-dropzone.dragover {
+  border-color: var(--qt-primary);
+  background: #f0f9ff;
+}
+
+.qt-dropzone input[type="file"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+.qt-dropzone-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--qt-primary);
+  display: grid;
+  place-items: center;
+  box-shadow: var(--qt-shadow-sm);
+}
+
+.qt-dropzone-text strong {
+  font-size: 14px;
+  color: #0f172a;
+  display: block;
+  margin-bottom: 3px;
+}
+
+.qt-dropzone-text span {
+  font-size: 12px;
+  color: var(--qt-text-muted);
+}
+
+.qt-dropzone-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.qt-file-selected-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid #bae6fd;
+  border-radius: 10px;
+  background: #f0f9ff;
+}
+
+.qt-file-selected-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.qt-file-selected-info strong {
+  font-size: 13px;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qt-dialog-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--qt-border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  background: #fafbfc;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .qt-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  .qt-header-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .qt-header-actions {
+    width: 100%;
+  }
+  .qt-create-btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .qt-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .qt-templates-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ========================================================================
+   Quote templates page refresh
+   Presentation only: keep the existing upload, search, filter and card actions.
+   ======================================================================== */
+.app-shell .templates-page {
+  width: 100%;
+  max-width: 1320px;
+  gap: 16px;
+  color: #10213d;
+}
+
+.app-shell .qt-header-banner {
+  min-height: 190px;
+  padding: 24px 30px;
+  border: 1px solid #d1eaff;
+  border-radius: 17px;
+  background: linear-gradient(110deg, #edf8ff 0%, #e8f5ff 54%, #dceeff 100%);
+  box-shadow: 0 10px 30px rgba(47, 128, 190, 0.08);
+}
+
+.app-shell .qt-header-banner::before {
+  inset: 0 0 0 auto;
+  width: 54%;
+  height: auto;
+  border-radius: 0;
+  background-image: linear-gradient(90deg, #eaf6ff 0%, rgba(234, 246, 255, 0.55) 28%, rgba(234, 246, 255, 0) 72%), url('/images/quote-banner.png');
+  background-position: center, right center;
+  background-size: cover, auto 100%;
+  background-repeat: no-repeat;
+  opacity: 0.84;
+}
+
+.app-shell .qt-header-copy {
+  max-width: min(700px, 62%);
+  gap: 8px;
+  z-index: 1;
+}
+
+.app-shell .qt-header-badge {
+  display: none;
+  padding: 6px 11px;
+  border-color: #c6e6ff;
+  border-radius: 999px;
+  background: rgba(202, 234, 255, 0.68);
+  color: #1769aa;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.35px;
+}
+
+.app-shell .qt-header-copy h1 {
+  margin-top: 1px;
+  color: #10213d;
+  font-size: clamp(27px, 2.15vw, 34px);
+  line-height: 1.15;
+  letter-spacing: -0.7px;
+}
+
+.app-shell .qt-header-copy p {
+  max-width: 690px;
+  color: #4e6582;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.app-shell .qt-header-actions {
+  z-index: 2;
+}
+
+.app-shell .qt-create-btn {
+  height: 46px;
+  padding: 0 19px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #079cf4 0%, #087de7 100%);
+  box-shadow: 0 8px 20px rgba(0, 143, 230, 0.2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.app-shell .qt-create-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #20aaff 0%, #087de7 100%);
+  box-shadow: 0 10px 22px rgba(0, 143, 230, 0.27);
+}
+
+.app-shell .templates-page > .quota-blocked-notice {
+  min-height: 44px;
+  box-sizing: border-box;
+  gap: 10px;
+  padding: 9px 15px;
+  border: 1px solid #ffdfa0;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #fff8e9, #fffaf2);
+  color: #3b4659;
+  font-size: 12px;
+}
+
+.app-shell .templates-page > .quota-blocked-notice::before {
+  content: "i";
+  display: inline-grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: #f5a300;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  font-family: Georgia, serif;
+}
+
+.app-shell .qt-kpi-grid {
+  gap: 14px;
+}
+
+.app-shell .qt-kpi-card {
+  position: relative;
+  min-height: 132px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  align-content: start;
+  align-items: start;
+  column-gap: 16px;
+  row-gap: 8px;
+  overflow: hidden;
+  padding: 18px 19px;
+  border-color: #dfebf6;
+  border-radius: 16px;
+  box-shadow: 0 5px 16px rgba(34, 75, 112, 0.045);
+}
+
+.app-shell .qt-kpi-card::after {
+  position: absolute;
+  right: -18px;
+  bottom: -31px;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  background: rgba(59, 165, 245, 0.055);
+  content: "";
+  pointer-events: none;
+}
+
+.app-shell .qt-kpi-card:nth-child(2)::after { background: rgba(34, 197, 94, 0.065); }
+.app-shell .qt-kpi-card:nth-child(3)::after { background: rgba(245, 158, 11, 0.075); }
+.app-shell .qt-kpi-card:nth-child(4)::after { background: rgba(147, 51, 234, 0.065); }
+
+.app-shell .qt-kpi-card:hover {
+  transform: translateY(-2px);
+  border-color: #c8e5fa;
+  box-shadow: 0 10px 22px rgba(34, 75, 112, 0.08);
+}
+
+.app-shell .qt-kpi-top {
+  display: contents;
+}
+
+.app-shell .qt-kpi-label {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  color: #425572;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-shell .qt-kpi-icon {
+  z-index: 1;
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  font-size: 18px;
+}
+
+.app-shell .qt-kpi-icon.tone-blue { background: #dff2ff; color: #078ff0; }
+.app-shell .qt-kpi-icon.tone-green { background: #dcf8e9; color: #16a765; }
+.app-shell .qt-kpi-icon.tone-amber { background: #fff0c8; color: #e99a00; }
+.app-shell .qt-kpi-icon.tone-purple { background: #f0e4ff; color: #963fe7; }
+
+.app-shell .qt-kpi-body {
+  z-index: 1;
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  gap: 4px;
+}
+
+.app-shell .qt-kpi-value {
+  color: #13233f !important;
+  font-size: 25px !important;
+  line-height: 1.1;
+  letter-spacing: -0.55px;
+}
+
+.app-shell .qt-kpi-card:nth-child(3) .qt-kpi-value {
+  font-size: 20px !important;
+}
+
+.app-shell .qt-kpi-sub {
+  color: #62748f;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.app-shell .qt-kpi-card:nth-child(4) .qt-kpi-body > div {
+  flex-wrap: wrap;
+  gap: 5px !important;
+  margin-top: 0 !important;
+}
+
+.app-shell .qt-kpi-card .qt-format-pill {
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 10px;
+  letter-spacing: 0;
+}
+
+.app-shell .qt-quota-progress {
+  height: 7px;
+  margin-top: 5px;
+  background: #e7eef6;
+}
+
+.app-shell .qt-quota-progress-bar {
+  background: linear-gradient(90deg, #12a8f5, #087de7);
+}
+
+.app-shell .qt-content-card {
+  border-color: #e0ebf5;
+  border-radius: 17px;
+  box-shadow: 0 7px 22px rgba(34, 75, 112, 0.045);
+}
+
+.app-shell .qt-toolbar {
+  min-height: 76px;
+  box-sizing: border-box;
+  padding: 14px 18px;
+  border-bottom-color: #e7eef6;
+  background: linear-gradient(105deg, #fbfdff 0%, #f7fbff 100%);
+}
+
+.app-shell .qt-search-box {
+  max-width: 470px;
+}
+
+.app-shell .qt-search-input {
+  height: 44px;
+  border-color: #d9e5f1;
+  border-radius: 11px;
+  font-size: 13px;
+}
+
+.app-shell .qt-search-input::placeholder {
+  color: #8798ae;
+  opacity: 1;
+}
+
+.app-shell .qt-filter-pills {
+  gap: 7px;
+  scrollbar-width: thin;
+}
+
+.app-shell .qt-filter-btn {
+  height: 38px;
+  padding: 0 13px;
+  border-color: #dfe8f1;
+  color: #35465f;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.app-shell .qt-filter-btn:hover {
+  border-color: #b8dcf4;
+  background: #f3faff;
+}
+
+.app-shell .qt-filter-btn.active {
+  border-color: #18a3f5;
+  background: linear-gradient(180deg, #eaf7ff, #dff2ff);
+  color: #087bd0;
+}
+
+.app-shell .qt-filter-count {
+  min-width: 18px;
+  box-sizing: border-box;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(31, 50, 75, 0.07);
+  color: #4d5f77;
+  font-size: 10px;
+  text-align: center;
+}
+
+.app-shell .qt-templates-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 390px), 430px));
+  gap: 18px;
+  padding: 18px 20px 22px;
+}
+
+.app-shell .qt-card {
+  gap: 12px;
+  padding: 16px;
+  border-color: #e2ebf5;
+  border-radius: 16px;
+  box-shadow: 0 7px 20px rgba(37, 79, 117, 0.055);
+}
+
+.app-shell .qt-card:hover {
+  border-color: #b9e2fb;
+  box-shadow: 0 12px 25px rgba(37, 105, 158, 0.11);
+}
+
+.app-shell .qt-card-top {
+  min-height: 32px;
+}
+
+.app-shell .qt-format-pill {
+  padding: 5px 10px;
+  border-radius: 9px;
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.app-shell .qt-default-badge {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+
+.app-shell .qt-art-box {
+  height: 100px;
+  border-radius: 12px;
+}
+
+.app-shell .qt-card.xlsx .qt-art-box {
+  background: radial-gradient(ellipse at 50% 100%, rgba(45, 192, 109, 0.16), transparent 60%), linear-gradient(135deg, #effdf5 0%, #ddf9e8 100%);
+}
+
+.app-shell .qt-card.docx .qt-art-box {
+  background: radial-gradient(ellipse at 50% 100%, rgba(25, 145, 237, 0.14), transparent 60%), linear-gradient(135deg, #f0f8ff 0%, #e0f0ff 100%);
+}
+
+.app-shell .qt-card.pdf .qt-art-box {
+  background: radial-gradient(ellipse at 50% 100%, rgba(239, 68, 68, 0.12), transparent 60%), linear-gradient(135deg, #fff7f7 0%, #ffebeb 100%);
+}
+
+.app-shell .qt-art-icon {
+  width: 56px;
+  height: 56px;
+  filter: drop-shadow(0 7px 5px rgba(20, 74, 104, 0.12));
+}
+
+.app-shell .qt-card-info {
+  gap: 5px;
+}
+
+.app-shell .qt-card-title {
+  color: #152541;
+  font-size: 14px;
+}
+
+.app-shell .qt-card-filename,
+.app-shell .qt-card-meta {
+  color: #60718b;
+  font-size: 11px;
+}
+
+.app-shell .qt-card-actions {
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+  padding-top: 12px;
+  border-top-color: #edf2f7;
+}
+
+.app-shell .qt-card-btn-preview {
+  height: 40px;
+  border-color: #c9e8ff;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #e8f6ff, #def1ff);
+  font-size: 11px;
+}
+
+.app-shell .qt-card-btn-preview:hover {
+  background: #d5edff;
+}
+
+.app-shell .qt-card-sub-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.app-shell .qt-card-btn-download,
+.app-shell .qt-card-btn-delete {
+  min-height: 40px;
+  box-sizing: border-box;
+  justify-content: center;
+  padding: 0 9px;
+  border: 1px solid #e2eaf2;
+  border-radius: 10px;
+  background: #fff;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.app-shell .qt-card-btn-download {
+  color: #29405e;
+}
+
+.app-shell .qt-card-btn-download:hover {
+  border-color: #b9dcf5;
+  background: #f4faff;
+  color: #087fce;
+}
+
+.app-shell .qt-card-btn-delete {
+  color: #c63e45;
+}
+
+.app-shell .qt-card-btn-delete:hover:not(:disabled) {
+  border-color: #ffd4d4;
+  background: #fff7f7;
+  color: #b42318;
+}
+
+.app-shell .qt-empty-state {
+  min-height: 340px;
+  box-sizing: border-box;
+  padding: 48px 24px;
+  background: radial-gradient(ellipse at 50% 46%, rgba(228, 245, 255, 0.4), transparent 44%);
+}
+
+.app-shell .qt-empty-icon {
+  width: 128px;
+  height: 128px;
+  flex: 0 0 128px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.app-shell .qt-empty-icon img {
+  width: 128px;
+  height: 128px;
+  object-fit: contain;
+}
+
+.app-shell .qt-empty-state h3 {
+  color: #203554;
+  font-size: 17px;
+}
+
+.app-shell .qt-empty-state p {
+  max-width: 600px;
+  color: #687b96;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+@media (max-width: 1100px) {
+  .app-shell .qt-toolbar {
+    align-items: stretch;
+  }
+
+  .app-shell .qt-search-box {
+    max-width: none;
+  }
+
+  .app-shell .qt-filter-pills {
+    padding-bottom: 2px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell .qt-header-banner {
+    min-height: 0;
+    padding: 22px 18px;
+  }
+
+  .app-shell .qt-header-banner::before {
+    width: 100%;
+    opacity: 0.28;
+  }
+
+  .app-shell .qt-header-copy {
+    max-width: 100%;
+  }
+
+  .app-shell .qt-empty-icon {
+    width: 116px;
+    height: 116px;
+    flex-basis: 116px;
+  }
+
+  .app-shell .qt-empty-icon img {
+    width: 116px;
+    height: 116px;
+  }
+
+  .app-shell .qt-header-copy h1 {
+    font-size: 26px;
+  }
+
+  .app-shell .qt-kpi-card {
+    min-height: 120px;
+  }
+
+  .app-shell .qt-toolbar {
+    padding: 12px;
+  }
+
+  .app-shell .qt-templates-grid {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px;
+  }
+
+  .app-shell .qt-card-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-shell .qt-card-sub-actions {
+    justify-content: space-between;
+  }
+}
+
+#root .app-shell .qt-create-btn {
+  border-radius: 999px !important;
+}
+
+#root .app-shell .templates-page .qt-create-btn,
+#root .app-shell .templates-page .qt-create-btn * {
+  color: #fff !important;
+}

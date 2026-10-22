@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { api, apiUploadWithProgress, formatDate, formatMoney } from "./api";
 import FilePreview, { type PreviewFile } from "./FilePreview";
+import ThemedSelect from "./ThemedSelect";
+import VietnameseDatePicker from "./VietnameseDatePicker";
 import type { CatalogItem } from "./types";
 import type { Notify } from "./Feedback";
 import { TaskProgress, type TaskProgressState } from "./Feedback";
@@ -270,11 +272,13 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
               ? { label: `Đang đọc bảng giá ${fileIndex + 1} / ${selectedFiles.length}`, detail: selected.name }
               : { label: `Đang tải file ${fileIndex + 1} / ${selectedFiles.length}`, progress, detail: selected.name }),
           );
-          previews.push({ file: selected, sheets: result.preview.sheets.map((sheet) => {
-            const header = sheet.headerRows.find((row) => row.row === sheet.headerRow);
-            const roles = header?.roles ?? [];
-            return { ...sheet, roles, included: roles.includes("name") && roles.includes("price") };
-          }) });
+          previews.push({
+            file: selected, sheets: result.preview.sheets.map((sheet) => {
+              const header = sheet.headerRows.find((row) => row.row === sheet.headerRow);
+              const roles = header?.roles ?? [];
+              return { ...sheet, roles, included: roles.includes("name") && roles.includes("price") };
+            })
+          });
         } catch (cause) { errors.push(`${selected.name}: ${cause instanceof Error ? cause.message : "Không đọc được file để xem trước."}`); }
       }
       setPendingImports(previews);
@@ -313,9 +317,9 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
         });
         try {
           const headers = {
-              "Content-Type": "application/octet-stream",
-              "X-File-Name": encodeURIComponent(pending.file.name),
-              "X-Catalog-Import-Mapping": encodeURIComponent(JSON.stringify(mappings)),
+            "Content-Type": "application/octet-stream",
+            "X-File-Name": encodeURIComponent(pending.file.name),
+            "X-Catalog-Import-Mapping": encodeURIComponent(JSON.stringify(mappings)),
           };
           setTaskProgress({ label: `Đang nhập bảng giá ${importIndex + 1} / ${pendingImports.length}`, detail: pending.file.name });
           const result = await apiUploadWithProgress<{ file: StoredPriceList; imported: { inserted: number; updated: number; skippedRows: number } }>(
@@ -356,7 +360,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
 
   return <div className={`page-stack price-list-page ${!loading && products.length === 0 ? "is-empty" : ""}`}>
     <section className="page-heading-row price-list-heading">
-      <div><div className="price-list-title-row"><h1>Bảng giá</h1>{!loading && <span className="price-list-total-badge">{products.length} sản phẩm</span>}</div><p className="muted">Quản lý sản phẩm và đơn giá từ các tài liệu của doanh nghiệp.</p></div>
+      <div><div className="price-list-title-row"><h1>Bảng giá</h1>{!loading && <span className="price-list-total-badge">{products.length} sản phẩm</span>}</div></div>
       {(loading || products.length > 0) && <button className="button button-primary price-list-add-button" disabled={busy || loading || pendingImports.length > 0} onClick={() => input.current?.click()}>{busy ? "Đang đọc tài liệu…" : "Thêm bảng giá"}</button>}
       <input ref={input} type="file" hidden multiple disabled={busy || pendingImports.length > 0} accept=".csv,.xlsx,.xls" onChange={(event) => void upload(event)} />
     </section>
@@ -428,19 +432,19 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
               <SortIcon size={14} />
               <span className="sr-only">Sắp xếp:</span>
             </label>
-            <select
+            <ThemedSelect
               id="price-list-sort-select"
-              className="price-list-sort-select"
+              label="Sắp xếp sản phẩm"
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as SortOption)}
-              aria-label="Sắp xếp sản phẩm"
-            >
-              <option value="default">Sắp xếp: Mặc định</option>
-              <option value="name_asc">Tên: A → Z</option>
-              <option value="name_desc">Tên: Z → A</option>
-              <option value="price_asc">Đơn giá: Thấp → Cao</option>
-              <option value="price_desc">Đơn giá: Cao → Thấp</option>
-            </select>
+              onChange={(next) => setSortBy(next as SortOption)}
+              options={[
+                { value: "default", label: "Sắp xếp: Mặc định" },
+                { value: "name_asc", label: "Tên: A → Z" },
+                { value: "name_desc", label: "Tên: Z → A" },
+                { value: "price_asc", label: "Đơn giá: Thấp → Cao" },
+                { value: "price_desc", label: "Đơn giá: Cao → Thấp" },
+              ]}
+            />
           </div>
         </div>
 
@@ -671,8 +675,8 @@ function EditCatalogProductDialog({ item, onClose, onSaved, onToast }: { item: C
         <label>Đơn vị<input required maxLength={50} value={unit} disabled={busy} onChange={(event) => setUnit(event.target.value)} /></label>
         <label>Đơn giá<input required type="number" min="0" max="1000000000000" step="any" value={price} disabled={busy} onChange={(event) => setPrice(event.target.value)} /></label>
         <label>Tiền tệ<input required maxLength={3} minLength={3} value={currency} disabled={busy} onChange={(event) => setCurrency(event.target.value.toUpperCase())} /></label>
-        <label>Hiệu lực từ<input type="date" value={effectiveFrom} disabled={busy} onChange={(event) => setEffectiveFrom(event.target.value)} /></label>
-        <label>Hiệu lực đến<input type="date" value={effectiveTo} disabled={busy} onChange={(event) => setEffectiveTo(event.target.value)} /></label>
+        <div className="price-list-date-field"><label htmlFor="product-effective-from">Hiệu lực từ</label><VietnameseDatePicker id="product-effective-from" label="Hiệu lực từ" value={effectiveFrom} disabled={busy} onChange={setEffectiveFrom} /></div>
+        <div className="price-list-date-field"><label htmlFor="product-effective-to">Hiệu lực đến</label><VietnameseDatePicker id="product-effective-to" label="Hiệu lực đến" value={effectiveTo} disabled={busy} onChange={setEffectiveTo} /></div>
       </div>
       <section className="price-list-edit-attributes">
         <div className="price-list-custom-heading"><strong>Thuộc tính riêng</strong><button type="button" className="text-button" disabled={busy || attributes.length >= 50} onClick={() => setAttributes((current) => [...current, { key: "", value: "" }])}>+ Thêm trường</button></div>

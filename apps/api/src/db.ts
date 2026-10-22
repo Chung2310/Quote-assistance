@@ -33,12 +33,12 @@ async function ensureCompany(db: Db, name: string): Promise<Company> {
 
 async function ensureSubscriptionPlans(db: Db) {
   const plans: Omit<SubscriptionPlan, "_id" | "createdAt" | "updatedAt">[] = [
-    { code: "free", name: "Dùng thử", description: "Khám phá cách iGen Trợ lí báo giá giúp bạn làm báo giá nhanh hơn.", monthlyPrice: 0, quoteLimit: 20, templateLimit: 1, active: true, featured: false, displayOrder: 0 },
-    { code: "starter", name: "Khởi đầu", description: "Dành cho doanh nghiệp có nhu cầu báo giá thường xuyên.", monthlyPrice: 199_000, quoteLimit: 200, templateLimit: 3, active: true, featured: false, displayOrder: 1 },
-    { code: "pro", name: "Pro", description: "Đủ sức cho quy trình báo giá mỗi ngày.", monthlyPrice: 499_000, quoteLimit: 1_000, templateLimit: 10, active: true, featured: true, displayOrder: 2 },
-    { code: "business", name: "Business", description: "Hạn mức rộng rãi cho khối lượng báo giá lớn.", monthlyPrice: 1_490_000, quoteLimit: 3_000, templateLimit: 30, active: true, featured: false, displayOrder: 3 },
-    { code: "enterprise", name: "Enterprise", description: "Gói tùy chỉnh theo nhu cầu của doanh nghiệp.", monthlyPrice: null, quoteLimit: null, templateLimit: null, active: true, featured: false, displayOrder: 4 },
-    { code: "contact", name: "Liên hệ", description: "Trao đổi với chúng tôi để tìm gói phù hợp với doanh nghiệp của bạn.", monthlyPrice: null, quoteLimit: null, templateLimit: null, active: true, featured: false, displayOrder: 5 },
+    { code: "free", name: "Dùng thử", description: "Khám phá cách iGen Trợ lí báo giá giúp bạn làm báo giá nhanh hơn.", monthlyPrice: 0, quoteLimit: 20, aiLimit: 20, templateLimit: 1, active: true, featured: false, displayOrder: 0 },
+    { code: "starter", name: "Khởi đầu", description: "Dành cho doanh nghiệp có nhu cầu báo giá thường xuyên.", monthlyPrice: 199_000, quoteLimit: 200, aiLimit: 200, templateLimit: 3, active: true, featured: false, displayOrder: 1 },
+    { code: "pro", name: "Pro", description: "Đủ sức cho quy trình báo giá mỗi ngày.", monthlyPrice: 499_000, quoteLimit: 1_000, aiLimit: 1_000, templateLimit: 10, active: true, featured: true, displayOrder: 2 },
+    { code: "business", name: "Business", description: "Hạn mức rộng rãi cho khối lượng báo giá lớn.", monthlyPrice: 1_490_000, quoteLimit: 3_000, aiLimit: 3_000, templateLimit: 30, active: true, featured: false, displayOrder: 3 },
+    { code: "enterprise", name: "Enterprise", description: "Gói tùy chỉnh theo nhu cầu của doanh nghiệp.", monthlyPrice: null, quoteLimit: null, aiLimit: null, templateLimit: null, active: true, featured: false, displayOrder: 4 },
+    { code: "contact", name: "Liên hệ", description: "Trao đổi với chúng tôi để tìm gói phù hợp với doanh nghiệp của bạn.", monthlyPrice: null, quoteLimit: null, aiLimit: null, templateLimit: null, active: true, featured: false, displayOrder: 5 },
   ];
   const collection = db.collection<SubscriptionPlan>("subscriptionPlans");
   const now = new Date();
@@ -261,6 +261,7 @@ export async function connectDatabase() {
       await Promise.all([
         db.collection("catalogItems").createIndex({ companyId: 1, sku: 1 }, { unique: true }),
         db.collection("catalogItems").createIndex({ companyId: 1, active: 1, name: 1 }),
+        db.collection("budgetPlans").createIndex({ companyId: 1, createdAt: -1 }),
         db.collection("catalogImportMappings").createIndex({ companyId: 1 }, { unique: true }),
         db.collection("quoteRequests").createIndex({ companyId: 1, createdAt: -1 }),
         db.collection("quoteRequests").createIndex({ companyId: 1, idempotencyKey: 1 }, { unique: true, partialFilterExpression: { idempotencyKey: { $type: "string" } } }),

@@ -45,6 +45,16 @@ const pageMetadata: Record<string, { title: string; description: string; robots:
     description: "Quản lý báo giá của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
+  "/bao-gia-khach": {
+    title: "Báo giá khách hàng — iGen Trợ lí báo giá",
+    description: "Tạo và quản lý báo giá gửi khách hàng.",
+    robots: "noindex,nofollow",
+  },
+  "/tu-van-ngan-sach": {
+    title: "Tư vấn ngân sách — iGen Trợ lí báo giá",
+    description: "Xem các phương án sản phẩm theo ngân sách và lịch sử đã lưu.",
+    robots: "noindex,nofollow",
+  },
   "/mau-bao-gia": {
     title: "Mẫu báo giá — iGen Trợ lí báo giá",
     description: "Quản lý mẫu báo giá của doanh nghiệp.",
@@ -111,7 +121,7 @@ function redirectOldOrTrailingPath(request: import("express").Request, response:
 
 function renderPageMetadata(html: string, request: import("express").Request) {
   const pathname = pagePath(request);
-  const quoteDetailPage = /^\/bao-gia\/[a-f0-9]{24}$/i.test(pathname);
+  const quoteDetailPage = /^\/(bao-gia|bao-gia-khach)\/[a-f0-9]{24}$/i.test(pathname);
   const page = pageMetadata[pathname] ?? (quoteDetailPage ? {
     title: "Chi tiết báo giá — iGen Trợ lí báo giá",
     description: "Xem và chỉnh sửa báo giá của doanh nghiệp.",
