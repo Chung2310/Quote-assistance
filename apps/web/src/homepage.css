@@ -5215,3 +5215,14 @@ h3 {
     padding: 18px;
   }
 }
+
+#root .app-shell input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+#root .app-shell input[type="number"]::-webkit-inner-spin-button,
+#root .app-shell input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

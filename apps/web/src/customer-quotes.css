@@ -1452,6 +1452,33 @@
 #root .customer-quotes-page .cq-customer-name,
 #root .customer-quotes-page .cq-amount-cell { color: #172640 !important; }
 
+#root .customer-quotes-page .cq-table {
+  table-layout: fixed;
+  align-self: flex-start;
+  flex: 0 0 auto;
+}
+
+#root .customer-quotes-page .cq-table th:nth-child(1),
+#root .customer-quotes-page .cq-table td:nth-child(1) { width: 21%; }
+#root .customer-quotes-page .cq-table th:nth-child(2),
+#root .customer-quotes-page .cq-table td:nth-child(2) { width: 17%; }
+#root .customer-quotes-page .cq-table th:nth-child(3),
+#root .customer-quotes-page .cq-table td:nth-child(3) { width: 16%; }
+#root .customer-quotes-page .cq-table th:nth-child(4),
+#root .customer-quotes-page .cq-table td:nth-child(4) { width: 13%; }
+#root .customer-quotes-page .cq-table th:nth-child(5),
+#root .customer-quotes-page .cq-table td:nth-child(5) { width: 17%; }
+#root .customer-quotes-page .cq-table th:nth-child(6),
+#root .customer-quotes-page .cq-table td:nth-child(6) { width: 16%; }
+
+#root .customer-quotes-page .cq-customer-name,
+#root .customer-quotes-page .cq-customer-contact {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 1120px) {
   #root .customer-quotes-page .cq-toolbar { flex-wrap: wrap; }
   #root .customer-quotes-page .cq-search-box { flex-basis: 100%; max-width: none; }
@@ -1462,6 +1489,7 @@
   #root .customer-quotes-page .cq-header-banner { min-height: 116px; padding: 20px 24px; }
   #root .customer-quotes-page .cq-header-copy h1 { font-size: 25px; }
   #root .customer-quotes-page .cq-kpi-card { height: 150px; min-height: 150px; }
+  #root .customer-quotes-page .cq-table { min-width: 1050px; }
 }
 
 @media (max-width: 640px) {
