@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, formatDate, formatMoney, responseBlobWithProgress } from "./api";
 import { TaskProgress, type ConfirmOptions, type Notify, type TaskProgressState } from "./Feedback";
 import type { Quote, QuoteStatus } from "./types";
+import VietnameseDatePicker from "./VietnameseDatePicker";
 import "./customer-quote-detail.css";
 
 const statusText: Record<QuoteStatus, string> = {
@@ -806,7 +807,7 @@ export default function CustomerQuoteDetail({
               </div>
 
               <div className="cqd-field">
-                <label>Ngày hoàn thành dự kiến</label>
+                <label htmlFor="customer-quote-completion-date">Ngày hoàn thành dự kiến</label>
                 <div className="cqd-input-wrap">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
@@ -814,12 +815,7 @@ export default function CustomerQuoteDetail({
                     <line x1="8" y1="2" x2="8" y2="6" />
                     <line x1="3" y1="10" x2="21" y2="10" />
                   </svg>
-                  <input
-                    type="date"
-                    value={draft.completionDate}
-                    disabled={!editable || busy}
-                    onChange={(event) => setField("completionDate", event.target.value)}
-                  />
+                  <VietnameseDatePicker id="customer-quote-completion-date" label="Ngày hoàn thành dự kiến" value={draft.completionDate} disabled={!editable || busy} onChange={(next) => setField("completionDate", next)} />
                 </div>
               </div>
             </div>

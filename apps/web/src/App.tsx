@@ -5,6 +5,7 @@ import AdminApp from "./AdminApp";
 import LandingPage from "./LandingPage";
 import PriceListPanel from "./PriceListPanel";
 import ThemedSelect from "./ThemedSelect";
+import VietnameseDatePicker from "./VietnameseDatePicker";
 import CustomerQuotes from "./CustomerQuotes";
 import CustomerQuoteDetail from "./CustomerProductListDetail";
 import BudgetPlanner from "./BudgetPlanner";
@@ -2001,9 +2002,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
               <label>Hiệu lực (ngày)
                 <input type="number" min="1" max="3650" step="1" value={validityDaysText} disabled={!editable || busy} placeholder="Ví dụ: 30" onChange={(event) => setValidityDaysText(event.target.value)} />
               </label>
-              <label>Hạn hoàn thành
-                <input type="date" value={completionDateText} disabled={!editable || busy} onChange={(event) => setCompletionDateText(event.target.value)} />
-              </label>
+              <div className="quote-date-field"><label htmlFor="quote-completion-date">Hạn hoàn thành</label>
+                <VietnameseDatePicker id="quote-completion-date" label="Hạn hoàn thành" value={completionDateText} disabled={!editable || busy} onChange={setCompletionDateText} />
+              </div>
             </div>
           </section>
 
