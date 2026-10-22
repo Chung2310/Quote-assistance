@@ -2,24 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { api, formatDate, formatMoney } from "./api";
 import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
 import type { ConfirmOptions, Notify } from "./Feedback";
-import type { Quote, QuoteStatus } from "./types";
+import type { Quote } from "./types";
 import "./customer-quote-detail.css";
-
-const statusText: Record<QuoteStatus, string> = {
-  draft: "Bản nháp",
-  needs_info: "Cần bổ sung",
-  pending_review: "Chờ duyệt",
-  approved: "Đã duyệt",
-  rejected: "Cần chỉnh sửa",
-};
-
-const statusStyle: Record<QuoteStatus, string> = {
-  draft: "neutral",
-  needs_info: "amber",
-  pending_review: "blue",
-  approved: "green",
-  rejected: "rose",
-};
 
 export default function CustomerProductListDetail({
   id,
@@ -42,8 +26,6 @@ export default function CustomerProductListDetail({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [rejecting, setRejecting] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState("");
 
   const reload = async () => {
     const result = await api<{ quote: Quote }>("/api/quotes/" + id);
@@ -113,14 +95,6 @@ export default function CustomerProductListDetail({
     onToast(`Đã sao chép ${label}.`, "success");
   };
 
-  const submit = () =>
-    void run(async () => {
-      await api("/api/quotes/" + id + "/submit-review", { method: "POST" });
-      await reload();
-      onChanged();
-      onToast("Đã gửi danh sách sản phẩm chờ duyệt.", "success");
-    });
-
   const approve = () =>
     void run(async () => {
       if (
@@ -142,20 +116,6 @@ export default function CustomerProductListDetail({
       await reload();
       onChanged();
       onToast("Đã duyệt danh sách sản phẩm thành công.", "success");
-    });
-
-  const reject = () =>
-    void run(async () => {
-      if (!rejectionReason.trim()) throw new Error("Hãy nhập lý do cần sửa.");
-      await api("/api/quotes/" + id + "/reject", {
-        method: "POST",
-        body: JSON.stringify({ reason: rejectionReason.trim() }),
-      });
-      setRejectionReason("");
-      setRejecting(false);
-      await reload();
-      onChanged();
-      onToast("Đã chuyển danh sách về trạng thái cần sửa.", "success");
     });
 
   const download = () =>
@@ -207,6 +167,7 @@ export default function CustomerProductListDetail({
   }
 
   const totalItemsCount = quote.lines.length + (quote.missingProducts?.length ?? 0);
+  const isApproved = quote.status === "approved";
 
   return (
     <div className="customer-detail-page">
@@ -222,10 +183,6 @@ export default function CustomerProductListDetail({
 
         <div className="cqd-top-meta">
           <span>Ngày tạo: {formatDate(quote.createdAt)}</span>
-          <span className={`status-pill ${statusStyle[quote.status]}`}>
-            <span className="status-dot" />
-            {statusText[quote.status]}
-          </span>
         </div>
       </div>
 
@@ -241,9 +198,9 @@ export default function CustomerProductListDetail({
           <div className="cqd-header-info">
             <div className="cqd-eyebrow-row">
               <span className="cqd-eyebrow">Báo giá sản phẩm khách hàng</span>
-              <span className={`status-pill ${statusStyle[quote.status]}`}>
+              <span className={`status-pill ${isApproved ? "green" : "neutral"}`}>
                 <span className="status-dot" />
-                {statusText[quote.status]}
+                {isApproved ? "Đã duyệt" : "Nháp"}
               </span>
             </div>
 
@@ -301,44 +258,18 @@ export default function CustomerProductListDetail({
 
           {/* Action Toolbar */}
           <div className="cqd-actions-toolbar">
-            {quote.status === "draft" && (
+            {!isApproved && (
               <button
                 type="button"
                 className="button button-primary"
                 disabled={busy}
-                onClick={submit}
+                onClick={approve}
               >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <line x1="22" y1="2" x2="11" y2="13" />
-                  <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polyline points="20 6 9 17 4 12" />
                 </svg>
-                <span>Gửi duyệt</span>
+                <span>Duyệt</span>
               </button>
-            )}
-
-            {quote.status === "pending_review" && (
-              <>
-                <button
-                  type="button"
-                  className="button button-soft"
-                  disabled={busy}
-                  onClick={() => setRejecting((prev) => !prev)}
-                >
-                  <span>Trả lại</span>
-                </button>
-                <button
-                  type="button"
-                  className="button button-primary"
-                  disabled={busy}
-                  onClick={approve}
-                  style={{ background: "#16a34a", borderColor: "#16a34a" }}
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <polyline points="20 6 9 17 4 12" />
-                  </svg>
-                  <span>Duyệt danh sách</span>
-                </button>
-              </>
             )}
 
             {/* Template Selector */}
@@ -390,116 +321,6 @@ export default function CustomerProductListDetail({
           </div>
         </div>
 
-        {/* Rejection Notice if rejected */}
-        {quote.status === "rejected" && quote.rejectionReason && (
-          <div className="cqd-rejection-banner">
-            <strong>Yêu cầu chỉnh sửa:</strong>
-            <span>{quote.rejectionReason}</span>
-          </div>
-        )}
-
-        {/* Rejection Input Box if toggled */}
-        {rejecting && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: 14 }}>
-            <label htmlFor="customer-product-rejection" style={{ fontSize: 12, fontWeight: 700, color: "#991b1b" }}>
-              Nhập lý do cần sửa đổi danh sách:
-            </label>
-            <textarea
-              id="customer-product-rejection"
-              rows={2}
-              maxLength={1000}
-              value={rejectionReason}
-              onChange={(e) => setRejectionReason(e.target.value)}
-              placeholder="Ví dụ: Cần bổ sung quy cách vật tư hoặc điều chỉnh lại danh mục sản phẩm..."
-              style={{ width: "100%", padding: "8px 12px", border: "1px solid #fca5a5", borderRadius: 6, fontSize: 13, background: "#fff", boxSizing: "border-box" }}
-            />
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-              <button type="button" className="button button-soft" onClick={() => setRejecting(false)}>
-                Hủy
-              </button>
-              <button
-                type="button"
-                className="button button-primary"
-                style={{ background: "#dc2626", borderColor: "#dc2626" }}
-                disabled={busy || !rejectionReason.trim()}
-                onClick={reject}
-              >
-                Xác nhận trả lại
-              </button>
-            </div>
-          </div>
-        )}
-      </section>
-
-      {/* Stepper Pipeline */}
-      <section className="cqd-stepper-card">
-        <div className="cqd-stepper">
-          <div className={`cqd-step-item ${quote.status === "draft" ? "active" : "done"}`}>
-            <span className="cqd-step-icon">
-              {quote.status === "draft" ? "1" : "✓"}
-            </span>
-            <div className="cqd-step-copy">
-              <span className="cqd-step-title">1. Lập danh sách</span>
-              <span className="cqd-step-sub">Khởi tạo sản phẩm khách</span>
-            </div>
-          </div>
-
-          <div
-            className={`cqd-step-item ${
-              quote.status === "needs_info"
-                ? "active"
-                : ["pending_review", "approved"].includes(quote.status)
-                ? "done"
-                : ""
-            }`}
-          >
-            <span className="cqd-step-icon">
-              {["pending_review", "approved"].includes(quote.status) ? "✓" : "2"}
-            </span>
-            <div className="cqd-step-copy">
-              <span className="cqd-step-title">2. Kiểm tra danh mục</span>
-              <span className="cqd-step-sub">Đối chiếu đơn giá niêm yết</span>
-            </div>
-          </div>
-
-          <div
-            className={`cqd-step-item ${
-              quote.status === "rejected"
-                ? "alert"
-                : quote.status === "pending_review"
-                ? "active"
-                : quote.status === "approved"
-                ? "done"
-                : ""
-            }`}
-          >
-            <span className="cqd-step-icon">
-              {quote.status === "approved" ? "✓" : quote.status === "rejected" ? "!" : "3"}
-            </span>
-            <div className="cqd-step-copy">
-              <span className="cqd-step-title">3. Phê duyệt báo giá</span>
-              <span className="cqd-step-sub">
-                {quote.status === "rejected"
-                  ? "Cần chỉnh sửa"
-                  : quote.status === "pending_review"
-                  ? "Đang chờ duyệt"
-                  : quote.status === "approved"
-                  ? "Đã duyệt thành công"
-                  : "Chờ gửi duyệt"}
-              </span>
-            </div>
-          </div>
-
-          <div className={`cqd-step-item ${quote.status === "approved" ? "done" : ""}`}>
-            <span className="cqd-step-icon">
-              {quote.status === "approved" ? "✓" : "4"}
-            </span>
-            <div className="cqd-step-copy">
-              <span className="cqd-step-title">4. Xuất gửi khách</span>
-              <span className="cqd-step-sub">Tải file Excel báo giá</span>
-            </div>
-          </div>
-        </div>
       </section>
 
       {/* KPI Cards Strip */}

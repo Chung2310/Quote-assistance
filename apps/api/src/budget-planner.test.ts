@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ObjectId } from "mongodb";
-import { buildBudgetPlan, recomputeBudgetPlanTotals, validMissingProducts } from "./budget-planner.js";
+import { buildBudgetPlan, clarificationInput, mergeBudgetPlanAfterClarification, recalculationInput, recomputeBudgetPlanTotals, validMissingProducts } from "./budget-planner.js";
 import type { CatalogItem } from "./types.js";
 
 const tile: CatalogItem = {
@@ -81,6 +81,44 @@ test("shows a priced selected-items total while leaving the budget comparison op
   assert.equal(result.total, 20_000_000);
   assert.equal(result.difference, null);
   assert.equal(recomputeBudgetPlanTotals({ ...result, total: null }).total, 20_000_000);
+});
+
+test("only compares budget after questions, missing products and assumptions are resolved", () => {
+  const base = buildBudgetPlan({ description: "Lát nền phòng diện tích 25 m²", budget: 10_000_000 }, [tile],
+    { items: [{ sku: tile.sku, basis: "floor_area" }], assumptions: ["Chưa gồm hao hụt"] }, []);
+  assert.equal(recomputeBudgetPlanTotals(base).difference, null);
+  assert.equal(recomputeBudgetPlanTotals({ ...base, assumptionConfirmations: [true] }).difference, 5_000_000);
+  assert.equal(recomputeBudgetPlanTotals({ ...base, assumptionConfirmations: [true], missingProducts: ["Keo dán gạch"] }).difference, null);
+});
+
+test("reanalyzes clarified input while retaining manually confirmed products and quantities", () => {
+  const input = { description: "Lát nền phòng", budget: 10_000_000 };
+  const previous = buildBudgetPlan(input, [tile], { items: [{ sku: tile.sku, basis: "estimated", quantity: 20, quantityNote: "Ước lượng 20 m² sàn phòng" }] }, []);
+  previous.lines[0].quantityNote = "Số lượng do người dùng xác nhận";
+  previous.lines[0].quantityBasis = "measured";
+  previous.lines.push({ ...previous.lines[0], catalogItemId: "manual", sku: "KEO-01", name: "Keo dán gạch", quantity: 2, unitPrice: 100_000, lineTotal: 200_000, reason: "Bổ sung cho hạng mục: Keo dán gạch" });
+  previous.resolvedMissingProducts = ["Keo dán gạch"];
+  previous.assumptions = ["Nền phẳng"];
+  previous.assumptionConfirmations = [true];
+  const answer = { question: "Diện tích lát nền?", answer: "30 m²" };
+  const expanded = clarificationInput(input, [answer]);
+  assert.match(expanded.description, /Diện tích 30 m²/);
+  assert.equal(expanded.area, 30);
+  assert.equal(input.description, "Lát nền phòng");
+  const proposed = buildBudgetPlan({ ...input, description: "Lát nền phòng diện tích 30 m²" }, [tile],
+    { items: [{ sku: tile.sku, basis: "floor_area" }], assumptions: ["Nền phẳng"] }, ["Keo dán gạch"]);
+  const merged = mergeBudgetPlanAfterClarification(previous, proposed, answer);
+  assert.equal(merged.lines.find((line) => line.sku === tile.sku)?.quantity, 20);
+  assert.equal(merged.lines.find((line) => line.sku === "KEO-01")?.lineTotal, 200_000);
+  assert.deepEqual(merged.missingProducts, []);
+  assert.deepEqual(merged.clarifications, [answer]);
+  assert.deepEqual(merged.assumptionConfirmations, [true]);
+  const savedInput = recalculationInput(input, previous);
+  assert.match(savedInput.description, /Gạch lát nền \(SKU GACH-01\): 20 m²/);
+  assert.match(savedInput.description, /Nền phẳng/);
+  const recalculated = mergeBudgetPlanAfterClarification(previous, proposed);
+  assert.equal(recalculated.lines.find((line) => line.sku === "KEO-01")?.quantity, 2);
+  assert.deepEqual(recalculated.clarifications, []);
 });
 
 test("supports PC products without construction fields or floor-area assumptions", () => {
