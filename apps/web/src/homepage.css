@@ -2007,7 +2007,7 @@ h3 {
 }
 
 #root :where(input, textarea, select)::placeholder {
-  color: #000 !important;
+  color: #8796a3 !important;
   opacity: 1;
 }
 
@@ -2530,7 +2530,7 @@ h3 {
 #root .dashboard-page .metric-card .metric-icon { background: var(--metric-pale); }
 #root .dashboard-page .metric-card .metric-icon,
 #root .dashboard-page .metric-card .metric-icon svg { color: var(--metric-accent) !important; }
-#root .dashboard-page .metric-watermark { position: absolute; right: -13px; bottom: -22px; z-index: 0; display: grid; place-items: center; width: 104px; height: 104px; color: #aebcc4 !important; opacity: 0.17; pointer-events: none; transform: rotate(-12deg); }
+#root .dashboard-page .metric-watermark { position: absolute; right: -13px; bottom: -22px; z-index: 0; display: grid; place-items: center; width: 104px; height: 104px; color: #aebcc4 !important; opacity: 0.08; pointer-events: none; transform: rotate(-12deg); }
 #root .dashboard-page .metric-watermark svg { color: inherit !important; stroke-width: 1.4; }
 
 #root .quote-creation-dialog {
@@ -4151,5 +4151,595 @@ h3 {
   .login-panel.register-mode {
     padding: 28px 22px;
     border-radius: 18px;
+  }
+}
+
+/* Dashboard layout */
+.app-shell:has(.dashboard-page) { grid-template-columns: 273px minmax(0, 1fr); background: #f5fbfe; }
+.app-shell:has(.dashboard-page) .sidebar { width: 273px; padding: 14px 19px 19px; border-right: 0; background: #fff; }
+.app-shell:has(.dashboard-page) .brand-lockup { height: 62px; padding-left: 20px; }
+.app-shell:has(.dashboard-page) .brand-logo-baogia { width: 130px; }
+.app-shell:has(.dashboard-page) .side-nav { gap: 6px; margin-top: 36px; }
+.app-shell:has(.dashboard-page) .nav-button { height: 49px; padding: 0 18px; border-radius: 9px; color: #18233d !important; font-size: 16px; }
+.app-shell:has(.dashboard-page) .nav-button.active { background: #e6f6ff; color: #10243f !important; }
+.app-shell:has(.dashboard-page) .nav-button > span { color: inherit !important; font-weight: 500 !important; }
+.app-shell:has(.dashboard-page) .nav-button.active::before { left: -19px; width: 6px; height: 29px; border-radius: 0 5px 5px 0; }
+.app-shell:has(.dashboard-page) .profile-button { padding-top: 16px; }
+.app-shell:has(.dashboard-page) .main-content { max-width: none; padding: 14px 31px 20px; }
+
+#root .dashboard-page {
+  gap: 18px;
+}
+
+#root .dashboard-banners { display: block; }
+
+#root .dashboard-banner-primary {
+  min-height: 376px;
+  border-color: #dbeef8;
+  border-radius: 15px;
+  background: #e5f7ff;
+  box-shadow: 0 8px 26px rgba(48, 115, 160, 0.05);
+}
+
+#root .dashboard-banner-primary > img {
+  object-position: center 40%;
+}
+
+#root .dashboard-banner-primary::before {
+  background: linear-gradient(90deg, rgba(239, 250, 255, 0.92) 0%, rgba(239, 250, 255, 0.7) 34%, rgba(239, 250, 255, 0) 58%);
+}
+
+#root .dashboard-banner-primary .dashboard-banner-copy {
+  width: min(60%, 640px);
+  padding: 19px 42px 16px;
+}
+
+#root .dashboard-banner-primary h1 {
+  max-width: none;
+  margin: 0 0 13px;
+  color: #0e1e38 !important;
+  font-size: clamp(34px, 3vw, 44px);
+  font-weight: 750 !important;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
+
+#root .dashboard-banner-primary h1 span { color: #109cf5 !important; font-weight: 750 !important; }
+
+#root .dashboard-banner-primary p {
+  color: #536782 !important;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+#root .dashboard-banner-primary .quote-create-button {
+  min-height: 48px;
+  margin-top: 18px;
+  padding: 0 27px;
+  border-radius: 999px;
+  background-color: #00adfc !important;
+  background-image: linear-gradient(120deg, #00adfc, #0789ed) !important;
+  box-shadow: 0 9px 20px rgba(0, 153, 237, 0.2);
+  color: #fff !important;
+  font-size: 15px;
+}
+
+#root .dashboard-banner-primary .quote-quota-card.variant-banner {
+  width: 548px;
+  max-width: 100%;
+  margin-top: 15px;
+  border: 1px solid rgba(239, 248, 255, 0.9);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10px 22px rgba(45, 115, 155, 0.08);
+}
+
+#root .dashboard-banner-primary .quote-quota-upgrade-btn {
+  min-height: 32px;
+  padding: 7px 13px;
+  font-size: 13px;
+}
+
+#root .dashboard-page .metric-grid { gap: 16px; }
+
+#root .dashboard-page .metric-card {
+  height: 138px;
+  padding: 15px 16px 15px;
+  border-color: #e4edf5;
+  border-radius: 15px;
+  background: #fff;
+  box-shadow: 0 6px 20px rgba(33, 84, 126, 0.045);
+}
+
+#root .dashboard-page .metric-top {
+  justify-content: flex-start;
+  gap: 20px;
+  color: #152745 !important;
+  font-size: 16px;
+  font-weight: 600 !important;
+}
+
+#root .dashboard-page .metric-top > span:last-child { font-weight: 600 !important; }
+
+#root .dashboard-page .metric-icon {
+  flex: 0 0 54px;
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  background: var(--metric-pale);
+}
+
+#root .dashboard-page .metric-card .metric-icon,
+#root .dashboard-page .metric-card .metric-icon svg {
+  color: var(--metric-accent) !important;
+}
+
+#root .dashboard-page .metric-card.tone-lavender { --metric-accent: #f28419; --metric-pale: #fff0e1; }
+#root .dashboard-page .metric-card.tone-blue { --metric-accent: #08b774; --metric-pale: #e3f8ee; }
+
+#root .dashboard-page .metric-card .metric-value {
+  margin: -16px 0 0 74px;
+  color: #142744 !important;
+  font-size: 31px;
+  font-weight: 700 !important;
+  line-height: 1.1;
+}
+
+#root .dashboard-page .metric-note {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: auto 0 0 0;
+  color: #6e82a0 !important;
+  font-size: 13px;
+}
+
+#root .dashboard-page .metric-note > span:last-child { color: #6e82a0 !important; }
+
+#root .dashboard-page .metric-trend {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  color: #08b966 !important;
+  font-size: 14px;
+  font-weight: 700 !important;
+}
+
+#root .dashboard-page .metric-watermark {
+  right: 8px;
+  bottom: 5px;
+  width: 80px;
+  height: 80px;
+  color: #b6c4d4 !important;
+  opacity: 0.08;
+  transform: none;
+}
+
+#root .dashboard-page .recent-card {
+  min-height: 298px;
+  padding: 21px 24px 18px;
+  border-color: #e4edf5;
+  border-radius: 15px;
+  background: #fff;
+}
+
+#root .dashboard-page .recent-card .card-heading h2 {
+  color: #142744 !important;
+  font-size: 20px;
+  font-weight: 650 !important;
+}
+
+#root .dashboard-page .recent-card .text-button { color: #079df4 !important; font-weight: 600 !important; }
+
+#root .dashboard-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 208px;
+  text-align: center;
+}
+
+#root .dashboard-empty-state img { width: 90px; height: 90px; object-fit: contain; }
+#root .dashboard-empty-state h3 { margin: 6px 0 2px; color: #5d7091 !important; font-size: 17px; font-weight: 600 !important; }
+#root .dashboard-empty-state p { margin: 0 0 13px; color: #7387a5 !important; font-size: 14px; }
+
+#root .dashboard-empty-state .button {
+  min-height: 42px;
+  padding: 0 22px;
+  border-radius: 999px;
+  background-color: #00adfc !important;
+  background-image: linear-gradient(120deg, #00adfc, #0789ed) !important;
+  color: #fff !important;
+}
+
+@media (max-width: 1100px) {
+  #root .dashboard-banner-primary .dashboard-banner-copy { width: 65%; }
+  #root .dashboard-banner-primary h1 { font-size: 36px; }
+  #root .dashboard-page .metric-top { gap: 10px; font-size: 14px; }
+  #root .dashboard-page .metric-icon { flex-basis: 42px; width: 42px; height: 42px; }
+  #root .dashboard-page .metric-card .metric-value { margin-left: 52px; }
+}
+
+@media (max-width: 820px) {
+  .app-shell:has(.dashboard-page) { grid-template-columns: 66px minmax(0, 1fr); }
+  .app-shell:has(.dashboard-page) .sidebar { width: 66px; padding: 17px 8px 12px; }
+  .app-shell:has(.dashboard-page) .brand-lockup { height: 35px; padding: 0; }
+  .app-shell:has(.dashboard-page) .brand-logo-baogia { width: 31px; }
+  .app-shell:has(.dashboard-page) .side-nav { margin-top: 33px; }
+  .app-shell:has(.dashboard-page) .nav-button { width: 43px; height: 44px; padding: 0; }
+  .app-shell:has(.dashboard-page) .nav-button.active::before { left: -8px; }
+  .app-shell:has(.dashboard-page) .main-content { padding: 18px 22px 30px; }
+}
+
+@media (max-width: 760px) {
+  #root .dashboard-banner-primary { min-height: 360px; }
+  #root .dashboard-banner-primary .dashboard-banner-copy { width: 75%; padding: 27px 28px; }
+  #root .dashboard-banner-primary h1 { font-size: 31px; }
+  #root .dashboard-banner-primary p { font-size: 13px; }
+  #root .dashboard-page .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 520px) {
+  .app-shell:has(.dashboard-page) { grid-template-columns: 1fr; }
+  .app-shell:has(.dashboard-page) .sidebar { inset: auto 0 0; width: 100%; height: 58px; padding: 5px 10px; }
+  .app-shell:has(.dashboard-page) .side-nav { margin: 0; }
+  .app-shell:has(.dashboard-page) .nav-button { width: auto; height: 44px; padding: 0 8px; }
+  .app-shell:has(.dashboard-page) .nav-button.active::before { inset: 0 9px auto; width: auto; height: 2px; }
+  .app-shell:has(.dashboard-page) .main-content { padding: 14px 14px 24px; }
+  #root .dashboard-banner-primary { min-height: 410px; }
+  #root .dashboard-banner-primary > img { opacity: 0.35; object-position: 66% center; }
+  #root .dashboard-banner-primary::before { background: rgba(239, 250, 255, 0.58); }
+  #root .dashboard-banner-primary .dashboard-banner-copy { width: 100%; padding: 26px 22px; }
+  #root .dashboard-banner-primary h1 { font-size: 30px; }
+  #root .dashboard-banner-primary p br { display: none; }
+  #root .dashboard-page .metric-card { height: 142px; padding: 13px; }
+  #root .dashboard-page .metric-top { font-size: 12px; }
+  #root .dashboard-page .metric-icon { flex-basis: 38px; width: 38px; height: 38px; }
+  #root .dashboard-page .metric-card .metric-value { margin: 2px 0 0 48px; font-size: 27px; }
+  #root .dashboard-page .metric-note { font-size: 11px; }
+}
+
+/* Quote workspace, matched to the supplied reference */
+.app-shell:has(.quote-workspace-page) { grid-template-columns: 276px minmax(0, 1fr); background: #f5fbfe; }
+.app-shell:has(.quote-workspace-page) .sidebar { width: 276px; background: #fff; border-right: 0; padding: 24px 19px 19px; }
+.app-shell:has(.quote-workspace-page) .brand-lockup { height: 58px; padding-left: 20px; }
+.app-shell:has(.quote-workspace-page) .side-nav { gap: 6px; margin-top: 24px; }
+.app-shell:has(.quote-workspace-page) .nav-button { height: 54px; border-radius: 9px; padding: 0 18px; color: #18233d; font-size: 16px; }
+.app-shell:has(.quote-workspace-page) .nav-button.active { background: #e6f6ff; color: #10243f; }
+.app-shell:has(.quote-workspace-page) .nav-button.active::before { left: -19px; height: 29px; width: 6px; border-radius: 0 5px 5px 0; }
+.app-shell:has(.quote-workspace-page) .profile-button { padding-top: 16px; }
+.app-shell:has(.quote-workspace-page) .main-content { max-width: none; padding: 18px 34px 26px; }
+
+#root .quote-workspace-page { gap: 20px; }
+#root .quote-workspace-topbar { display: flex; justify-content: flex-end; align-items: center; gap: 19px; min-height: 44px; margin-bottom: 3px; }
+#root .quote-top-icon, #root .quote-top-avatar { display: grid; place-items: center; width: 42px; height: 42px; flex: none; padding: 0; border: 1px solid #e4ebf2; border-radius: 50%; background: #fff; color: #142341 !important; }
+#root button.quote-top-icon, #root .quote-top-avatar { cursor: pointer; }
+#root .quote-top-avatar { background: #e4f1f0; }
+
+#root .quote-workspace-header { align-items: center; min-height: 82px; margin: 0; }
+#root .quote-workspace-heading-left { display: flex; flex-direction: row; align-items: center; gap: 18px; }
+#root .quote-heading-icon { display: grid; place-items: center; flex: none; width: 58px; height: 58px; border-radius: 50%; background: #daf1ff; color: #098eed; }
+#root .quote-workspace-heading-left h1 { margin: 0 0 4px; font-size: 36px; line-height: 1.2; letter-spacing: -0.04em; color: #0b1020; }
+#root .quote-workspace-heading-left p { margin: 0; color: #607191; font-size: 16px; }
+#root .quote-workspace-header .quote-create-button, #root .quote-empty-action > .quote-create-button { min-height: 46px; padding: 0 22px; border: 0; border-radius: 999px; background: linear-gradient(110deg,#00b0fc,#078bf2); box-shadow: 0 7px 16px rgba(3,153,238,.16); color: #fff !important; font-size: 14px; }
+#root .quote-workspace-header .quote-create-button svg, #root .quote-empty-action > .quote-create-button svg { color: #fff !important; }
+#root .quote-workspace-header .quote-create-button:disabled, #root .quote-empty-action > .quote-create-button:disabled { opacity: .55; box-shadow: none; }
+#root .quote-heading-icon > svg { color: #078bea !important; }
+#root .app-shell:has(.quote-workspace-page) .sidebar .nav-button,
+#root .app-shell:has(.quote-workspace-page) .sidebar .nav-button > span { color: #17243e !important; }
+#root .app-shell:has(.quote-workspace-page) .sidebar .nav-button > svg { color: #17243e !important; }
+#root .app-shell:has(.quote-workspace-page) .sidebar .nav-button.active > svg { color: #078bea !important; }
+#root .app-shell:has(.quote-workspace-page) .sidebar .profile-button,
+#root .app-shell:has(.quote-workspace-page) .sidebar .profile-button * { color: #17243e !important; }
+
+#root .quote-workspace-page .quote-quota-card.variant-workspace { position: relative; display: flex; align-items: center; gap: 36px; width: 100%; max-width: none; min-height: 154px; padding: 22px 34px; overflow: hidden; border: 1px solid #dfeefa; border-radius: 17px; background: #eff9ff url('/images/quote-banner.png') right center / auto 100% no-repeat; box-shadow: none; }
+#root .quote-workspace-page .quote-quota-card.variant-workspace::before { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg,rgba(249,253,255,.98) 0%,rgba(249,253,255,.92) 48%,rgba(249,253,255,.05) 100%); pointer-events: none; }
+#root .quote-quota-ring, #root .quote-quota-workspace-copy { position: relative; z-index: 1; }
+#root .quote-quota-ring { display: grid; place-items: center; flex: none; width: 98px; height: 98px; border-radius: 50%; background: conic-gradient(#04aef5 var(--quota-percent),#dce6f3 0); }
+#root .quote-quota-ring::before { content: ""; position: absolute; inset: 8px; border-radius: inherit; background: #f9fdff; }
+#root .quote-quota-ring span { position: relative; color: #10192e; font-size: 19px; }
+#root .quote-quota-workspace-copy { display: grid; gap: 8px; }
+#root .quote-quota-workspace-main { display: flex; align-items: center; gap: 34px; }
+#root .quote-quota-workspace-main strong { color: #111827; font-size: 19px; font-weight: 650 !important; }
+#root .quote-quota-workspace-copy p { margin: 0; color: #617293; font-size: 15px; }
+#root .quote-quota-workspace-main .quote-quota-upgrade-btn { display: inline-flex; align-items: center; gap: 8px; margin: 0; padding: 8px 15px; border-radius: 999px; background: #eaf7ff !important; color: #007de1 !important; font-size: 14px; }
+#root .quote-quota-workspace-main .quote-quota-upgrade-btn,
+#root .quote-quota-workspace-main .quote-quota-upgrade-btn * { color: #007de1 !important; }
+#root .quote-quota-workspace-main .quote-quota-upgrade-btn:hover { background: #00a5f0 !important; border-color: #00a5f0 !important; color: #fff !important; }
+#root .quote-quota-workspace-main .quote-quota-upgrade-btn:hover * { color: #fff !important; }
+
+#root .quote-workspace-page .quote-kpi-strip { margin: 0; }
+#root .quote-workspace-page .quote-list-card { min-height: 555px; border-color: #e5edf4; border-radius: 17px; box-shadow: 0 7px 22px rgba(42,91,130,.035); }
+#root .quote-workspace-toolbar { gap: 19px; padding: 18px 18px 20px; background: #fcfdff; border-bottom-color: #e9eef3; }
+#root .quote-toolbar-top { flex-wrap: nowrap; gap: 28px; }
+#root .quote-search-wrapper { max-width: 930px; height: 50px; padding: 0 17px; border-color: #d7e3ee; border-radius: 11px; color: #536789; }
+#root .quote-search-wrapper > svg { color: #607393 !important; }
+#root .quote-search-input { min-width: 0; color: #1a2845; font-size: 16px; }
+#root .quote-search-shortcut { display: none; }
+#root .quote-sort-wrapper { flex: none; gap: 13px; color: #17243e; font-size: 14px; }
+#root .quote-sort-select { height: 48px; min-width: 187px; border-color: #d7e3ee; border-radius: 10px; font-size: 15px; }
+#root .quote-status-filter-tabs { gap: 9px; }
+#root .quote-filter-tab { height: 44px; padding: 0 16px; border-radius: 999px; color: #17243e !important; font-size: 13px; white-space: nowrap; }
+#root .quote-filter-tab:not(.is-active) *, #root .quote-filter-tab:not(.is-active) { color: #17243e !important; }
+#root .quote-filter-tab.is-active { background: linear-gradient(110deg,#00b0fc,#078bf2) !important; box-shadow: 0 6px 14px rgba(3,153,238,.18); color: #fff !important; }
+#root .quote-filter-tab .tab-badge { min-width: 24px; height: 24px; border-radius: 50%; background: #f0f3f7; color: #23314c; }
+#root .quote-filter-tab.is-active .tab-badge { background: rgba(255,255,255,.23); color: #fff; }
+#root .quote-empty-container { display: grid; place-items: center; min-height: 394px; padding: 24px; }
+#root .quote-empty-action { display: flex; flex-direction: column; align-items: center; text-align: center; }
+#root .quote-empty-action .empty-state { padding: 0; }
+#root .quote-empty-action .empty-icon { width: 106px; height: 106px; margin: 0 auto 8px; }
+#root .quote-empty-action .empty-icon img { width: 100%; height: 100%; }
+#root .quote-empty-action h3 { margin: 0 0 7px; color: #14233e !important; font-size: 22px; }
+#root .quote-empty-action p { max-width: 390px; margin: 0 auto 13px; color: #607393 !important; font-size: 16px; line-height: 1.65; }
+
+@media (max-width: 1100px) {
+  #root .quote-toolbar-top { flex-wrap: wrap; }
+  #root .quote-sort-wrapper { margin-left: auto; }
+  #root .quote-workspace-page .quote-quota-card.variant-workspace { background-size: auto 100%; }
+}
+@media (max-width: 820px) {
+  .app-shell:has(.quote-workspace-page) { grid-template-columns: 66px minmax(0,1fr); }
+  .app-shell:has(.quote-workspace-page) .sidebar { width: 66px; padding: 17px 8px 12px; }
+  .app-shell:has(.quote-workspace-page) .brand-lockup { padding: 0; height: 35px; }
+  .app-shell:has(.quote-workspace-page) .side-nav { margin-top: 33px; }
+  .app-shell:has(.quote-workspace-page) .nav-button { width: 43px; height: 44px; padding: 0; }
+  .app-shell:has(.quote-workspace-page) .nav-button.active::before { left: -8px; }
+  .app-shell:has(.quote-workspace-page) .main-content { padding: 18px 22px 30px; }
+  #root .quote-workspace-heading-left h1 { font-size: 30px; }
+  #root .quote-workspace-heading-left p { font-size: 14px; }
+  #root .quote-workspace-page .quote-quota-card.variant-workspace { gap: 20px; padding: 20px; }
+  #root .quote-quota-workspace-main { gap: 15px; flex-wrap: wrap; }
+  #root .quote-status-filter-tabs { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; padding-bottom: 3px; }
+}
+@media (max-width: 600px) {
+  .app-shell:has(.quote-workspace-page) { grid-template-columns: 1fr; }
+  .app-shell:has(.quote-workspace-page) .sidebar { inset: auto 0 0; width: 100%; height: 58px; padding: 5px 10px; }
+  .app-shell:has(.quote-workspace-page) .side-nav { margin: 0; }
+  .app-shell:has(.quote-workspace-page) .nav-button { width: auto; height: 44px; padding: 0 8px; }
+  .app-shell:has(.quote-workspace-page) .nav-button.active::before { inset: 0 9px auto; width: auto; height: 2px; }
+  .app-shell:has(.quote-workspace-page) .main-content { padding: 14px 14px 24px; }
+  #root .quote-workspace-topbar { gap: 8px; }
+  #root .quote-top-icon { display: none; }
+  #root .quote-workspace-header { align-items: flex-start; gap: 12px; }
+  #root .quote-heading-icon { width: 44px; height: 44px; }
+  #root .quote-workspace-heading-left { gap: 10px; }
+  #root .quote-workspace-heading-left h1 { font-size: 25px; }
+  #root .quote-workspace-heading-left p { font-size: 12px; }
+  #root .quote-workspace-header .quote-create-button { min-height: 39px; padding: 0 12px; font-size: 12px; }
+  #root .quote-workspace-header .quote-create-button svg { display: none; }
+  #root .quote-workspace-page .quote-quota-card.variant-workspace { min-height: 130px; gap: 13px; padding: 15px; background-image: none; }
+  #root .quote-quota-ring { width: 70px; height: 70px; }
+  #root .quote-quota-ring::before { inset: 6px; }
+  #root .quote-quota-ring span { font-size: 15px; }
+  #root .quote-quota-workspace-main strong { font-size: 15px; }
+  #root .quote-quota-workspace-copy p { font-size: 12px; }
+  #root .quote-quota-workspace-main .quote-quota-upgrade-btn { padding: 5px 9px; font-size: 11px; }
+  #root .quote-workspace-toolbar { padding: 14px; }
+  #root .quote-toolbar-top { gap: 12px; }
+  #root .quote-search-wrapper { min-width: 0; max-width: none; width: 100%; }
+  #root .quote-sort-wrapper { width: 100%; }
+  #root .quote-filter-tab { height: 38px; padding: 0 12px; font-size: 11px; }
+  #root .quote-empty-container { min-height: 355px; }
+  #root .quote-empty-action h3 { font-size: 19px; }
+  #root .quote-empty-action p { font-size: 14px; }
+}
+
+/* Filled blue actions keep white labels and icons despite the workspace text reset. */
+#root .button-primary,
+#root .button-primary *,
+#root .login-submit-btn,
+#root .login-submit-btn *,
+#root .quote-filter-tab.is-active,
+#root .quote-filter-tab.is-active *,
+#root .quote-quota-upgrade-btn:hover,
+#root .quote-quota-upgrade-btn:hover * {
+  color: #fff !important;
+}
+
+/* Keep the user sidebar and its brand consistent across desktop sections. */
+@media (min-width: 821px) {
+  #root .app-shell {
+    grid-template-columns: 276px minmax(0, 1fr);
+  }
+
+  #root .app-shell > .sidebar {
+    width: 276px;
+    padding: 24px 19px 19px;
+    border-right: 0;
+    background: #fff;
+  }
+
+  #root .app-shell .brand-lockup {
+    height: 58px;
+    min-height: 58px;
+    padding-left: 20px;
+  }
+
+  #root .app-shell .brand-lockup .brand-logo-baogia {
+    width: 130px;
+    max-width: 100%;
+    height: auto;
+  }
+
+  #root .app-shell .side-nav {
+    gap: 6px;
+    margin-top: 24px;
+  }
+
+  #root .app-shell .side-nav > .nav-button {
+    height: 49px;
+    min-height: 49px;
+    padding: 0 18px;
+    border-radius: 9px;
+    font-size: 16px;
+  }
+
+  #root .app-shell .side-nav > .nav-button.active::before {
+    left: -19px;
+    width: 6px;
+    height: 29px;
+    border-radius: 0 5px 5px 0;
+  }
+}
+
+/* The profile/account entry remains available in the sidebar. */
+#root .quote-workspace-page .quote-workspace-topbar {
+  display: none !important;
+}
+
+/* Keep the title banners aligned when moving between these workspace pages. */
+.app-shell:has(.budget-page) .main-content,
+.app-shell:has(.customer-quotes-page) .main-content,
+.app-shell:has(.templates-page) .main-content {
+  max-width: 1340px;
+  margin: 0 auto;
+  padding: 34px 42px 52px;
+}
+
+#root .app-shell :is(.budget-page, .customer-quotes-page, .templates-page) {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  gap: 20px;
+}
+
+#root .app-shell :is(.bp-header-banner, .cq-header-banner, .qt-header-banner) {
+  box-sizing: border-box;
+  width: 100%;
+  height: 140px !important;
+  min-height: 140px !important;
+  padding: 22px 34px !important;
+  border: 1px solid #d9edfc;
+  border-radius: 17px;
+  background-color: #eff8ff;
+  background-image:
+    linear-gradient(90deg, rgba(246, 251, 255, .98) 0%, rgba(246, 251, 255, .91) 42%, rgba(246, 251, 255, .12) 100%),
+    url('/images/quote-banner.png');
+  background-repeat: no-repeat;
+  background-position: center, right center;
+  background-size: 100% 100%, 520px auto;
+  box-shadow: 0 8px 24px rgba(57, 132, 184, .045);
+  align-items: center;
+  gap: 24px;
+}
+
+#root .app-shell :is(.bp-header-banner, .cq-header-banner, .qt-header-banner)::before {
+  top: -70px;
+  right: 28%;
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(54, 176, 247, .12) 0%, transparent 70%);
+}
+
+#root .app-shell :is(.bp-header-copy, .cq-header-copy, .qt-header-copy) {
+  position: relative;
+  z-index: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: min(700px, 62%);
+  gap: 8px;
+}
+
+#root .app-shell :is(.bp-header-copy h1, .cq-header-copy h1, .qt-header-copy h1) {
+  margin: 0;
+  color: #10213d !important;
+  font-size: 30px !important;
+  font-weight: 500 !important;
+  line-height: 1.2;
+  letter-spacing: -0.65px;
+}
+
+#root .app-shell :is(.bp-header-actions, .cq-header-actions, .qt-header-actions) {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
+}
+
+#root .app-shell :is(.bp-create-btn, .cq-create-btn, .qt-create-btn) {
+  min-height: 48px !important;
+  height: 48px !important;
+  padding: 0 22px !important;
+  border-radius: 999px !important;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff !important;
+}
+
+#root .app-shell :is(.bp-create-btn, .cq-create-btn, .qt-create-btn),
+#root .app-shell :is(.bp-create-btn, .cq-create-btn, .qt-create-btn) * {
+  color: #fff !important;
+}
+
+@media (max-width: 1100px) {
+  .app-shell:has(.budget-page) .main-content,
+  .app-shell:has(.customer-quotes-page) .main-content,
+  .app-shell:has(.templates-page) .main-content {
+    padding: 30px 22px 38px;
+  }
+}
+
+@media (max-width: 820px) {
+  .app-shell:has(.budget-page) .main-content,
+  .app-shell:has(.customer-quotes-page) .main-content,
+  .app-shell:has(.templates-page) .main-content {
+    padding: 30px 20px 34px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell:has(.budget-page) .main-content,
+  .app-shell:has(.customer-quotes-page) .main-content,
+  .app-shell:has(.templates-page) .main-content {
+    padding: 22px 14px 30px;
+  }
+
+  #root .app-shell :is(.budget-page, .customer-quotes-page, .templates-page) {
+    gap: 14px;
+  }
+
+  #root .app-shell :is(.bp-header-banner, .cq-header-banner, .qt-header-banner) {
+    height: auto !important;
+    min-height: 116px !important;
+    padding: 18px !important;
+    background-size: 100% 100%, 360px auto;
+    align-items: stretch;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  #root .app-shell :is(.bp-header-copy, .cq-header-copy, .qt-header-copy) {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  #root .app-shell :is(.bp-header-copy h1, .cq-header-copy h1, .qt-header-copy h1) {
+    font-size: clamp(22px, 5vw, 26px) !important;
+  }
+
+  #root .app-shell :is(.bp-header-actions, .cq-header-actions, .qt-header-actions) {
+    width: 100%;
+  }
+
+  #root .app-shell :is(.bp-create-btn, .cq-create-btn, .qt-create-btn) {
+    max-width: 100%;
+  }
+}
+
+/* Override the legacy high-specificity banner sizing on the budget route. */
+#root .budget-page .bp-header-banner[class*="banner"]:not([class*="bg"]):not([class*="background"]):not([class*="image"]):not([class*="art"]) {
+  height: 140px !important;
+  min-height: 140px !important;
+  padding: 22px 34px !important;
+}
+
+@media (max-width: 640px) {
+  #root .budget-page .bp-header-banner[class*="banner"]:not([class*="bg"]):not([class*="background"]):not([class*="image"]):not([class*="art"]) {
+    height: auto !important;
+    min-height: 116px !important;
+    padding: 18px !important;
   }
 }

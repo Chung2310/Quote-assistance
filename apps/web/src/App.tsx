@@ -69,6 +69,10 @@ function Icon({ name, size = 18 }: { name: string; size?: number }) {
     spark: <><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7L12 3Z" /><path d="m19 15 .8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" /></>,
     logout: <><path d="M10 17l5-5-5-5M15 12H3" /><path d="M12 3h7a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-7" /></>,
     file: <><path d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" /><path d="M14 3v5h5" /></>,
+    template: <><rect x="3" y="3" width="18" height="18" rx="2" /><path d="M3 9h18M9 9v12" /></>,
+    bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4" /></>,
+    settings: <><path d="M12 3.5 14 5l2.4-.3.8 2.3 2.2 1.1-.7 2.3 1.2 2-1.2 2 .7 2.3-2.2 1.1-.8 2.3L14 19l-2 1.5L10 19l-2.4.3-.8-2.3-2.2-1.1.7-2.3-1.2-2 1.2-2-.7-2.3 2.2-1.1.8-2.3L10 5Z" /><circle cx="12" cy="12" r="3" /></>,
+    bars: <><path d="M4 20V13M10 20V9M16 20V5M22 20V2" /></>,
     close: <><path d="m6 6 12 12M18 6 6 18" /></>,
     back: <><path d="m15 18-6-6 6-6" /><path d="M9 12h12" /></>,
     user: <><circle cx="12" cy="8" r="4" /><path d="M5 21a7 7 0 0 1 14 0" /></>,
@@ -334,7 +338,7 @@ function UserApp() {
         <NavButton icon="quote" label="Dự toán" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
         <NavButton icon="spark" label="Tư vấn ngân sách" href={sectionPaths.budgetPlanner} active={!quoteId && section === "budgetPlanner"} onClick={() => navigateSection("budgetPlanner")} />
         <NavButton icon="file" label="Báo giá khách" href={sectionPaths.customerQuotes} active={!quoteId && section === "customerQuotes"} onClick={() => navigateSection("customerQuotes")} />
-        <NavButton icon="file" label="Mẫu báo giá" href={sectionPaths.templates} active={!quoteId && section === "templates"} onClick={() => navigateSection("templates")} />
+        <NavButton icon="template" label="Mẫu báo giá" href={sectionPaths.templates} active={!quoteId && section === "templates"} onClick={() => navigateSection("templates")} />
         <NavButton icon="box" label="Bảng giá" href={sectionPaths.catalog} active={!quoteId && section === "catalog"} onClick={() => navigateSection("catalog")} />
       </nav>
       <div className="sidebar-bottom">
@@ -349,7 +353,7 @@ function UserApp() {
           : section === "home" ?
             <Dashboard key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} canReview onOpen={openQuote} onCreate={createQuote} onNavigate={navigateSection} onDeleteQuote={(quote) => void removeQuote(quote)} />
             : section === "quotes" ?
-              <QuoteWorkspace key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} onOpen={openQuote} onCreate={createQuote} onDeleteQuote={(quote) => void removeQuote(quote)} onNavigate={navigateSection} />
+              <QuoteWorkspace key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} userName={user.name} onOpen={openQuote} onCreate={createQuote} onDeleteQuote={(quote) => void removeQuote(quote)} onNavigate={navigateSection} />
               : section === "budgetPlanner" ?
                 <BudgetPlanner />
                 : section === "customerQuotes" ?
@@ -596,6 +600,24 @@ function QuoteUsageWidget({
   const isWarning = !isBlocked && !isUnlimited && percent >= 80;
   const tone = isBlocked ? "danger" : isWarning ? "warning" : isUnlimited ? "unlimited" : "normal";
 
+  if (variant === "workspace") {
+    return (
+      <div className={`quote-quota-card variant-workspace tone-${tone}`} role="region" aria-label="Hạn mức tạo báo giá">
+        <div className="quote-quota-ring" style={{ "--quota-percent": `${percent}%` } as React.CSSProperties} aria-label={`Đã sử dụng ${percent}% hạn mức`}>
+          <span>{isUnlimited ? "∞" : `${percent}%`}</span>
+        </div>
+        <div className="quote-quota-workspace-copy">
+          <div className="quote-quota-workspace-main">
+            <strong>{isUnlimited ? `Đã tạo ${used.toLocaleString("vi-VN")} báo giá` : `Đã dùng ${used.toLocaleString("vi-VN")} / ${limit.toLocaleString("vi-VN")} lượt`}</strong>
+            {onNavigate && !isUnlimited && <button type="button" className="quote-quota-upgrade-btn" onClick={() => onNavigate("profile")}>Nâng cấp <Icon name="arrow" size={17} /></button>}
+          </div>
+          <p>{isBlocked ? createBlockedMessage : isUnlimited ? "Không giới hạn lượt tạo trong chu kỳ này" : `Còn lại ${remaining.toLocaleString("vi-VN")} lượt tạo trong chu kỳ này`}</p>
+          {showUsageError && <button type="button" className="quote-quota-retry-link" onClick={onRefreshUsage}>Tải lại hạn mức</button>}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={`quote-quota-card variant-${variant} tone-${tone}`} role="region" aria-label="Hạn mức tạo báo giá">
       <div className="quote-quota-inner">
@@ -683,44 +705,33 @@ function Dashboard({ onOpen, onCreate, onNavigate, canCreate, usage, quoteUsageL
   return <div className="page-stack dashboard-page">
     <section className="dashboard-banners" aria-label="Tạo và theo dõi báo giá">
       <article className="dashboard-banner dashboard-banner-primary">
-        <img src="/images/quote-banner.png" alt="" />
+        <img src="/images/dashboard-hero-v4.png" alt="" />
         <div className="dashboard-banner-copy">
-          <h1>Dự toán nhanh, rõ ràng</h1>
+          <h1>Dự toán nhanh,<br /><span>rõ ràng, chính xác</span></h1>
+          <p>Tạo dự toán, báo giá chuyên nghiệp chỉ trong vài phút<br />Tiết kiệm thời gian, nâng cao hiệu quả kinh doanh</p>
           <button className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo dự toán</button>
-          <QuoteUsageWidget
-            usage={usage}
-            quoteUsageLabel={quoteUsageLabel}
-            canCreate={canCreate}
-            createBlockedMessage={createBlockedMessage}
-            onRefreshUsage={onRefreshUsage}
-            showUsageError={showUsageError}
-            onNavigate={onNavigate}
-            variant="banner"
-          />
+          <QuoteUsageWidget usage={usage} quoteUsageLabel={quoteUsageLabel} canCreate={canCreate} createBlockedMessage={createBlockedMessage} onRefreshUsage={onRefreshUsage} showUsageError={showUsageError} onNavigate={onNavigate} variant="banner" />
         </div>
-      </article>
-      <article className="dashboard-banner dashboard-banner-secondary">
-        <img src="/images/approval-banner.png" alt="" />
       </article>
     </section>
     <section className="metric-grid">
-      <Metric label="Tổng báo giá" value={data?.counts.total ?? "—"} icon="quote" tone="mint" />
-      <Metric label="Bản nháp" value={data?.counts.drafts ?? "—"} icon="file" tone="sand" />
-      <Metric label="Chờ duyệt" value={data?.counts.pending ?? "—"} icon="check" tone="lavender" action={canReview ? () => onNavigate("quotes") : undefined} />
-      <Metric label="Đã duyệt" value={data?.counts.approved ?? "—"} icon="download" tone="blue" />
+      <Metric label="Tổng báo giá" value={data?.counts.total ?? "—"} icon="quote" watermarkIcon="bars" tone="mint" note="Tất cả dự toán" />
+      <Metric label="Bản nháp" value={data?.counts.drafts ?? "—"} icon="file" tone="sand" note="Đang soạn thảo" />
+      <Metric label="Chờ duyệt" value={data?.counts.pending ?? "—"} icon="clock" tone="lavender" note="Đang chờ phê duyệt" action={canReview ? () => onNavigate("quotes") : undefined} />
+      <Metric label="Đã duyệt" value={data?.counts.approved ?? "—"} icon="check" tone="blue" note="Sẵn sàng sử dụng" />
     </section>
     <section className="content-card recent-card">
       <div className="card-heading">
         <div><h2>Dự toán gần đây</h2></div>
         <button className="text-button" onClick={() => onNavigate("quotes")}>Xem tất cả <Icon name="arrow" size={15} /></button>
       </div>
-      <QuoteCards quotes={data?.recent ?? []} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Chưa có báo giá nào" emptyText="" />
+      {data?.recent.length ? <QuoteCards quotes={data.recent} onOpen={onOpen} onDelete={onDeleteQuote} emptyTitle="Chưa có dự toán nào" emptyText="" /> : <div className="dashboard-empty-state"><img src="/images/quote-empty-3d.svg" alt="" /><h3>Chưa có dự toán nào</h3><p>Tạo dự toán đầu tiên để bắt đầu</p><button className="button button-primary" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={17} />Tạo dự toán</button></div>}
     </section>
   </div>;
 }
 
-function Metric({ label, value, icon, tone, action }: { label: string; value: number | string; icon: string; tone: string; action?: () => void }) {
-  return <button className={`metric-card tone-${tone} ${action ? "metric-action" : ""}`} onClick={action} disabled={!action}><span className="metric-watermark" aria-hidden="true"><Icon name={icon} size={88} /></span><span className="metric-top"><span>{label}</span><span className="metric-icon"><Icon name={icon} size={18} /></span></span><strong className="metric-value">{value}</strong></button>;
+function Metric({ label, value, icon, watermarkIcon, tone, note, action }: { label: string; value: number | string; icon: string; watermarkIcon?: string; tone: string; note: string; action?: () => void }) {
+  return <button className={`metric-card tone-${tone} ${action ? "metric-action" : ""}`} onClick={action} disabled={!action}><span className="metric-watermark" aria-hidden="true"><Icon name={watermarkIcon ?? icon} size={82} /></span><span className="metric-top"><span className="metric-icon"><Icon name={icon} size={25} /></span><span>{label}</span></span><strong className="metric-value">{value}</strong><span className="metric-note"><span className="metric-trend" aria-hidden="true">↗ {value === 0 ? "0%" : ""}</span><span>{value === 0 ? "so với tháng trước" : note}</span></span></button>;
 }
 
 type QuoteSortKey = "newest" | "oldest" | "total_desc" | "total_asc" | "customer";
@@ -738,6 +749,7 @@ function QuoteWorkspace({
   showUsageError,
   onDeleteQuote,
   onNavigate,
+  userName,
 }: {
   onOpen: (id: string) => void;
   onCreate: () => void;
@@ -748,7 +760,8 @@ function QuoteWorkspace({
   onRefreshUsage: () => void;
   showUsageError: boolean;
   onDeleteQuote: (quote: Quote) => void;
-  onNavigate?: (section: Section) => void;
+  onNavigate: (section: Section) => void;
+  userName: string;
 }) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -800,7 +813,7 @@ function QuoteWorkspace({
   // Phím tắt / để focus vào ô tìm kiếm
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+      if ((e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) || (e.key === "/" && !e.metaKey && !e.ctrlKey && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA")) {
         e.preventDefault();
         searchInputRef.current?.focus();
       }
@@ -822,20 +835,15 @@ function QuoteWorkspace({
 
   return (
     <div className="page-stack quote-workspace-page">
+      <div className="quote-workspace-topbar">
+        <button type="button" className="quote-top-icon" aria-label="Cài đặt tài khoản" onClick={() => onNavigate("profile")}><Icon name="settings" size={20} /></button>
+        <button type="button" className="quote-top-avatar" aria-label="Trang cá nhân" onClick={() => onNavigate("profile")}>{userName.trim().charAt(0).toLocaleUpperCase("vi") || "U"}</button>
+      </div>
       {/* HEADER ROW */}
       <section className="page-heading-row quote-workspace-header">
         <div className="quote-workspace-heading-left">
-          <h1>Dự toán</h1>
-          <QuoteUsageWidget
-            usage={usage}
-            quoteUsageLabel={quoteUsageLabel}
-            canCreate={canCreate}
-            createBlockedMessage={createBlockedMessage}
-            onRefreshUsage={onRefreshUsage}
-            showUsageError={showUsageError}
-            onNavigate={onNavigate}
-            variant="workspace"
-          />
+          <span className="quote-heading-icon"><Icon name="quote" size={26} /></span>
+          <div><h1>Dự toán</h1><p>Quản lý và tạo dự toán nhanh chóng, chính xác</p></div>
         </div>
         <div className="page-heading-actions">
           {loadFailed && (
@@ -853,6 +861,7 @@ function QuoteWorkspace({
           </button>
         </div>
       </section>
+      <QuoteUsageWidget usage={usage} quoteUsageLabel={quoteUsageLabel} canCreate={canCreate} createBlockedMessage={createBlockedMessage} onRefreshUsage={onRefreshUsage} showUsageError={showUsageError} onNavigate={onNavigate} variant="workspace" />
 
       {/* QUICK KPI MINI STRIP */}
       {stats.total > 0 && (
@@ -987,7 +996,7 @@ function QuoteWorkspace({
                 </button>
               </div>
             ) : (
-              <EmptyState title="Chưa có bản báo giá nào" text="Bắt đầu tạo bản báo giá đầu tiên từ yêu cầu của khách hàng." />
+              <div className="quote-empty-action"><EmptyState title="Chưa có bản báo giá nào" text="Bắt đầu tạo bản báo giá đầu tiên từ yêu cầu của khách hàng." /><button type="button" className="button button-primary quote-create-button" disabled={!canCreate} onClick={onCreate}><Icon name="plus" size={20} />Tạo dự toán mới</button></div>
             )}
           </div>
         ) : (
@@ -1068,6 +1077,8 @@ async function loadQuoteOptions(): Promise<QuoteOptions> {
 
 function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplate, onQuotaExceeded }: { onClose: () => void; onCreated: (id: string) => void; canManageTemplate: boolean; onManageTemplate: () => void; onQuotaExceeded: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const filePickerOpen = useRef(false);
+  const ignoreDialogCancelUntil = useRef(0);
   const [options, setOptions] = useState<QuoteOptions>({ templates: [], defaultTemplateId: null, productsAvailable: false });
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -1075,6 +1086,19 @@ function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplat
   const notify = useAppNotification();
   const setError = useCallback((message: string) => { if (message) notify(message, "error"); }, [notify]);
   const [reloadKey, setReloadKey] = useState(0);
+  const markFilePickerOpen = useCallback(() => {
+    filePickerOpen.current = true;
+    ignoreDialogCancelUntil.current = 0;
+  }, []);
+  const markFilePickerDismissed = useCallback(() => {
+    if (!filePickerOpen.current) return;
+    filePickerOpen.current = false;
+    ignoreDialogCancelUntil.current = Date.now() + 1200;
+  }, []);
+  const markFileSelected = useCallback(() => {
+    filePickerOpen.current = false;
+    ignoreDialogCancelUntil.current = 0;
+  }, []);
   useEffect(() => {
     const element = dialog.current!;
     const previousFocus = document.activeElement as HTMLElement | null;
@@ -1084,18 +1108,29 @@ function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplat
     return () => { element.close(); document.body.style.overflow = previousOverflow; previousFocus?.focus(); };
   }, []);
   useEffect(() => {
+    window.addEventListener("focus", markFilePickerDismissed);
+    return () => window.removeEventListener("focus", markFilePickerDismissed);
+  }, [markFilePickerDismissed]);
+  useEffect(() => {
     let active = true;
     setLoading(true); setLoadFailed(false);
     loadQuoteOptions().then((value) => { if (active) setOptions(value); }).catch((cause) => { if (active) { setLoadFailed(true); setError(cause instanceof Error ? cause.message : "Không tải được mẫu báo giá và danh mục sản phẩm."); } }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [reloadKey, setError]);
-  return <dialog ref={dialog} className="template-dialog quote-creation-dialog" aria-labelledby="new-quote-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+  return <dialog ref={dialog} className="template-dialog quote-creation-dialog" aria-labelledby="new-quote-title" onCancel={(event) => {
+    event.preventDefault();
+    if (filePickerOpen.current || Date.now() < ignoreDialogCancelUntil.current) {
+      markFilePickerDismissed();
+      return;
+    }
+    if (!busy) onClose();
+  }}>
     <div className="settings-card-heading"><h2 id="new-quote-title">Tạo dự toán mới</h2><button type="button" autoFocus className="icon-button" aria-label="Đóng popup tạo dự toán" disabled={busy} onClick={onClose}><Icon name="close" /></button></div>
-    <div className="quote-creation-body" aria-busy={busy || loading}>{loading ? <TaskProgress label="Đang tải mẫu và danh mục sản phẩm" detail="Chuẩn bị biểu mẫu tạo báo giá…" /> : loadFailed ? <div className="empty-state"><button className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div> : <NewQuote options={options} canManageTemplate={canManageTemplate} onManageTemplate={onManageTemplate} onCreated={onCreated} onBusyChange={setBusy} onQuotaExceeded={onQuotaExceeded} />}</div>
+    <div className="quote-creation-body" aria-busy={busy || loading}>{loading ? <TaskProgress label="Đang tải mẫu và danh mục sản phẩm" detail="Chuẩn bị biểu mẫu tạo báo giá…" /> : loadFailed ? <div className="empty-state"><button className="button button-soft" onClick={() => setReloadKey((key) => key + 1)}>Tải lại</button></div> : <NewQuote options={options} canManageTemplate={canManageTemplate} onManageTemplate={onManageTemplate} onCreated={onCreated} onBusyChange={setBusy} onQuotaExceeded={onQuotaExceeded} onFilePickerOpen={markFilePickerOpen} onFilePickerDismissed={markFilePickerDismissed} onFileSelected={markFileSelected} />}</div>
   </dialog>;
 }
 
-function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onBusyChange, onQuotaExceeded }: { onBusyChange: (busy: boolean) => void; onManageTemplate: () => void; onQuotaExceeded: () => void; canManageTemplate: boolean; options: QuoteOptions; onCreated: (id: string) => void }) {
+function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onBusyChange, onQuotaExceeded, onFilePickerOpen, onFilePickerDismissed, onFileSelected }: { onBusyChange: (busy: boolean) => void; onManageTemplate: () => void; onQuotaExceeded: () => void; onFilePickerOpen: () => void; onFilePickerDismissed: () => void; onFileSelected: () => void; canManageTemplate: boolean; options: QuoteOptions; onCreated: (id: string) => void }) {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [templateId, setTemplateId] = useState(options.templates.find((entry) => entry.id === options.defaultTemplateId)?.id ?? options.templates[0]?.id ?? "");
   const [requestFile, setRequestFile] = useState<File | null>(null);
@@ -1118,6 +1153,17 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
 
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
+  useEffect(() => {
+    const input = fileInput.current;
+    if (!input) return;
+    const handlePickerCancel = (event: Event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onFilePickerDismissed();
+    };
+    input.addEventListener("cancel", handlePickerCancel);
+    return () => input.removeEventListener("cancel", handlePickerCancel);
+  }, [onFilePickerDismissed]);
 
   const analyze = async (event: FormEvent) => {
     event.preventDefault();
@@ -1245,7 +1291,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
               <label>Email (không bắt buộc)<input type="email" value={customerEmail} maxLength={250} disabled={locked} autoComplete="email" onChange={(event) => setCustomerEmail(event.target.value)} placeholder="email@congty.vn" /></label><label>Số điện thoại (không bắt buộc)<input type="tel" autoComplete="tel" maxLength={50} value={customerPhone} disabled={locked} onChange={(event) => setCustomerPhone(event.target.value)} placeholder="Số điện thoại khách hàng" /></label>
             </div>}
             <label className="request-text-label">Yêu cầu của khách hàng<textarea value={requestText} onChange={(event) => setRequestText(event.target.value)} placeholder="Mô tả sản phẩm, số lượng, quy cách khách hàng cần…" rows={4} maxLength={10000} required={!requestFile} disabled={locked} /></label>
-            <label className="request-upload-label">Hoặc tải file yêu cầu<input className="request-file-input" ref={fileInput} type="file" accept=".pdf,.docx,.txt,.xlsx,.xls,.csv" disabled={locked} onChange={(event) => { setRequestFile(event.target.files?.[0] ?? null); uploadedFile.current = null; setError(""); }} /><span className="request-file-control"><span className="request-file-trigger">Chọn file</span><span className="request-file-name">{requestFile?.name ?? "Chưa chọn file"}</span></span><span className="field-hint">PDF, Word, TXT, Excel, CSV · Tối đa 10 MB</span></label>
+            <label className="request-upload-label">Hoặc tải file yêu cầu<input className="request-file-input" ref={fileInput} type="file" accept=".pdf,.docx,.txt,.xlsx,.xls,.csv" disabled={locked} onClick={onFilePickerOpen} onChange={(event) => { onFileSelected(); setRequestFile(event.target.files?.[0] ?? null); uploadedFile.current = null; setError(""); }} /><span className="request-file-control"><span className="request-file-trigger">Chọn file</span><span className="request-file-name">{requestFile?.name ?? "Chưa chọn file"}</span></span><span className="field-hint">PDF, Word, TXT, Excel, CSV · Tối đa 10 MB</span></label>
             {requestFile && <div className="request-file-selection"><button type="button" className="text-button" onClick={() => setPreviewFile({ name: requestFile.name, file: requestFile })}>Xem trước file</button><button type="button" className="text-button" disabled={locked} onClick={() => { setRequestFile(null); uploadedFile.current = null; if (fileInput.current) fileInput.current.value = ""; }}>Bỏ file</button></div>}
             {!analysis && <button className="button button-primary analyze-button" type="submit" disabled={busy || !templateId || (!requestText.trim() && !requestFile)}>{busy ? <span className="spinner" /> : <Icon name="spark" size={17} />}{busy ? "Đang phân tích…" : "Phân tích & tạo bản nháp"}<Icon name="arrow" size={16} /></button>}
             {requestId && <button type="button" className="text-button" disabled={busy} onClick={editRequest}>Chỉnh sửa yêu cầu</button>}

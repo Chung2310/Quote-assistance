@@ -1085,3 +1085,414 @@
     max-width: 100%;
   }
 }
+
+/* Customer quote workspace: polished layout matching the blue reference screen. */
+#root .customer-quotes-page {
+  width: 100%;
+  max-width: 1340px;
+  gap: 20px;
+  color: #14233e;
+}
+
+#root .customer-quotes-page .cq-header-banner {
+  min-height: 130px;
+  padding: 22px 34px;
+  border: 1px solid #d9edfc;
+  border-radius: 17px;
+  background-color: #eff8ff;
+  background-image:
+    linear-gradient(90deg, rgba(246, 251, 255, .98) 0%, rgba(246, 251, 255, .91) 42%, rgba(246, 251, 255, .12) 100%),
+    url('/images/quote-banner.png');
+  background-repeat: no-repeat;
+  background-position: center, right center;
+  background-size: 100% 100%, 520px auto;
+  box-shadow: 0 8px 24px rgba(57, 132, 184, .045);
+}
+
+#root .customer-quotes-page .cq-header-banner::before {
+  top: -70px;
+  right: 28%;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle, rgba(54, 176, 247, .12) 0%, transparent 70%);
+}
+
+#root .customer-quotes-page .cq-header-copy h1 {
+  margin: 0;
+  color: #10213d !important;
+  font-size: 30px;
+  font-weight: 500 !important;
+  letter-spacing: -.65px;
+  line-height: 1.2;
+}
+
+#root .customer-quotes-page .cq-header-actions,
+#root .customer-quotes-page .cq-header-copy {
+  position: relative;
+  z-index: 1;
+}
+
+#root .customer-quotes-page .cq-create-btn {
+  min-height: 52px;
+  height: 52px;
+  padding: 0 22px;
+  gap: 10px;
+  border: 1px solid rgba(0, 141, 237, .35);
+  border-radius: 17px;
+  background: linear-gradient(112deg, #08aaf4 0%, #078cf0 100%);
+  box-shadow: 0 9px 20px rgba(0, 146, 235, .18);
+  color: #fff !important;
+  font-size: 14px;
+  font-weight: 600 !important;
+  transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+}
+
+#root .customer-quotes-page .cq-create-btn,
+#root .customer-quotes-page .cq-create-btn * {
+  color: #fff !important;
+  font-weight: 500 !important;
+}
+
+#root .customer-quotes-page .cq-create-btn:hover {
+  transform: translateY(-1px);
+  filter: saturate(1.08);
+  box-shadow: 0 12px 23px rgba(0, 146, 235, .24);
+}
+
+#root .customer-quotes-page .cq-kpi-grid {
+  gap: 16px;
+}
+
+#root .customer-quotes-page .cq-kpi-card {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  box-sizing: border-box;
+  height: 165px;
+  min-width: 0;
+  min-height: 165px;
+  padding: 20px 21px;
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  grid-template-rows: 25px 36px minmax(0, 1fr);
+  column-gap: 23px;
+  row-gap: 0;
+  border: 1px solid #e2edf6;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 6px 18px rgba(33, 88, 128, .045);
+  cursor: default;
+}
+
+#root .customer-quotes-page .cq-kpi-card::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  right: -30px;
+  bottom: -46px;
+  width: 150px;
+  height: 118px;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+#root .customer-quotes-page .cq-kpi-card:has(.tone-blue)::after { background: radial-gradient(ellipse, rgba(26, 151, 245, .13) 0%, rgba(26, 151, 245, .045) 52%, transparent 73%); }
+#root .customer-quotes-page .cq-kpi-card:has(.tone-green)::after { background: radial-gradient(ellipse, rgba(16, 185, 129, .13) 0%, rgba(16, 185, 129, .045) 52%, transparent 73%); }
+#root .customer-quotes-page .cq-kpi-card:has(.tone-amber)::after { background: radial-gradient(ellipse, rgba(245, 158, 11, .14) 0%, rgba(245, 158, 11, .045) 52%, transparent 73%); }
+#root .customer-quotes-page .cq-kpi-card:has(.tone-purple)::after { background: radial-gradient(ellipse, rgba(139, 92, 246, .13) 0%, rgba(139, 92, 246, .045) 52%, transparent 73%); }
+
+#root .customer-quotes-page .cq-kpi-label,
+#root .customer-quotes-page .cq-kpi-value,
+#root .customer-quotes-page .cq-kpi-sub,
+#root .customer-quotes-page .cq-kpi-icon { position: relative; z-index: 1; }
+
+#root .customer-quotes-page .cq-kpi-card:hover {
+  transform: none;
+  border-color: #e2edf6;
+  box-shadow: 0 6px 18px rgba(33, 88, 128, .045);
+}
+
+#root .customer-quotes-page .cq-kpi-top,
+#root .customer-quotes-page .cq-kpi-body {
+  display: contents;
+}
+
+#root .customer-quotes-page .cq-kpi-label {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: center;
+  color: #253852 !important;
+  font-size: 14px;
+  font-weight: 400 !important;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+#root .customer-quotes-page .cq-kpi-icon {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  align-self: start;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+}
+
+#root .customer-quotes-page .cq-kpi-icon svg {
+  width: 27px;
+  height: 27px;
+}
+
+#root .customer-quotes-page .cq-kpi-icon.tone-blue { background: #e3f5ff; color: #078fea; }
+#root .customer-quotes-page .cq-kpi-icon.tone-green { background: #dcf8ee; color: #07976a; }
+#root .customer-quotes-page .cq-kpi-icon.tone-amber { background: #fff1d9; color: #b85d00; }
+#root .customer-quotes-page .cq-kpi-icon.tone-purple { background: #f1e8ff; color: #793ce1; }
+#root .customer-quotes-page .cq-kpi-icon.tone-blue svg,
+#root .customer-quotes-page .cq-kpi-icon.tone-blue svg * { color: #078fea !important; stroke: #078fea !important; }
+#root .customer-quotes-page .cq-kpi-icon.tone-green svg,
+#root .customer-quotes-page .cq-kpi-icon.tone-green svg * { color: #07976a !important; stroke: #07976a !important; }
+#root .customer-quotes-page .cq-kpi-icon.tone-amber svg,
+#root .customer-quotes-page .cq-kpi-icon.tone-amber svg * { color: #b85d00 !important; stroke: #b85d00 !important; }
+#root .customer-quotes-page .cq-kpi-icon.tone-purple svg,
+#root .customer-quotes-page .cq-kpi-icon.tone-purple svg * { color: #793ce1 !important; stroke: #793ce1 !important; }
+
+#root .customer-quotes-page .cq-kpi-value {
+  grid-column: 2;
+  grid-row: 2;
+  align-self: center;
+  color: #10213d !important;
+  font-size: 29px;
+  font-weight: 600 !important;
+  letter-spacing: -.6px;
+  line-height: 1;
+}
+
+#root .customer-quotes-page .cq-kpi-sub {
+  grid-column: 2;
+  grid-row: 3;
+  align-self: end;
+  color: #5e7190 !important;
+  font-size: 10px;
+  font-weight: 400 !important;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+#root .customer-quotes-page .cq-content-card {
+  min-height: 495px;
+  border: 1px solid #e2edf6;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 7px 22px rgba(42, 91, 130, .045);
+}
+
+#root .customer-quotes-page .cq-toolbar {
+  min-height: 92px;
+  box-sizing: border-box;
+  flex-wrap: nowrap;
+  gap: 16px;
+  padding: 17px 20px;
+  border-bottom: 1px solid #e8eef5;
+  background: linear-gradient(180deg, #fcfdff 0%, #f9fbfd 100%);
+}
+
+#root .customer-quotes-page .cq-search-box {
+  flex: 1 1 420px;
+  max-width: 630px;
+  min-width: 220px;
+}
+
+#root .customer-quotes-page .cq-search-icon {
+  left: 16px;
+  width: 19px;
+  height: 19px;
+  color: #263b5b;
+}
+
+#root .customer-quotes-page .cq-search-input {
+  box-sizing: border-box;
+  height: 52px;
+  padding: 0 16px 0 46px;
+  border: 1px solid #dce6f0;
+  border-radius: 15px;
+  color: #182943;
+  font-size: 14px;
+  box-shadow: inset 0 1px 2px rgba(35, 71, 105, .025);
+}
+
+#root .customer-quotes-page .cq-search-input::placeholder { color: #8493aa; opacity: 1; }
+#root .customer-quotes-page .cq-search-input:focus { border-color: #65c4ff; box-shadow: 0 0 0 3px rgba(0, 161, 245, .12); }
+
+#root .customer-quotes-page .cq-filter-pills {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-end;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+#root .customer-quotes-page .cq-filter-btn {
+  flex: none;
+  height: 42px;
+  padding: 0 13px;
+  border: 1px solid #e0e8f0;
+  border-radius: 999px;
+  background: #fff;
+  color: #263852 !important;
+  font-size: 12px;
+  font-weight: 500 !important;
+  box-shadow: 0 2px 5px rgba(29, 63, 95, .025);
+}
+
+#root .customer-quotes-page .cq-filter-btn:hover {
+  border-color: #9ed8ff;
+  background: #f6fbff;
+  color: #122844 !important;
+}
+
+#root .customer-quotes-page .cq-filter-btn.active {
+  border-color: #079cf4;
+  background: linear-gradient(120deg, #f1faff 0%, #e2f5ff 100%);
+  color: #10213d !important;
+  font-weight: 600 !important;
+  box-shadow: 0 3px 10px rgba(0, 156, 244, .09);
+}
+
+#root .customer-quotes-page .cq-filter-count {
+  min-width: 22px;
+  height: 22px;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: #f0f3f7;
+  color: #263852 !important;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+
+#root .customer-quotes-page .cq-filter-btn.active .cq-filter-count {
+  background: #d4efff;
+  color: #17324c !important;
+}
+
+#root .customer-quotes-page .cq-table-responsive {
+  flex: 1 1 auto;
+  min-height: 397px;
+  display: flex;
+  align-items: stretch;
+}
+
+#root .customer-quotes-page .cq-empty-state {
+  flex: 1 1 auto;
+  min-height: 397px;
+  box-sizing: border-box;
+  padding: 35px 24px 42px;
+  gap: 12px;
+}
+
+#root .customer-quotes-page .cq-empty-icon {
+  width: 84px;
+  height: 84px;
+  margin: 0 0 4px;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #edf8ff 0%, #e7f4fc 100%);
+  color: #14233e !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9);
+}
+
+#root .customer-quotes-page .cq-empty-icon svg {
+  width: 31px;
+  height: 31px;
+}
+
+#root .customer-quotes-page .cq-empty-state h3 {
+  margin: 0;
+  color: #16243d !important;
+  font-size: 19px;
+  font-weight: 500 !important;
+  letter-spacing: -.2px;
+}
+
+#root .customer-quotes-page .cq-empty-state p {
+  max-width: 490px;
+  margin: 0 0 5px;
+  color: #627493 !important;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+#root .customer-quotes-page .cq-empty-state .cq-create-btn {
+  min-height: 52px;
+  height: 52px;
+  margin-top: 2px !important;
+  padding: 0 25px;
+  border-radius: 17px;
+  font-size: 14px;
+}
+
+#root .customer-quotes-page .cq-loading-state {
+  flex: 1;
+  justify-content: center;
+  color: #627493 !important;
+}
+
+#root .customer-quotes-page .cq-table thead { background: #f8fbfe; }
+#root .customer-quotes-page .cq-table th { color: #60718d !important; }
+#root .customer-quotes-page .cq-table td { border-color: #edf2f7; }
+#root .customer-quotes-page .cq-customer-name,
+#root .customer-quotes-page .cq-amount-cell { color: #172640 !important; }
+
+@media (max-width: 1120px) {
+  #root .customer-quotes-page .cq-toolbar { flex-wrap: wrap; }
+  #root .customer-quotes-page .cq-search-box { flex-basis: 100%; max-width: none; }
+  #root .customer-quotes-page .cq-filter-pills { justify-content: flex-start; }
+}
+
+@media (max-width: 900px) {
+  #root .customer-quotes-page .cq-header-banner { min-height: 116px; padding: 20px 24px; }
+  #root .customer-quotes-page .cq-header-copy h1 { font-size: 25px; }
+  #root .customer-quotes-page .cq-kpi-card { height: 150px; min-height: 150px; }
+}
+
+@media (max-width: 640px) {
+  #root .customer-quotes-page { gap: 14px; }
+  #root .customer-quotes-page .cq-header-banner {
+    min-height: 0;
+    align-items: stretch;
+    gap: 17px;
+    padding: 20px;
+    background-size: 100% 100%, 360px auto;
+  }
+  #root .customer-quotes-page .cq-header-copy h1 { font-size: 23px; }
+  #root .customer-quotes-page .cq-header-actions { width: 100%; }
+  #root .customer-quotes-page .cq-header-actions .cq-create-btn { width: 100%; height: 46px; min-height: 46px; justify-content: center; }
+  #root .customer-quotes-page .cq-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  #root .customer-quotes-page .cq-kpi-card { height: 132px; min-height: 132px; padding: 14px; grid-template-columns: 42px minmax(0, 1fr); grid-template-rows: 22px 32px minmax(0, 1fr); column-gap: 10px; }
+  #root .customer-quotes-page .cq-kpi-icon { width: 42px; height: 42px; border-radius: 13px; }
+  #root .customer-quotes-page .cq-kpi-icon svg { width: 22px; height: 22px; }
+  #root .customer-quotes-page .cq-kpi-label { font-size: 11px; }
+  #root .customer-quotes-page .cq-kpi-value { font-size: 24px; }
+  #root .customer-quotes-page .cq-kpi-sub { font-size: 9px; }
+  #root .customer-quotes-page .cq-content-card { min-height: 500px; }
+  #root .customer-quotes-page .cq-toolbar { min-height: 0; padding: 14px; gap: 12px; }
+  #root .customer-quotes-page .cq-search-input { height: 46px; }
+  #root .customer-quotes-page .cq-filter-pills { width: 100%; }
+  #root .customer-quotes-page .cq-filter-btn { height: 38px; padding: 0 11px; }
+  #root .customer-quotes-page .cq-table-responsive,
+  #root .customer-quotes-page .cq-empty-state { min-height: 340px; }
+  #root .customer-quotes-page .cq-empty-state { padding: 28px 18px; }
+  #root .customer-quotes-page .cq-empty-icon { width: 70px; height: 70px; border-radius: 19px; }
+  #root .customer-quotes-page .cq-empty-state h3 { font-size: 17px; }
+  #root .customer-quotes-page .cq-empty-state p { font-size: 13px; }
+  #root .customer-quotes-page .cq-empty-state .cq-create-btn { width: auto; max-width: 100%; height: 48px; min-height: 48px; padding: 0 16px; }
+}
+
+@media (max-width: 380px) {
+  #root .customer-quotes-page .cq-kpi-grid { grid-template-columns: 1fr; }
+  #root .customer-quotes-page .cq-kpi-card { height: 120px; min-height: 120px; }
+}
+
+#root .customer-quotes-page .cq-create-btn {
+  border-radius: 999px !important;
+}
