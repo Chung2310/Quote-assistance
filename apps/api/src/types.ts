@@ -164,6 +164,7 @@ export interface QuoteLine {
   name: string;
   description?: string;
   quantity: number;
+  quantityUnknown?: boolean;
   unit: string;
   unitPrice: number;
   priceFromCurrentCatalog?: boolean;
@@ -172,10 +173,13 @@ export interface QuoteLine {
   catalogAttributes?: Record<string, string>;
   attributes: Record<string, string>;
   lineTotal: number;
+  lineTotalUnknown?: boolean;
 }
 
 export interface Quote {
-  kind?: "estimate" | "customer";
+  kind?: "estimate" | "customer" | "budget";
+  sourceQuote?: { id: string; quoteNumber: string };
+  sourceRequirements?: string;
   customerPricesCaptured?: boolean;
   missingProducts?: string[];
   priceList?: { id: string; originalFilename: string };
@@ -193,6 +197,7 @@ export interface Quote {
   customerPhone?: string;
   lines: QuoteLine[];
   subtotal: number;
+  subtotalUnknown?: boolean;
   taxRate: number;
   taxRateConfirmed?: boolean;
   taxAmount: number;
@@ -201,6 +206,7 @@ export interface Quote {
   validityDays?: number | null;
   completionDate?: string | null;
   total: number;
+  totalUnknown?: boolean;
   currency: string;
   informationNeeded: string[];
   additionalInformation?: Record<string, string>;
@@ -221,6 +227,9 @@ export interface TemplateFillPlan {
 }
 
 export interface XlsxTemplateFillPlan {
+  tableHeaderRow?: number;
+  tableEndRow?: number;
+  tableProductRows?: number[];
   cells: Array<{ key: string; sheet: string; cell: string }>;
   lineRows: Array<{
     sheet: string;

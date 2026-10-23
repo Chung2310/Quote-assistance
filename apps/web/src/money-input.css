@@ -1,0 +1,4 @@
+.money-input { position: relative; display: inline-flex; align-items: center; width: 100%; min-width: 0; }
+.money-input input { width: 100%; min-width: 0; padding-right: 34px !important; font-variant-numeric: tabular-nums; }
+.money-input-currency { position: absolute; right: 11px; color: #64748b; font-size: 12px; font-weight: 600; pointer-events: none; }
+.quote-fee-row .money-input { flex: 1; }
