@@ -17,11 +17,13 @@ import { requestFileContent, type RequestFile } from "./request-file.js";
 import { decryptCompanySecret, encryptCompanySecret } from "./secrets.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
+import { estimateFromCustomerQuote } from "./quote-from-customer.js";
+import { adjustEstimateWithRequirements } from "./quote-estimate-adjustment.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
-import { makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
+import { budgetPlanAsQuote, makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
-import { currentTemplate, getOrCreateTemplateFillPlan, getOrCreateXlsxTemplateFillPlan, inspectTemplate, previewDocxHtml, renderCustomerXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
+import { currentTemplate, getOrCreateTemplateFillPlan, inspectTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
@@ -51,7 +53,7 @@ function quoteForResponse(quote: Quote): Quote {
   if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
   if (!shippingFeeConfirmed && !informationNeeded.some(isShippingInformation)) informationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
   const unresolved = informationNeeded.some((field) => isSupplementalProductInformation(field)
-    ? !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field)
+    ? !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field && !line.priceUnavailable)
     : !quote.additionalInformation?.[field]?.trim())
     || !taxRateConfirmed || !shippingFeeConfirmed;
   const status = quote.status === "draft" || quote.status === "needs_info"
@@ -93,7 +95,7 @@ async function customerQuoteWithPrices(db: Db, quote: Quote): Promise<Quote> {
 function quoteHasUnresolvedInformation(quote: Quote) {
   const normalized = quoteForResponse(quote);
   return normalized.informationNeeded.some((field) => isSupplementalProductInformation(field)
-    ? !normalized.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field)
+    ? !normalized.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field && !line.priceUnavailable)
     : !normalized.additionalInformation?.[field]?.trim())
     || !normalized.taxRateConfirmed || !normalized.shippingFeeConfirmed;
 }
@@ -116,6 +118,7 @@ async function quoteInputContext(db: Db, quote: Quote) {
     }
   }
   return [
+    quote.sourceRequirements ?? "",
     source?.requestText ?? "",
     attachedText,
     ...(source?.items ?? []).flatMap((item) => Object.entries(item.attributes ?? {}).flat()),
@@ -2123,12 +2126,27 @@ app.patch("/api/budget-plans/:id", requireRole("user"), async (request, response
 app.get("/api/budget-plans/:id/export", requireRole("user"), async (request, response) => {
   const id = asId(request.params.id);
   if (!id) return fail(response, "Mã phương án không hợp lệ.");
-  const plan = await (await connectDatabase()).collection<SavedBudgetPlan>("budgetPlans")
+  const db = await connectDatabase();
+  const plan = await db.collection<SavedBudgetPlan>("budgetPlans")
     .findOne({ _id: id, companyId: userOf(request).companyId });
   if (!plan) return fail(response, "Không tìm thấy phương án.", 404);
+  const templateId = request.query.templateId === undefined || request.query.templateId === "none" ? null : asId(String(request.query.templateId));
+  if (request.query.templateId !== undefined && request.query.templateId !== "none" && !templateId) return fail(response, "Mã mẫu Excel không hợp lệ.");
+  let bytes: Buffer;
+  if (templateId) {
+    const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: plan.companyId, deletedAt: { $exists: false } });
+    if (!template) return fail(response, "Không tìm thấy mẫu Excel.", 404);
+    if (template.extension !== "xlsx") return fail(response, "Hãy chọn mẫu Excel (.xlsx).", 422);
+    try {
+      const quote = budgetPlanAsQuote(plan);
+      bytes = await renderAiMappedXlsxTemplate(template, quote, plan.input.description);
+    } catch (error) {
+      return fail(response, error instanceof Error ? error.message : "Không xuất được phương án theo mẫu Excel.", 422);
+    }
+  } else bytes = makeBudgetPlanExcel(plan);
   response.setHeader("Content-Type", templateFormats.xlsx);
   response.setHeader("Content-Disposition", `attachment; filename="phuong-an-${id.toHexString()}.xlsx"`);
-  response.send(makeBudgetPlanExcel(plan));
+  response.send(bytes);
 });
 
 app.post("/api/budget-plans/suggest", requireRole("user"), async (request, response) => {
@@ -2214,6 +2232,49 @@ app.post("/api/customer-quotes", requireRole("user"), async (request, response) 
   const result = await quotes.insertOne(quote);
   await writeAudit(db, user, "customer_quote_created", "quote", result.insertedId.toHexString(), { quoteNumber: quote.quoteNumber, productCount: quote.lines.length });
   response.status(201).json({ quote: quoteForResponse({ ...quote, _id: result.insertedId }) });
+});
+
+app.post("/api/quotes/from-customer", requireRole("user"), async (request, response) => {
+  const sourceId = asId(String(request.body?.sourceQuoteId ?? ""));
+  const templateId = asId(String(request.body?.templateId ?? ""));
+  const idempotencyKey = request.body?.idempotencyKey;
+  const sourceRequirements = request.body?.sourceRequirements ?? "";
+  if (!sourceId || !templateId || !validText(idempotencyKey, 100)) return fail(response, "Hãy chọn báo giá khách và mẫu dự toán hợp lệ.");
+  if (typeof sourceRequirements !== "string" || sourceRequirements.length > 10_000) return fail(response, "Yêu cầu bổ sung không hợp lệ hoặc vượt quá 10.000 ký tự.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const quotes = db.collection<Quote>("quotes");
+  const existing = await quotes.findOne({ companyId: user.companyId, idempotencyKey });
+  if (existing) return response.json({ quote: quoteForResponse(existing) });
+  const usage = await subscriptionUsage(db, user.companyId);
+  if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
+  const [source, template] = await Promise.all([
+    quotes.findOne({ _id: sourceId, companyId: user.companyId, kind: "customer" }),
+    db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }),
+  ]);
+  if (!source) return fail(response, "Không tìm thấy báo giá khách đã chọn.", 404);
+  if (!template) return fail(response, "Không tìm thấy mẫu dự toán đã chọn.", 404);
+  if (!source.lines.length && !source.missingProducts?.length) return fail(response, "Báo giá khách chưa có sản phẩm để tạo dự toán.");
+  if (source.lines.length + (source.missingProducts?.length ?? 0) > 100) return fail(response, "Dự toán hỗ trợ tối đa 100 sản phẩm.");
+  const year = new Date().getFullYear();
+  const counter = await db.collection<{ _id: string; value: number }>("counters").findOneAndUpdate(
+    { _id: `${user.companyId}:${year}` }, { $inc: { value: 1 } }, { upsert: true, returnDocument: "after" },
+  );
+  let estimate: Quote;
+  try {
+    estimate = estimateFromCustomerQuote(
+      await customerQuoteWithPrices(db, source), sourceId.toHexString(),
+      { id: templateId.toHexString(), name: template.name || template.originalFilename, originalFilename: template.originalFilename },
+      `BG-${year}-${String(counter?.value ?? 1).padStart(5, "0")}`, idempotencyKey, user.id, new Date(),
+    );
+    estimate.sourceRequirements = sourceRequirements.trim();
+    if (estimate.sourceRequirements) estimate = await withAiUsage(db, user, "estimate_from_customer_adjust", () => adjustEstimateWithRequirements(estimate, estimate.sourceRequirements!));
+  } catch (error) {
+    return fail(response, error instanceof Error ? error.message : "Không thể tạo dự toán từ báo giá khách.", error instanceof AiQuotaExceededError ? 429 : 422);
+  }
+  const result = await quotes.insertOne(estimate);
+  await writeAudit(db, user, "estimate_created_from_customer_quote", "quote", result.insertedId.toHexString(), { sourceQuoteId: sourceId.toHexString(), quoteNumber: estimate.quoteNumber, productCount: estimate.lines.length });
+  response.status(201).json({ quote: quoteForResponse({ ...estimate, _id: result.insertedId }) });
 });
 
 app.post("/api/quotes", requireRole("user"), async (request, response) => {
@@ -2383,7 +2444,7 @@ app.get("/api/quotes/:id", requireRole("user"), async (request, response) => {
     }
     quoteResponse = repairedQuote;
   }
-  response.json({ quote: { ...quoteResponse, requestText: source?.requestText ?? "" } });
+  response.json({ quote: { ...quoteResponse, requestText: quote.sourceRequirements || source?.requestText || "" } });
 });
 
 app.delete("/api/quotes/:id", requireRole("user"), async (request, response) => {
@@ -2593,6 +2654,9 @@ app.post("/api/quotes/:id/approve", requireRole("user"), async (request, respons
   const db = await connectDatabase();
   const user = userOf(request);
   const quotes = db.collection<Quote>("quotes");
+  const current = await quotes.findOne({ _id: id, companyId: user.companyId });
+  if (!current) return fail(response, "Không tìm thấy báo giá.", 404);
+  if (current.kind !== "customer" && quoteHasUnresolvedInformation(current)) return fail(response, "Hãy bổ sung đơn giá và thông tin còn thiếu trước khi duyệt dự toán.", 409);
   const approvableStatuses: QuoteStatus[] = ["draft", "needs_info", "pending_review"];
   const result = await quotes.findOneAndUpdate(
     {
@@ -2653,7 +2717,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       selected = null;
     }
     try {
-      const bytes = selected ? await renderCustomerXlsxTemplate(selected, quote) : makeQuoteExcel(quote);
+      const bytes = selected ? await renderAiMappedXlsxTemplate(selected, quote) : makeQuoteExcel(quote);
       response.setHeader("Content-Type", templateFormats.xlsx);
       response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx"`);
       response.send(bytes);
@@ -2663,13 +2727,23 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     return;
   }
   if (excelExport && quote.status === "approved") {
-    response.setHeader("Content-Type", templateFormats.xlsx);
-    response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.xlsx"`);
-    response.send(makeQuoteExcel(quote));
+    try {
+      const selected = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
+      const bytes = selected?.extension === "xlsx"
+        ? await renderAiMappedXlsxTemplate(selected, quote, await quoteInputContext(db, quote))
+        : makeQuoteExcel(quote);
+      response.setHeader("Content-Type", templateFormats.xlsx);
+      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.xlsx"`);
+      response.send(bytes);
+    } catch (error) {
+      return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu Excel.", 422);
+    }
     return;
   }
+  let templateWasXlsx = false;
   try {
     const template = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
+    templateWasXlsx = template?.extension === "xlsx";
     if (draftExport && quote.status === "approved") {
       return fail(response, "Báo giá đã duyệt; hãy tải file chính thức.", 409);
     }
@@ -2681,11 +2755,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     }
     const inputContext = await quoteInputContext(db, quote);
     let renderQuote = quote;
-    if (template?.extension === "xlsx") {
-      const plan = await getOrCreateXlsxTemplateFillPlan(db, template, quote, inputContext);
-      renderQuote = { ...quote, xlsxTemplateFillPlan: plan };
-      await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { xlsxTemplateFillPlan: plan } });
-    } else if (template) {
+    if (template && template.extension !== "xlsx") {
       const plan = await getOrCreateTemplateFillPlan(db, template, quote);
       renderQuote = { ...quote, templateFillPlan: plan };
       const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v4d" : "v4"}_${quote.lines.length}_${Object.values(quote.additionalInformation ?? {}).some((answer) => answer.trim()) ? "i1" : "i0"}`;
@@ -2693,7 +2763,8 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
         await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
       }
     }
-    const bytes = template ? await renderTemplate(template, renderQuote, inputContext) : await makePdfBuffer(quote);
+    const bytes = template?.extension === "xlsx" ? await renderAiMappedXlsxTemplate(template, quote, inputContext)
+      : template ? await renderTemplate(template, renderQuote, inputContext) : await makePdfBuffer(quote);
     const extension = template?.extension ?? "pdf";
     if (preview && extension === "docx") {
       response.type("html").setHeader("Content-Disposition", "inline").send(previewDocxHtml(bytes, `${quote.quoteNumber}.docx`));
@@ -2704,7 +2775,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     response.setHeader("Content-Disposition", `${preview ? "inline" : "attachment"}; filename="${filename}"`);
     response.send(bytes);
   } catch (error) {
-    if (draftExport && !response.headersSent) {
+    if (draftExport && !templateWasXlsx && !response.headersSent) {
       response.setHeader("Content-Type", templateFormats.xlsx);
       response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}-nhap.xlsx"`);
       response.send(makeQuoteExcel(quote));

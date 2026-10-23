@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, api, formatMoney } from "./api";
+import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
+import MoneyInput from "./MoneyInput";
+import { TaskProgress } from "./Feedback";
 import type { CatalogItem } from "./types";
 import "./budget-planner.css";
 
@@ -88,6 +91,10 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
   const [budget, setBudget] = useState("");
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [excelTemplates, setExcelTemplates] = useState<CustomerExcelTemplate[]>([]);
+  const [excelTemplateId, setExcelTemplateId] = useState("");
+  const [excelTemplatesLoading, setExcelTemplatesLoading] = useState(true);
+  const [excelTemplatesError, setExcelTemplatesError] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<PlanResult | null>(null);
   const [history, setHistory] = useState<SavedPlan[]>([]);
@@ -178,6 +185,15 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
   }, []);
 
   useEffect(() => {
+    let live = true;
+    listCustomerExcelTemplates()
+      .then(({ templates }) => { if (live) setExcelTemplates(templates); })
+      .catch((cause) => { if (live) setExcelTemplatesError(cause instanceof Error ? cause.message : "Không tải được danh sách mẫu Excel."); })
+      .finally(() => { if (live) setExcelTemplatesLoading(false); });
+    return () => { live = false; };
+  }, []);
+
+  useEffect(() => {
     if (dialogMode !== "view") return;
     let live = true;
     api<{ items: CatalogItem[] }>("/api/catalog")
@@ -225,12 +241,12 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
     }
   };
 
-  const exportExcel = async () => {
-    if (!selectedId || exporting) return;
+  const exportExcel = async (templateId: string) => {
+    if (!selectedId || !templateId || exporting) return;
     setExporting(true);
     setError("");
     try {
-      const response = await fetch(`/api/budget-plans/${selectedId}/export`, { credentials: "include" });
+      const response = await fetch(`/api/budget-plans/${selectedId}/export?templateId=${encodeURIComponent(templateId)}`, { credentials: "include" });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error || "Không xuất được phương án Excel.");
@@ -280,8 +296,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
     const inBudget = history.filter((p) => p.result.difference !== null && p.result.difference >= 0).length;
     const overBudget = history.filter((p) => p.result.difference !== null && p.result.difference < 0).length;
     const totalBudget = history.reduce((sum, p) => sum + (p.input.budget || 0), 0);
-    const avgBudget = total > 0 ? Math.round(totalBudget / total) : 0;
-    return { total, inBudget, overBudget, totalBudget, avgBudget };
+    return { total, inBudget, overBudget, totalBudget };
   }, [history]);
 
   // Filtered plans
@@ -370,23 +385,6 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
           </div>
         </div>
 
-        <div className="bp-kpi-card">
-          <div className="bp-kpi-top">
-            <span className="bp-kpi-label">Ngân sách TB</span>
-            <div className="bp-kpi-icon tone-purple">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <line x1="12" y1="1" x2="12" y2="23" />
-                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-              </svg>
-            </div>
-          </div>
-          <div className="bp-kpi-body">
-            <span className="bp-kpi-value">
-              {formatMoney(stats.avgBudget, "VND")}
-            </span>
-            <span className="bp-kpi-sub">Mức đầu tư trung bình mỗi dự án</span>
-          </div>
-        </div>
       </section>
 
       {/* Main Content: Plans History */}
@@ -531,7 +529,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                     </span>
 
                     <span className="bp-view-link">
-                      <span>Xem phương án</span>
+                      <span>Xem và xuất Excel theo mẫu</span>
                       <span aria-hidden="true">→</span>
                     </span>
                   </div>
@@ -595,7 +593,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
 
             {/* CREATE MODE */}
             {dialogMode === "create" && (
-              <form className="bp-create-form" onSubmit={(event) => void submit(event)}>
+              <form className="bp-create-form" aria-busy={busy} onSubmit={(event) => void submit(event)}>
                 {/* Presets */}
                 <div className="bp-presets-row">
                   <span className="bp-presets-label"><BudgetIcon name="lightbulb" size={15} /> Chọn nhanh kịch bản gợi ý mẫu:</span>
@@ -605,6 +603,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                         type="button"
                         key={idx}
                         className="bp-preset-chip"
+                        disabled={busy}
                         onClick={() => applyPreset(preset)}
                       >
                         {preset.label}
@@ -629,6 +628,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                       maxLength={3000}
                       rows={4}
                       value={description}
+                      disabled={busy}
                       onChange={(event) => setDescription(event.target.value)}
                       placeholder="Ví dụ: Lắp một bộ PC chơi game 1080p với RAM 32GB và SSD 1TB; hoặc cải tạo phòng ngủ 25m²."
                     />
@@ -646,20 +646,19 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                         <line x1="12" y1="1" x2="12" y2="23" />
                         <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
                       </svg>
-                      <input
+                      <MoneyInput
                         required
-                        type="number"
-                        min="1"
-                        max="1000000000000"
-                        step="1"
                         value={budget}
-                        onChange={(event) => setBudget(event.target.value)}
-                        placeholder="Ví dụ: 100000000"
+                        disabled={busy}
+                        onChange={setBudget}
+                        placeholder="Ví dụ: 100.000.000"
                       />
                     </div>
                   </div>
 
                 </div>
+
+                {busy && <TaskProgress label="AI đang tạo phương án tư vấn" detail="Đang đối chiếu nhu cầu với bảng giá và cân đối sản phẩm theo ngân sách…" />}
 
                 <div className="bp-ai-hint-box">
                   <span className="bp-ai-hint-icon"><BudgetIcon name="lightbulb" size={19} /></span>
@@ -677,7 +676,8 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                       busy ||
                       !description.trim() ||
                       !Number.isFinite(Number(budget)) ||
-                      Number(budget) <= 0
+                      Number(budget) <= 0 ||
+                      Number(budget) > 1e12
                     }
                   >
                     {busy ? <span className="spinner" /> : <BudgetIcon name="zap" size={16} />}
@@ -727,15 +727,6 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                       <button
                         type="button"
                         className="button button-soft button-compact"
-                        disabled={!selectedId || exporting || Boolean(saving)}
-                        onClick={() => void exportExcel()}
-                      >
-                        {exporting ? "Đang xuất…" : "Xuất Excel"}
-                      </button>
-
-                      <button
-                        type="button"
-                        className="button button-soft button-compact"
                         onClick={openCreate}
                       >
                         + Tạo phương án khác
@@ -744,6 +735,28 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                   </div>
 
                 </div>
+
+                <section className="bp-export-panel" aria-label="Xuất phương án Excel">
+                  <div className="bp-export-panel-heading">
+                    <strong>Xuất phương án ra Excel</strong>
+                    <span>Chọn mẫu đã lưu để điền dữ liệu phương án vào đúng bố cục của mẫu.</span>
+                  </div>
+                  <div className="bp-export-panel-controls">
+                    <label className="bp-export-template">
+                      <span>Mẫu Excel</span>
+                      <select value={excelTemplateId} onChange={(event) => setExcelTemplateId(event.target.value)} disabled={exporting || excelTemplatesLoading || Boolean(excelTemplatesError) || excelTemplates.length === 0}>
+                        <option value="">{excelTemplatesLoading ? "Đang tải mẫu…" : "Chọn mẫu Excel"}</option>
+                        {excelTemplates.map((template) => <option key={template.id} value={template.id}>{template.name || template.originalFilename}</option>)}
+                      </select>
+                    </label>
+                    <button type="button" className="button button-primary button-compact" disabled={!selectedId || !excelTemplateId || exporting || Boolean(saving)} onClick={() => void exportExcel(excelTemplateId)}>
+                      {exporting ? "Đang xuất…" : "Xuất theo mẫu"}
+                    </button>
+                  </div>
+                  {excelTemplatesError && <p className="bp-export-status" role="alert">{excelTemplatesError}</p>}
+                  {!excelTemplatesLoading && !excelTemplatesError && excelTemplates.length === 0 && <p className="bp-export-status">Chưa có mẫu Excel đã lưu để xuất phương án.</p>}
+                  {exporting && <TaskProgress label="AI đang đọc mẫu Excel và ghép dữ liệu" detail="Đang xác định các cột, thêm dòng sản phẩm và chuẩn bị file…" />}
+                </section>
 
                 {/* Financial KPI Strip */}
                 <div className="bp-result-kpi-grid">
@@ -953,7 +966,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                             <input aria-label="Mã SKU mới" placeholder="Mã SKU" maxLength={80} value={product.sku} onChange={(event) => setNewProducts((current) => ({ ...current, [name]: { ...product, sku: event.target.value } }))} />
                             <input aria-label="Tên sản phẩm mới" placeholder="Tên sản phẩm" maxLength={250} value={product.name} onChange={(event) => setNewProducts((current) => ({ ...current, [name]: { ...product, name: event.target.value } }))} />
                             <input aria-label="Đơn vị tính mới" placeholder="ĐVT" maxLength={40} value={product.unit} onChange={(event) => setNewProducts((current) => ({ ...current, [name]: { ...product, unit: event.target.value } }))} />
-                            <input aria-label="Đơn giá mới" type="number" min="0" step="any" placeholder="Đơn giá VND" value={product.price} onChange={(event) => setNewProducts((current) => ({ ...current, [name]: { ...product, price: event.target.value } }))} />
+                            <MoneyInput aria-label="Đơn giá mới" placeholder="Đơn giá" value={product.price} onChange={(price) => setNewProducts((current) => ({ ...current, [name]: { ...product, price } }))} />
                           </div>}
                           {selection && <>
                             <input aria-label={`Số lượng ${name}`} type="number" min="0.01" step="any" placeholder="Số lượng (có thể bổ sung sau)"
