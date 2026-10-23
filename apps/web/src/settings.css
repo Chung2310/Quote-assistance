@@ -2310,3 +2310,18 @@
     flex: 1;
   }
 }
+.estimate-from-quote-dialog { width: min(620px, calc(100vw - 32px)); }
+.estimate-from-quote-body { display: grid; gap: 16px; padding: 20px 24px 24px; }
+.estimate-from-quote-body > p { margin: 0; }
+.estimate-from-quote-field { display: grid; gap: 7px; font-weight: 600; }
+.estimate-from-quote-field input, .estimate-from-quote-field select, .estimate-from-quote-field textarea { width: 100%; min-height: 42px; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; color: #1e293b; font: inherit; }
+.estimate-from-quote-field textarea { min-height: 104px; resize: vertical; }
+.estimate-from-quote-list { display: grid; gap: 8px; max-height: 250px; overflow-y: auto; }
+.estimate-from-quote-option { display: flex; align-items: center; gap: 12px; padding: 11px 12px; border: 1px solid #e2e8f0; border-radius: 10px; cursor: pointer; }
+.estimate-from-quote-option.selected { border-color: #0f766e; background: #f0fdfa; }
+.estimate-from-quote-option span { display: grid; gap: 3px; min-width: 0; }
+.estimate-from-quote-option strong { overflow-wrap: anywhere; }
+.estimate-from-quote-option small { color: #64748b; }
+.estimate-from-quote-pages, .estimate-from-quote-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.estimate-from-quote-pages span { color: #64748b; font-size: 13px; }
+.estimate-from-quote-error { color: #b91c1c; }

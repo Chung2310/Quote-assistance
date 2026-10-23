@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, formatDate, formatMoney } from "./api";
 import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
-import type { ConfirmOptions, Notify } from "./Feedback";
+import { TaskProgress, type ConfirmOptions, type Notify } from "./Feedback";
 import type { Quote } from "./types";
 import ThemedSelect from "./ThemedSelect";
 import "./customer-quote-detail.css";
@@ -26,7 +26,9 @@ export default function CustomerProductListDetail({
   const [templateId, setTemplateId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [exportingWithAi, setExportingWithAi] = useState(false);
   const [error, setError] = useState("");
+  const initialTemplateSelected = useRef(false);
 
   const reload = async () => {
     const result = await api<{ quote: Quote }>("/api/quotes/" + id);
@@ -73,7 +75,8 @@ export default function CustomerProductListDetail({
   }, [id]);
 
   useEffect(() => {
-    if (quote?.template && templates.some((entry) => entry.id === quote.template?.id)) {
+    if (!initialTemplateSelected.current && quote?.template && templates.some((entry) => entry.id === quote.template?.id)) {
+      initialTemplateSelected.current = true;
       setTemplateId(quote.template.id);
     }
   }, [quote?.template?.id, templates]);
@@ -122,20 +125,25 @@ export default function CustomerProductListDetail({
   const download = () =>
     void run(async () => {
       if (!quote) return;
-      const params = new URLSearchParams({ templateId: templateId || "none" });
-      if (quote.status !== "approved") params.set("draft", "1");
-      const response = await fetch("/api/quotes/" + id + "/export?" + params, { credentials: "include" });
-      if (!response.ok) {
-        const body = (await response.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(body?.error || "Không tải được danh sách sản phẩm.");
+      if (templateId) setExportingWithAi(true);
+      try {
+        const params = new URLSearchParams({ templateId: templateId || "none" });
+        if (quote.status !== "approved") params.set("draft", "1");
+        const response = await fetch("/api/quotes/" + id + "/export?" + params, { credentials: "include" });
+        if (!response.ok) {
+          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(body?.error || "Không tải được danh sách sản phẩm.");
+        }
+        const url = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `${quote.quoteNumber}-san-pham.xlsx`;
+        anchor.click();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        onToast("Đã xuất file Excel danh sách sản phẩm.", "success");
+      } finally {
+        setExportingWithAi(false);
       }
-      const url = URL.createObjectURL(await response.blob());
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${quote.quoteNumber}-san-pham.xlsx`;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      onToast("Đã xuất file Excel danh sách sản phẩm.", "success");
     });
 
   // Selected template name
@@ -192,6 +200,8 @@ export default function CustomerProductListDetail({
           {error}
         </div>
       )}
+
+      {exportingWithAi && <TaskProgress label="AI đang đọc mẫu Excel và ghép dữ liệu" detail="Đang xác định các cột và chuẩn bị file xuất…" />}
 
       {/* Header Banner Card */}
       <section className="cqd-header-card">
@@ -288,7 +298,6 @@ export default function CustomerProductListDetail({
               ]}
               className="customer-product-template-select"
             />
-
             {/* Download Button */}
             <button
               type="button"

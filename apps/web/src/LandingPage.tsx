@@ -1,6 +1,6 @@
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, formatMoney } from "./api";
 import { NotificationToast, useNotification } from "./Feedback";
 import "./landing.css";
 
@@ -682,7 +682,7 @@ export default function LandingPage() {
                   </div>
                   <div className="plan-price">
                     <strong>
-                      {monthlyPrice === 0 ? "Miễn phí" : `${new Intl.NumberFormat("vi-VN").format(monthlyPrice)}đ`}
+                      {monthlyPrice === 0 ? "Miễn phí" : formatMoney(monthlyPrice, "VND")}
                     </strong>
                     {monthlyPrice > 0 && <span>/ tháng</span>}
                   </div>

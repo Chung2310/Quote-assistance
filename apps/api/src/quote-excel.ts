@@ -39,6 +39,54 @@ export function makeBudgetPlanExcel(plan: SavedBudgetPlan): Buffer {
   return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
 }
 
+export function budgetPlanAsQuote(plan: SavedBudgetPlan): Quote {
+  const result = recomputeBudgetPlanTotals(plan.result);
+  const note = [
+    `Nhu cầu: ${plan.input.description}`,
+    `Phạm vi: ${result.scope}`,
+    `Ngân sách dự kiến: ${plan.input.budget.toLocaleString("vi-VN")} VND`,
+    ...result.questions.map((item) => `Cần làm rõ: ${item}`),
+    ...result.missingProducts.map((item) => `Chưa có trong bảng giá: ${item}`),
+    ...result.assumptions.map((item) => `Giả định: ${item}`),
+  ].join("\n");
+  return {
+    kind: "budget",
+    companyId: plan.companyId,
+    quoteNumber: `PA-${plan._id?.toHexString() ?? ""}`,
+    requestId: "",
+    customerName: "Phương án tư vấn",
+    customerEmail: "",
+    lines: result.lines.map((line) => ({
+      catalogItemId: line.catalogItemId,
+      sku: line.sku,
+      name: line.name,
+      description: [line.reason, line.quantityNote].filter(Boolean).join(" · "),
+      quantity: line.quantity ?? 0,
+      quantityUnknown: line.quantity === null,
+      unit: line.unit,
+      unitPrice: line.unitPrice,
+      currency: line.currency,
+      attributes: {},
+      lineTotal: line.lineTotal ?? 0,
+      lineTotalUnknown: line.lineTotal === null,
+    })),
+    subtotal: result.knownTotal ?? 0,
+    subtotalUnknown: result.knownTotal === null,
+    taxRate: 0,
+    taxAmount: 0,
+    total: result.total ?? result.knownTotal ?? 0,
+    totalUnknown: result.total === null,
+    currency: result.currency,
+    informationNeeded: [],
+    additionalInformation: { "Thông tin phương án": note },
+    informationConfirmed: false,
+    status: "draft",
+    createdBy: plan.createdBy,
+    createdAt: plan.createdAt,
+    updatedAt: plan.createdAt,
+  };
+}
+
 export function makeQuoteExcel(quote: Quote): Buffer {
   if (quote.kind === "customer") {
     const rows: Array<Array<string | number>> = [

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "./api";
+import { TaskProgress } from "./Feedback";
 import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
 import type { CatalogItem, Quote, QuoteStatus } from "./types";
 import "./customer-quotes.css";
@@ -398,6 +399,7 @@ function CustomerQuoteDialog({
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [busy, setBusy] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
   const [error, setError] = useState("");
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
@@ -469,6 +471,7 @@ function CustomerQuoteDialog({
   const suggest = async () => {
     if (!prompt.trim()) return;
     setBusy(true);
+    setAiLoading(true);
     setError("");
     try {
       const result = await api<{ items: Selection[]; missingProducts: string[]; questions: string[]; notes: string[] }>("/api/customer-quotes/suggest", {
@@ -484,6 +487,7 @@ function CustomerQuoteDialog({
       if (cause instanceof ApiError && cause.status === 429) onAiUsed();
       setError(cause instanceof Error ? cause.message : "Không tạo được đề xuất từ AI.");
     } finally {
+      setAiLoading(false);
       setBusy(false);
     }
   };
@@ -639,6 +643,7 @@ function CustomerQuoteDialog({
                 role="tab"
                 aria-selected={mode === "manual"}
                 className={`cq-mode-tab ${mode === "manual" ? "active" : ""}`}
+                disabled={busy}
                 onClick={() => setMode("manual")}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -654,6 +659,7 @@ function CustomerQuoteDialog({
                 role="tab"
                 aria-selected={mode === "ai"}
                 className={`cq-mode-tab ${mode === "ai" ? "active" : ""}`}
+                disabled={busy}
                 onClick={() => setMode("ai")}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -666,7 +672,7 @@ function CustomerQuoteDialog({
 
           {/* Mode AI Form */}
           {mode === "ai" && (
-            <div className="cq-ai-box">
+            <div className="cq-ai-box" aria-busy={aiLoading}>
               <div className="cq-ai-header">
                 <strong>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -684,6 +690,7 @@ function CustomerQuoteDialog({
                     rows={5}
                     maxLength={3000}
                     value={prompt}
+                    disabled={busy}
                     onChange={(event) => setPrompt(event.target.value)}
                     placeholder="Ví dụ: Lát nền phòng bằng gạch porcelain, cần vật tư và nhân công phù hợp."
                   />
@@ -697,9 +704,11 @@ function CustomerQuoteDialog({
                 disabled={busy || !prompt.trim()}
                 onClick={() => void suggest()}
               >
-                {busy ? <span className="spinner" /> : "⚡"}
-                <span>{busy ? "AI đang phân tích…" : "Gợi ý hạng mục"}</span>
+                {aiLoading ? <span className="spinner" /> : "⚡"}
+                <span>{aiLoading ? "AI đang phân tích…" : "Gợi ý hạng mục"}</span>
               </button>
+
+              {aiLoading && <TaskProgress label="AI đang tạo gợi ý hạng mục" detail="Đang phân tích mô tả và tìm sản phẩm phù hợp trong bảng giá…" />}
 
               {notes.length > 0 && (
                 <div className="quote-setup-notice" role="status" style={{ background: "#ecfeff", borderColor: "#a5e5ed", color: "#155e75" }}>
@@ -786,7 +795,7 @@ function CustomerQuoteDialog({
               className="button button-primary"
               disabled={busy || !customerName.trim() || (!selectedRows.length && !missingProducts.length)}
             >
-              {busy ? "Đang tạo…" : "Tạo báo giá"}
+              {aiLoading ? "AI đang gợi ý…" : busy ? "Đang tạo…" : "Tạo báo giá"}
             </button>
           </div>
         </div>

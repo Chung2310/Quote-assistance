@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { api, apiUploadWithProgress, formatDate, formatMoney } from "./api";
+import MoneyInput from "./MoneyInput";
 import FilePreview, { type PreviewFile } from "./FilePreview";
 import ThemedSelect from "./ThemedSelect";
 import VietnameseDatePicker from "./VietnameseDatePicker";
@@ -638,6 +639,10 @@ function EditCatalogProductDialog({ item, onClose, onSaved, onToast }: { item: C
 
   const save = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (price.trim() === "" || !Number.isFinite(Number(price)) || Number(price) < 0 || Number(price) > 1e12) {
+      onToast("Đơn giá phải từ 0 đến 1.000.000.000.000 ₫.", "error");
+      return;
+    }
     const filledAttributes = attributes.filter((attribute) => attribute.key.trim() || attribute.value.trim());
     if (filledAttributes.some((attribute) => !attribute.key.trim() || !attribute.value.trim())) {
       onToast("Hãy nhập đủ tên trường và giá trị cho từng thuộc tính riêng.", "error");
@@ -673,7 +678,7 @@ function EditCatalogProductDialog({ item, onClose, onSaved, onToast }: { item: C
       <label>Quy cách / thông số<textarea maxLength={2000} rows={3} value={description} disabled={busy} onChange={(event) => setDescription(event.target.value)} /></label>
       <div className="price-list-edit-grid">
         <label>Đơn vị<input required maxLength={50} value={unit} disabled={busy} onChange={(event) => setUnit(event.target.value)} /></label>
-        <label>Đơn giá<input required type="number" min="0" max="1000000000000" step="any" value={price} disabled={busy} onChange={(event) => setPrice(event.target.value)} /></label>
+        <label>Đơn giá<MoneyInput required value={price} currency={currency} disabled={busy} onChange={setPrice} /></label>
         <label>Tiền tệ<input required maxLength={3} minLength={3} value={currency} disabled={busy} onChange={(event) => setCurrency(event.target.value.toUpperCase())} /></label>
         <div className="price-list-date-field"><label htmlFor="product-effective-from">Hiệu lực từ</label><VietnameseDatePicker id="product-effective-from" label="Hiệu lực từ" value={effectiveFrom} disabled={busy} onChange={setEffectiveFrom} /></div>
         <div className="price-list-date-field"><label htmlFor="product-effective-to">Hiệu lực đến</label><VietnameseDatePicker id="product-effective-to" label="Hiệu lực đến" value={effectiveTo} disabled={busy} onChange={setEffectiveTo} /></div>

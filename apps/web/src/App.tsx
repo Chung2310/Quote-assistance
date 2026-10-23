@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, api, apiUploadWithProgress, formatDate, formatMoney, responseBlobWithProgress } from "./api";
+import MoneyInput from "./MoneyInput";
 import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
 import LandingPage from "./LandingPage";
@@ -102,15 +103,18 @@ function normalizedMissingInformation(value: string) {
 }
 
 function isTaxMissingInformation(value: string) {
+  if (normalizedMissingInformation(value).startsWith("cau hoi bo sung:")) return false;
   return /\b(vat|thue|tax)\b/.test(normalizedMissingInformation(value));
 }
 
 function isShippingMissingInformation(value: string) {
+  if (normalizedMissingInformation(value).startsWith("cau hoi bo sung:")) return false;
   return /\b(van chuyen|shipping|phi giao hang|delivery fee)\b/.test(normalizedMissingInformation(value));
 }
 
 function isSupplementalProductInformation(value: string) {
   const text = normalizedMissingInformation(value);
+  if (text.startsWith("cau hoi bo sung:")) return false;
   return /\b(san pham|mat hang|hang muc|nhan cong|vat tu|don gia|gia|ma hang|ma san pham|product|item|labor|material|sku|price|pricing|mosaic|op lat|gach|trang tri|decoration|finishing|installation|thi cong|lap dat)\b/.test(text);
 }
 
@@ -770,6 +774,7 @@ function QuoteWorkspace({
   const [loading, setLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [creatingFromQuote, setCreatingFromQuote] = useState(false);
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -854,6 +859,9 @@ function QuoteWorkspace({
               Tải lại
             </button>
           )}
+          <button type="button" className="button button-soft" disabled={!canCreate} onClick={() => setCreatingFromQuote(true)}>
+            <Icon name="file" size={17} /> Tạo từ báo giá khách
+          </button>
           <button
             className="button button-primary quote-create-button"
             disabled={!canCreate}
@@ -864,6 +872,7 @@ function QuoteWorkspace({
           </button>
         </div>
       </section>
+      {creatingFromQuote && <CreateEstimateFromQuoteDialog onClose={() => setCreatingFromQuote(false)} onCreated={(id) => { setCreatingFromQuote(false); onRefreshUsage(); onOpen(id); }} />}
       <QuoteUsageWidget usage={usage} quoteUsageLabel={quoteUsageLabel} canCreate={canCreate} createBlockedMessage={createBlockedMessage} onRefreshUsage={onRefreshUsage} showUsageError={showUsageError} onNavigate={onNavigate} variant="workspace" />
 
       {/* QUICK KPI MINI STRIP */}
@@ -897,7 +906,7 @@ function QuoteWorkspace({
             <span className="quote-kpi-icon"><Icon name="spark" size={18} /></span>
             <div className="quote-kpi-data">
               <span className="quote-kpi-label">Doanh số đã duyệt</span>
-              <strong className="quote-kpi-value">{new Intl.NumberFormat("vi-VN").format(stats.approvedRevenue)}đ</strong>
+              <strong className="quote-kpi-value">{formatMoney(stats.approvedRevenue, "VND")}</strong>
             </div>
           </div>
         </section>
@@ -1026,6 +1035,108 @@ function QuoteWorkspace({
   );
 }
 
+function CreateEstimateFromQuoteDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [templates, setTemplates] = useState<TemplateDetails[]>([]);
+  const [templateId, setTemplateId] = useState("");
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [sourceQuotes, setSourceQuotes] = useState<Quote[]>([]);
+  const [selectedSource, setSelectedSource] = useState<Quote | null>(null);
+  const [sourceRequirements, setSourceRequirements] = useState("");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [sourcesLoading, setSourcesLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+
+  useEffect(() => {
+    const element = dialog.current!;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    element.showModal();
+    return () => { element.close(); previousFocus?.focus(); };
+  }, []);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(search.trim()), 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
+  useEffect(() => {
+    let live = true;
+    setTemplatesLoading(true);
+    loadQuoteTemplates().then((options) => {
+      if (!live) return;
+      setTemplates(options.templates);
+      setTemplateId(options.templates.find((entry) => entry.id === options.defaultTemplateId)?.id ?? options.templates[0]?.id ?? "");
+    }).catch((cause) => { if (live) setError(cause instanceof Error ? cause.message : "Không tải được mẫu dự toán."); })
+      .finally(() => { if (live) setTemplatesLoading(false); });
+    return () => { live = false; };
+  }, []);
+  useEffect(() => {
+    let live = true;
+    setSourcesLoading(true);
+    const params = new URLSearchParams({ kind: "customer", page: String(page), search: debouncedSearch });
+    api<QuoteListResponse>(`/api/quotes?${params}`).then((result) => {
+      if (!live) return;
+      setSourceQuotes(result.quotes);
+      setTotalPages(result.totalPages);
+    }).catch((cause) => { if (live) setError(cause instanceof Error ? cause.message : "Không tải được báo giá khách."); })
+      .finally(() => { if (live) setSourcesLoading(false); });
+    return () => { live = false; };
+  }, [page, debouncedSearch]);
+
+  const create = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!selectedSource || !templateId || busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      const { quote } = await api<{ quote: Quote }>("/api/quotes/from-customer", {
+        method: "POST",
+        body: JSON.stringify({ sourceQuoteId: selectedSource._id, templateId, sourceRequirements, idempotencyKey }),
+      });
+      onCreated(quote._id);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Không thể tạo dự toán từ báo giá khách.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return <dialog ref={dialog} className="template-dialog quote-creation-dialog estimate-from-quote-dialog" aria-labelledby="estimate-from-quote-title" onCancel={(event) => { event.preventDefault(); if (!busy) onClose(); }}>
+    <div className="settings-card-heading"><h2 id="estimate-from-quote-title">Tạo dự toán từ báo giá khách</h2><button type="button" className="icon-button" aria-label="Đóng" disabled={busy} onClick={onClose}><Icon name="close" /></button></div>
+    <form className="estimate-from-quote-body" onSubmit={(event) => void create(event)}>
+      <p>Chọn báo giá đã lưu. Sản phẩm và đơn giá sẽ được sao chép sang một bản dự toán mới để bạn chỉnh sửa.</p>
+      <label className="estimate-from-quote-field">Tìm báo giá khách
+        <input type="search" value={search} disabled={busy} placeholder="Mã báo giá hoặc tên khách hàng" onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+      </label>
+      <div className="estimate-from-quote-list" role="radiogroup" aria-label="Báo giá khách nguồn">
+        {sourcesLoading ? <TaskProgress label="Đang tải báo giá khách" /> : sourceQuotes.length ? sourceQuotes.map((quote) => <label key={quote._id} className={`estimate-from-quote-option ${selectedSource?._id === quote._id ? "selected" : ""}`}>
+          <input type="radio" name="sourceQuote" value={quote._id} checked={selectedSource?._id === quote._id} disabled={busy} onChange={() => setSelectedSource(quote)} />
+          <span><strong>{quote.quoteNumber} · {quote.customerName}</strong><small>{quote.lines.length + (quote.missingProducts?.length ?? 0)} sản phẩm · {formatDate(quote.createdAt)}</small></span>
+        </label>) : <p className="field-hint">Không tìm thấy báo giá khách phù hợp.</p>}
+      </div>
+      {!sourcesLoading && totalPages > 1 && <div className="estimate-from-quote-pages"><button type="button" className="button button-soft button-compact" disabled={page <= 1 || busy} onClick={() => setPage((value) => value - 1)}>Trước</button><span>Trang {page}/{totalPages}</span><button type="button" className="button button-soft button-compact" disabled={page >= totalPages || busy} onClick={() => setPage((value) => value + 1)}>Sau</button></div>}
+      {selectedSource && <p className="field-hint">Đã chọn: {selectedSource.quoteNumber} · {selectedSource.customerName}</p>}
+      <label className="estimate-from-quote-field">Yêu cầu bổ sung cho dự toán
+        <textarea value={sourceRequirements} disabled={busy} rows={4} maxLength={10000} placeholder="Ví dụ: Cần làm rõ quy cách, số lượng, vật liệu, thời gian giao hàng hoặc các hạng mục cần điều chỉnh…" onChange={(event) => setSourceRequirements(event.target.value)} />
+      </label>
+      <p className="field-hint">AI sẽ điều chỉnh dự toán theo nội dung này. Dòng mới hoặc đổi quy cách sẽ cần bổ sung đơn giá trước khi phê duyệt.</p>
+      <label className="estimate-from-quote-field">Mẫu dự toán
+        <select value={templateId} disabled={busy || templatesLoading || templates.length === 0} onChange={(event) => setTemplateId(event.target.value)}>
+          <option value="">{templatesLoading ? "Đang tải mẫu…" : "Chọn mẫu dự toán"}</option>
+          {templates.map((entry) => <option key={entry.id} value={entry.id}>{entry.name || entry.originalFilename}</option>)}
+        </select>
+      </label>
+      {!templatesLoading && templates.length === 0 && <p className="field-hint">Chưa có mẫu dự toán đã lưu.</p>}
+      {error && <p className="estimate-from-quote-error" role="alert">{error}</p>}
+      {busy && <TaskProgress label="Đang tạo dự toán" detail={sourceRequirements.trim() ? "AI đang đọc yêu cầu và điều chỉnh các dòng sản phẩm…" : "Sao chép sản phẩm và đơn giá từ báo giá khách…"} />}
+      <div className="estimate-from-quote-actions"><button type="button" className="button button-soft" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="button button-primary" disabled={!selectedSource || !templateId || busy}>{busy ? "Đang tạo…" : "Tạo dự toán"}</button></div>
+    </form>
+  </dialog>;
+}
+
 interface QuoteOptions { templates: TemplateDetails[]; defaultTemplateId: string | null; productsAvailable: boolean }
 
 function QuoteTemplateDropdown({ templates, value, defaultTemplateId, disabled, onChange }: { templates: TemplateDetails[]; value: string; defaultTemplateId: string | null; disabled: boolean; onChange: (id: string) => void }) {
@@ -1060,20 +1171,21 @@ function QuoteTemplateDropdown({ templates, value, defaultTemplateId, disabled, 
   </div>;
 }
 
+async function loadQuoteTemplates(): Promise<Pick<QuoteOptions, "templates" | "defaultTemplateId">> {
+  const templates: TemplateDetails[] = [];
+  let cursor: string | null = null;
+  let defaultTemplateId: string | null = null;
+  do {
+    const page: { templates: TemplateDetails[]; nextCursor: string | null; defaultTemplateId: string | null } = await api(`/api/quote-templates${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+    templates.push(...page.templates);
+    defaultTemplateId = page.defaultTemplateId;
+    cursor = page.nextCursor;
+  } while (cursor);
+  return { templates, defaultTemplateId };
+}
+
 async function loadQuoteOptions(): Promise<QuoteOptions> {
-  const loadTemplates = async () => {
-    const templates: TemplateDetails[] = [];
-    let cursor: string | null = null;
-    let defaultTemplateId: string | null = null;
-    do {
-      const page: { templates: TemplateDetails[]; nextCursor: string | null; defaultTemplateId: string | null } = await api(`/api/quote-templates${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
-      templates.push(...page.templates);
-      defaultTemplateId = page.defaultTemplateId;
-      cursor = page.nextCursor;
-    } while (cursor);
-    return { templates, defaultTemplateId };
-  };
-  const [templates, catalog] = await Promise.all([loadTemplates(), api<{ items: CatalogItem[] }>("/api/catalog")]);
+  const [templates, catalog] = await Promise.all([loadQuoteTemplates(), api<{ items: CatalogItem[] }>("/api/catalog")]);
   const today = new Date().toISOString().slice(0, 10);
   const productsAvailable = catalog.items.some((item) => item.active && (!item.effectiveFrom || item.effectiveFrom <= today) && (!item.effectiveTo || item.effectiveTo >= today));
   return { ...templates, productsAvailable };
@@ -1394,7 +1506,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
         description: line.description ?? "",
         unit: normalizedSupplementalUnit(line.unit),
         quantity: String(line.quantity),
-        unitPrice: String(line.unitPrice),
+        unitPrice: line.priceUnavailable ? "" : String(line.unitPrice),
       }));
       for (const suggestion of value.suggestedProducts ?? []) {
         if (!suggestion.informationField || supplementalDrafts.some((product) => product.informationField === suggestion.informationField)) continue;
@@ -1673,6 +1785,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             <span className="quote-meta-item">
               <span>Người lập: <strong>{user.name}</strong></span>
             </span>
+            {quote.sourceQuote && <><span className="dot-separator">·</span><span className="quote-meta-item">Từ báo giá khách: <strong>{quote.sourceQuote.quoteNumber}</strong></span></>}
           </div>
         </div>
 
@@ -1722,7 +1835,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
               <button
                 type="button"
                 className="button button-primary quote-approve-btn"
-                disabled={busy}
+                disabled={busy || hasUnresolvedInformation || hasIncompleteSupplementalProduct}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Báo giá đã được phê duyệt thành công.")}
               >
                 <Icon name="check" size={16} />
@@ -1805,7 +1918,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
               <button
                 type="button"
                 className="button button-primary"
-                disabled={busy}
+                disabled={busy || hasUnresolvedInformation || hasIncompleteSupplementalProduct}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Báo giá đã được phê duyệt thành công.")}
               >
                 <Icon name="check" size={16} /> Phê duyệt ngay
@@ -1916,7 +2029,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
                     <td><input value={product.name} maxLength={250} disabled={!editable || busy} placeholder="Tên sản phẩm / hạng mục" aria-label="Tên sản phẩm bổ sung" onChange={(event) => updateProduct({ name: event.target.value })} /><input value={product.description} maxLength={2000} disabled={!editable || busy} placeholder="Quy cách / mô tả" aria-label="Quy cách sản phẩm bổ sung" onChange={(event) => updateProduct({ description: event.target.value })} />{product.informationField && <small>Bổ sung cho: {product.informationField}</small>}{missingProductFields.length > 0 && <small className="quote-supplement-row-missing">Cần bổ sung: {missingProductFields.join(", ")}</small>}</td>
                     <td><select value={product.unit} disabled={!editable || busy} aria-label="Đơn vị tính" onChange={(event) => updateProduct({ unit: event.target.value })}>{unitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></td>
                     <td><input type="number" min="0.01" step="any" value={product.quantity} disabled={!editable || busy} placeholder="0" aria-label="Số lượng" onChange={(event) => updateProduct({ quantity: event.target.value })} /></td>
-                    <td><input type="number" min="0" step="any" value={product.unitPrice} disabled={!editable || busy} placeholder="0" aria-label="Đơn giá" onChange={(event) => updateProduct({ unitPrice: event.target.value })} /></td>
+                    <td><MoneyInput value={product.unitPrice} currency={quote.currency} disabled={!editable || busy} placeholder="0" aria-label="Đơn giá" onChange={(unitPrice) => updateProduct({ unitPrice })} /></td>
                     <td><strong>{hasUnitPrice ? formatMoney(lineTotal, quote.currency) : "—"}</strong></td>
                     <td>{editable && <button type="button" className="icon-button remove-button" disabled={busy} aria-label="Xóa dòng bổ sung" onClick={() => setSupplementalProducts((current) => current.filter((row) => row.id !== product.id))}><Icon name="close" size={15} /></button>}</td>
                   </tr>;
@@ -1991,7 +2104,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
                 <label className="quote-fee-label" htmlFor={`shipping-mode-${quote._id}`}>Vận chuyển</label>
                 <div className="quote-fee-row">
                   <ThemedSelect id={`shipping-mode-${quote._id}`} label="Vận chuyển" value={shippingMode} disabled={!editable || busy} onChange={(next) => chooseShippingMode(next as ShippingMode)} options={[{ value: "unconfirmed", label: "Chưa chốt" }, { value: "free", label: "Miễn phí" }, { value: "paid", label: "Tính phí" }]} />
-                  {shippingMode === "paid" && <input type="number" min="0.01" step="1" value={shippingFeeText} disabled={!editable || busy} placeholder={quote.currency} aria-label={`Phí vận chuyển (${quote.currency})`} onChange={(event) => setShippingFeeText(event.target.value)} />}
+                  {shippingMode === "paid" && <MoneyInput value={shippingFeeText} currency={quote.currency} disabled={!editable || busy} placeholder="0" aria-label={`Phí vận chuyển (${quote.currency})`} onChange={setShippingFeeText} />}
                 </div>
               </div>
               <div className="quote-fee-control">
@@ -2829,7 +2942,7 @@ function SubscriptionBillingPanel({
                 </div>
 
                 <div className="profile-plan-tile-price">
-                  <strong>{new Intl.NumberFormat("vi-VN").format(plan.monthlyPrice ?? 0)}đ</strong>
+                  <strong>{formatMoney(plan.monthlyPrice ?? 0, "VND")}</strong>
                   <span>/ tháng</span>
                 </div>
 
@@ -2927,7 +3040,7 @@ function SubscriptionBillingPanel({
                 )}
                 <div className="billing-amount-banner">
                   <small>Số tiền cần chuyển:</small>
-                  <strong className="billing-amount">{new Intl.NumberFormat("vi-VN").format(payment.amount)}đ</strong>
+                  <strong className="billing-amount">{formatMoney(payment.amount, "VND")}</strong>
                 </div>
 
                 <p className="billing-instruction">Quét mã QR bằng app ngân hàng hoặc chuyển khoản theo thông tin bên dưới:</p>

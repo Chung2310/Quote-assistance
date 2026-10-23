@@ -24,16 +24,19 @@ export function cleanMissingInformation(fields: string[], hasPricedItems: boolea
 }
 
 export function isTaxInformation(value: string) {
+  if (normalizedText(value).startsWith("cau hoi bo sung:")) return false;
   return /\b(vat|thue|tax)\b/.test(normalizedText(value));
 }
 
 export function isShippingInformation(value: string) {
   const text = normalizedText(value);
+  if (text.startsWith("cau hoi bo sung:")) return false;
   return /\b(van chuyen|shipping|delivery fee|phi giao hang)\b/.test(text);
 }
 
 export function isSupplementalProductInformation(value: string) {
   const text = normalizedText(value);
+  if (text.startsWith("cau hoi bo sung:")) return false;
   return /\b(san pham|mat hang|hang muc|nhan cong|vat tu|don gia|gia|ma hang|ma san pham|product|item|labor|material|sku|price|pricing|mosaic|op lat|gach|trang tri|decoration|finishing|installation|thi cong|lap dat)\b/.test(text);
 }
 

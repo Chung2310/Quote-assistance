@@ -74,6 +74,8 @@ export interface QuoteLine {
 
 export interface Quote {
   kind?: "estimate" | "customer";
+  sourceQuote?: { id: string; quoteNumber: string };
+  sourceRequirements?: string;
   missingProducts?: string[];
   _id: string;
   template?: { id: string; name?: string; originalFilename: string };
