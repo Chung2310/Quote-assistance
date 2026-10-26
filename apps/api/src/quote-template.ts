@@ -247,6 +247,10 @@ export function applyFontToBoundWordRuns(xml: string, font = "Arial") {
   return xml.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (run) => /\[\[\w+\]\]/.test(run) ? setWordRunFont(run, font) : run);
 }
 
+export function applyFontToAllWordRuns(xml: string, font = "Arial") {
+  return xml.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (run) => setWordRunFont(run, font));
+}
+
 export function applyFontToTemplateWordParagraphs(xml: string, font = "Arial") {
   return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) => {
     if (!/\{[\s\S]*?\}/.test(paragraph)) return paragraph;

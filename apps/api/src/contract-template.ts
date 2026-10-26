@@ -6,7 +6,7 @@ import PizZip from "pizzip";
 import { requestTemplatePlan } from "./ai.js";
 import { makePdfReferenceContractWord, words } from "./contract-pdf-reference-word.js";
 import { convertPdfToWord } from "./pdf-to-word.js";
-import { applyFontToTemplateWordParagraphs, fillSchema, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
+import { applyFontToAllWordRuns, applyFontToTemplateWordParagraphs, fillSchema, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
 import type { Contract, TemplateFillPlan } from "./types.js";
 
 const architecturePdfHash = "72d9a684a94784ed813fac2b861556509f804de16acff141597eb3ab18685c04";
@@ -26,6 +26,42 @@ function removeWordHeaders(bytes: Buffer) {
   const contentTypes = zip.file("[Content_Types].xml");
   if (contentTypes) zip.file("[Content_Types].xml", contentTypes.asText().replace(/<Override\b(?=[^>]*\bPartName="\/word\/header\d+\.xml")[^>]*\/>/g, ""));
   return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+function fixMrHiepAcceptanceText(xml: string, contract: Contract) {
+  const textRuns = [...xml.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)];
+  if (textRuns.length !== 53) return xml;
+  const replacements = new Map<number, string>([
+    [0, "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM"], [1, "Độc lập - Tự do - Hạnh phúc"], [2, ""],
+    [4, "BIÊN BẢN NGHIỆM THU "], [5, "BÀN GIAO"], [9, "BÊN A: CHỦ ĐẦU TƯ"], [11, "Địa chỉ"],
+    [14, "BÊN B: ĐƠN VỊ THIẾT KẾ"], [15, contract.companyName], [16, "Địa chỉ"], [18, "MST"],
+    [20, "Đại diện"], [22, "Chức vụ: Giám đốc"],
+    [24, "Hai bên cùng thống nhất tiến hành nghiệm thu và bàn giao hồ sơ theo các nội dung sau đây:"],
+    [25, "1. Thời gian nghiệm thu:"], [28, "2. Đánh giá hồ sơ thiết kế và bàn giao:"],
+    [30, "Khối lượng công việc: Theo đúng nội dung trong Hợp đồng"],
+    [31, "Hình thức hồ sơ: Đảm bảo tính kỹ thuật, mỹ thuật."], [33, "3. Giá trị thanh quyết toán:"],
+    [43, "4. Kết luận:"],
+    [44, "Hai bên thống nhất nghiệm thu hồ sơ đã hoàn thành theo nội dung trong hợp đồng."],
+    [45, "Biên bản được lập thành 02 bản, bên A giữ 01 bản, bên B giữ 01 bản có giá trị pháp lý như nhau."],
+    [46, "ĐẠI DIỆN BÊN A"], [47, "ĐẠI DIỆN BÊN B"], [48, "(Ký tên, đóng dấu)"],
+  ]);
+  let index = 0;
+  return xml.replace(/(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g, (whole, open: string, _text: string, close: string) => {
+    const replacement = replacements.get(index++);
+    return replacement === undefined ? whole : `${open}${replacement.normalize("NFC").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}${close}`;
+  });
+}
+
+function finalizeAcceptanceWord(bytes: Buffer, template: QuoteTemplate, contract: Contract) {
+  const zip = new PizZip(bytes);
+  const document = zip.file("word/document.xml");
+  if (document) {
+    let xml = document.asText();
+    if (template.originalFilename.toLowerCase().replace(/\.pdf$/i, ".docx") === mrHiepAcceptanceDocxName) xml = fixMrHiepAcceptanceText(xml, contract);
+    zip.file("word/document.xml", applyFontToAllWordRuns(xml, "Arial"));
+  }
+  const withoutLegacyFont = zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+  return removeWordHeaders(withoutLegacyFont);
 }
 
 function hasDocxFields(bytes: Buffer) {
@@ -366,7 +402,7 @@ export function renderAcceptanceWithTemplate(template: QuoteTemplate, contract: 
     }
     const document = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
     document.render(data);
-    return removeWordHeaders(document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }));
+    return finalizeAcceptanceWord(document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }), template, contract);
   } catch (error) {
     throw new Error(error instanceof Error ? `Không điền được mẫu nghiệm thu: ${error.message}` : "Không điền được mẫu nghiệm thu đã chọn.");
   }
@@ -379,7 +415,7 @@ export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, cont
     const wordTemplate = await acceptanceWordTemplate(db, template);
     const plan = await getOrCreateAcceptanceFillPlan(db, wordTemplate, contract, record, runAi);
     const rendered = await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan, { boundTextFont: "Arial" });
-    return { bytes: removeWordHeaders(rendered), extension: "docx" };
+    return { bytes: finalizeAcceptanceWord(rendered, template, contract), extension: "docx" };
   }
   throw new Error("Mẫu nghiệm thu không có định dạng Word hoặc PDF hợp lệ.");
 }
