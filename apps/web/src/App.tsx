@@ -1734,7 +1734,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     ...(!taxRateConfirmed || taxRateText.trim() === "" ? ["VAT"] : []),
   ];
   const catalogLines = quote.lines.filter((line) => line.source !== "supplemental");
-  const visibleLineCount = catalogLines.length + supplementalProducts.filter(hasSupplementalProductContent).length;
+  const displaySupplementalProducts = supplementalProducts.filter(hasSupplementalProductContent);
+  const visibleLineCount = catalogLines.length + displaySupplementalProducts.length;
   const outputExtension = quote.template?.originalFilename.split(".").pop()?.toLowerCase() || "pdf";
   const canPreviewGeneratedFile = quote.status === "approved" || editable;
   const canExportDraftXlsx = editable && quote.status !== "approved";
@@ -2256,6 +2257,34 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
                         <td className="col-amount">
                           <strong className="quote-total-cell">{formatMoney(lineTotal, line.currency)}</strong>
                         </td>
+                      </tr>
+                    );
+                  })}
+                  {displaySupplementalProducts.map((product, index) => {
+                    const quantity = Number(product.quantity);
+                    const unitPrice = Number(product.unitPrice);
+                    const hasQuantity = product.quantity.trim() !== "" && Number.isFinite(quantity) && quantity > 0;
+                    const hasUnitPrice = product.unitPrice.trim() !== "" && Number.isFinite(unitPrice) && unitPrice >= 0;
+                    const lineTotal = hasQuantity && hasUnitPrice
+                      ? Math.round((quantity * unitPrice + Number.EPSILON) * 100) / 100
+                      : null;
+                    return (
+                      <tr key={`supplemental-${product.id}`}>
+                        <td className="quote-item-index">{catalogLines.length + index + 1}</td>
+                        <td>
+                          <div className="quote-item-details">
+                            <div className="quote-item-title-row">
+                              <span className="quote-item-name">{product.name.trim() || "Chưa nhập tên"}</span>
+                              <span className="quote-item-sku">Bổ sung</span>
+                            </div>
+                            {product.description.trim() && <span className="quote-item-desc">{product.description}</span>}
+                            {product.informationField && <span className="quote-item-desc">Bổ sung cho: {product.informationField}</span>}
+                          </div>
+                        </td>
+                        <td className="col-unit"><span className="quote-unit-label">{product.unit.trim() || "—"}</span></td>
+                        <td className="col-qty"><span className="quote-qty-static">{hasQuantity ? quantity.toLocaleString("vi-VN") : "—"}</span></td>
+                        <td className="col-amount"><span className="quote-price-cell">{hasUnitPrice ? formatMoney(unitPrice, quote.currency) : "—"}</span></td>
+                        <td className="col-amount"><strong className="quote-total-cell">{lineTotal === null ? "—" : formatMoney(lineTotal, quote.currency)}</strong></td>
                       </tr>
                     );
                   })}
