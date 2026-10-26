@@ -1618,6 +1618,19 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     customerPhone,
   });
 
+  const savedTaxRateConfirmed = quote
+    ? quote.taxRateConfirmed ?? !quote.informationNeeded.some(isTaxMissingInformation)
+    : false;
+  const savedShippingFeeConfirmed = quote
+    ? quote.shippingFeeConfirmed ?? (quote.shippingFee != null || !quote.informationNeeded.some(isShippingMissingInformation))
+    : false;
+  const savedShippingFee = quote && savedShippingFeeConfirmed ? quote.shippingFee ?? 0 : null;
+  const currentShippingFee = shippingMode === "unconfirmed"
+    ? null
+    : shippingMode === "free"
+      ? 0
+      : shippingFeeText.trim() === "" ? null : Number(shippingFeeText);
+
   const hasUnsavedChanges = Boolean(
     quote && (
       quote.lines.some((line) => line.source !== "supplemental" && Number(quantities[line.catalogItemId]) !== line.quantity) ||
@@ -1630,8 +1643,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
         unitPrice: String(line.unitPrice),
       }))) ||
       Number(taxRateText) / 100 !== quote.taxRate ||
-      taxRateConfirmed !== (quote.taxRateConfirmed ?? !quote.informationNeeded.some((field) => /vat|thuế/i.test(field))) ||
-      (shippingFeeText.trim() === "" ? null : Number(shippingFeeText)) !== (quote.shippingFeeConfirmed === false ? null : quote.shippingFee ?? 0) ||
+      taxRateConfirmed !== savedTaxRateConfirmed ||
+      shippingFeeIsConfirmed !== savedShippingFeeConfirmed ||
+      currentShippingFee !== savedShippingFee ||
       (validityDaysText.trim() === "" ? null : Number(validityDaysText)) !== (quote.validityDays ?? null) ||
       (completionDateText || null) !== (quote.completionDate ?? null) ||
       [...new Set([...Object.keys(quote.additionalInformation ?? {}), ...Object.keys(additionalInformation)])]
