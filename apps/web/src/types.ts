@@ -111,6 +111,70 @@ export interface Quote {
   rejectionReason?: string;
 }
 
+export interface Contract {
+  _id: string;
+  quoteId: string;
+  quoteNumber: string;
+  contractNumber: string;
+  template?: { id: string; name: string; originalFilename: string };
+  status: "draft" | "signed";
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  customerAddress: string;
+  customerTaxId: string;
+  customerRepresentative: string;
+  companyName: string;
+  companyAddress: string;
+  companyTaxId: string;
+  companyRepresentative: string;
+  companyPhone: string;
+  companyEmail: string;
+  lines: QuoteLine[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  shippingFee: number;
+  total: number;
+  currency: string;
+  scope: string;
+  projectName: string;
+  projectAddress: string;
+  deliverables: string;
+  depositAmount: number;
+  bankDetails: string;
+  otherTerms: string;
+  paymentTerms: string;
+  deliveryTerms: string;
+  signingPlace: string;
+  signedDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AcceptanceRecord {
+  _id: string;
+  contractId: string;
+  contractNumber: string;
+  acceptanceNumber: string;
+  template?: { id: string; name: string; originalFilename: string };
+  status: "draft" | "completed";
+  acceptedDate: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  result: string;
+  handoverDetails: string;
+  qualityAssessment: string;
+  settlementAmount: number;
+  amountPaid: number;
+  paymentDueDays: number | null;
+  notes: string;
+  lines: Array<{ lineIndex: number; acceptedQuantity: number }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface QuoteRequest {
   _id: string;
   customerName: string;
