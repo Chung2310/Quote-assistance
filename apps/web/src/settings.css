@@ -793,6 +793,13 @@
   font-weight: 700;
 }
 
+.quote-fee-confirmation-needed {
+  margin-left: 6px;
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .quote-fee-row {
   display: flex;
   gap: 10px;
@@ -891,7 +898,8 @@
 .quote-modern-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 740px;
+  min-width: 820px;
+  table-layout: fixed;
   font-size: 14px;
 }
 
@@ -914,6 +922,8 @@
 .quote-modern-table th.col-amount,
 .quote-modern-table td.col-amount {
   text-align: right;
+  width: 160px;
+  white-space: nowrap;
 }
 
 .quote-modern-table th.col-qty,
@@ -933,6 +943,10 @@
   border-bottom: 1px solid #f1f5f9;
   color: #334155;
   vertical-align: top;
+}
+
+.quote-modern-table td:nth-child(2) {
+  overflow-wrap: anywhere;
 }
 
 .quote-modern-table tr:last-child td {

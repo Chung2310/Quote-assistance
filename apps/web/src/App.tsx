@@ -125,6 +125,18 @@ function isSupplementalProductInformation(value: string) {
   return /\b(san pham|mat hang|hang muc|nhan cong|vat tu|don gia|gia|ma hang|ma san pham|product|item|labor|material|sku|price|pricing|mosaic|op lat|gach|trang tri|decoration|finishing|installation|thi cong|lap dat)\b/.test(text);
 }
 
+function sameProductLineName(first: string, second: string) {
+  const tokens = (value: string): string[] => value.toLocaleLowerCase("vi").normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").match(/[a-z0-9]+/g) ?? [];
+  const firstTokens = tokens(first);
+  const secondTokens = tokens(second);
+  if (!firstTokens.length || !secondTokens.length) return false;
+  const smaller = firstTokens.length <= secondTokens.length ? firstTokens : secondTokens;
+  const larger = firstTokens.length <= secondTokens.length ? secondTokens : firstTokens;
+  return firstTokens.join(" ") === secondTokens.join(" ")
+    || (smaller.length >= 2 && smaller.every((token) => larger.includes(token)));
+}
+
 function canSupplementMissingInformation(value: string) {
   if (isTaxMissingInformation(value) || isShippingMissingInformation(value)) return false;
   return !isSupplementalProductInformation(value);
@@ -1541,13 +1553,23 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
         quantity: String(line.quantity),
         unitPrice: line.priceUnavailable ? "" : String(line.unitPrice),
       }));
-      for (const suggestion of value.suggestedProducts ?? []) {
-        if (!suggestion.informationField || supplementalDrafts.some((product) => product.informationField === suggestion.informationField)) continue;
-        supplementalDrafts.push(createSupplementalProductDraft(suggestion.informationField, suggestion, false));
+      const productInformationFields = [...new Set([
+        ...(value.suggestedProducts ?? []).map((product) => product.informationField).filter((field): field is string => Boolean(field)),
+        ...value.informationNeeded.filter(isSupplementalProductInformation),
+      ])];
+      for (const field of productInformationFields) {
+        if (supplementalDrafts.some((product) => product.informationField === field)) continue;
+        const suggestion = value.suggestedProducts?.find((product) => product.informationField === field);
+        const candidateName = suggestion?.name?.trim() || suggestedNameFromMissingField(field);
+        const matchingProductIndex = candidateName
+          ? supplementalDrafts.findIndex((product) => !product.informationField && sameProductLineName(product.name, candidateName))
+          : -1;
+        if (matchingProductIndex >= 0) {
+          supplementalDrafts[matchingProductIndex] = { ...supplementalDrafts[matchingProductIndex]!, informationField: field };
+        } else {
+          supplementalDrafts.push(createSupplementalProductDraft(field, suggestion, false));
+        }
       }
-      const draftedInformationFields = new Set(supplementalDrafts.map((product) => product.informationField).filter((field): field is string => Boolean(field)));
-      value.informationNeeded.filter((field) => isSupplementalProductInformation(field) && !draftedInformationFields.has(field))
-        .forEach((field) => supplementalDrafts.push(createSupplementalProductDraft(field, undefined, false)));
       setSupplementalProducts(supplementalDrafts);
       setValidityDaysText(value.validityDays == null ? "" : String(value.validityDays));
       setCompletionDateText(value.completionDate ?? "");
@@ -1596,6 +1618,19 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     customerPhone,
   });
 
+  const savedTaxRateConfirmed = quote
+    ? quote.taxRateConfirmed ?? !quote.informationNeeded.some(isTaxMissingInformation)
+    : false;
+  const savedShippingFeeConfirmed = quote
+    ? quote.shippingFeeConfirmed ?? (quote.shippingFee != null || !quote.informationNeeded.some(isShippingMissingInformation))
+    : false;
+  const savedShippingFee = quote && savedShippingFeeConfirmed ? quote.shippingFee ?? 0 : null;
+  const currentShippingFee = shippingMode === "unconfirmed"
+    ? null
+    : shippingMode === "free"
+      ? 0
+      : shippingFeeText.trim() === "" ? null : Number(shippingFeeText);
+
   const hasUnsavedChanges = Boolean(
     quote && (
       quote.lines.some((line) => line.source !== "supplemental" && Number(quantities[line.catalogItemId]) !== line.quantity) ||
@@ -1608,8 +1643,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
         unitPrice: String(line.unitPrice),
       }))) ||
       Number(taxRateText) / 100 !== quote.taxRate ||
-      taxRateConfirmed !== (quote.taxRateConfirmed ?? !quote.informationNeeded.some((field) => /vat|thuế/i.test(field))) ||
-      (shippingFeeText.trim() === "" ? null : Number(shippingFeeText)) !== (quote.shippingFeeConfirmed === false ? null : quote.shippingFee ?? 0) ||
+      taxRateConfirmed !== savedTaxRateConfirmed ||
+      shippingFeeIsConfirmed !== savedShippingFeeConfirmed ||
+      currentShippingFee !== savedShippingFee ||
       (validityDaysText.trim() === "" ? null : Number(validityDaysText)) !== (quote.validityDays ?? null) ||
       (completionDateText || null) !== (quote.completionDate ?? null) ||
       [...new Set([...Object.keys(quote.additionalInformation ?? {}), ...Object.keys(additionalInformation)])]
@@ -1733,8 +1769,10 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     ...(!shippingFeeIsConfirmed ? ["Phí vận chuyển"] : []),
     ...(!taxRateConfirmed || taxRateText.trim() === "" ? ["VAT"] : []),
   ];
+  const unresolvedItemCount = unresolvedOtherInformation.length + missingSetupInformation.length + unresolvedProductNeeds.length;
   const catalogLines = quote.lines.filter((line) => line.source !== "supplemental");
-  const visibleLineCount = catalogLines.length + supplementalProducts.filter(hasSupplementalProductContent).length;
+  const displaySupplementalProducts = supplementalProducts.filter(hasSupplementalProductContent);
+  const visibleLineCount = catalogLines.length + displaySupplementalProducts.length;
   const outputExtension = quote.template?.originalFilename.split(".").pop()?.toLowerCase() || "pdf";
   const canPreviewGeneratedFile = quote.status === "approved" || editable;
   const canExportDraftXlsx = editable && quote.status !== "approved";
@@ -1982,7 +2020,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
           <div className="banner-info-wrap">
             <span className="banner-icon"><Icon name="spark" size={20} /></span>
             <div className="banner-text-box">
-              <h3>Còn thông tin cần bổ sung</h3>
+              <h3>Còn {unresolvedItemCount} mục cần xác nhận trước khi duyệt</h3>
               <p>{[
                 ...unresolvedOtherInformation,
                 ...missingSetupInformation.map((field) => `${field}: chưa xác nhận`),
@@ -2135,14 +2173,14 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             <div className="section-title quote-terms-heading"><div><h2>Chi phí & điều khoản</h2><p>Chưa chốt sẽ chưa vào tổng.</p></div></div>
             <div className="quote-terms-grid">
               <div className="quote-fee-control">
-                <label className="quote-fee-label" htmlFor={`shipping-mode-${quote._id}`}>Vận chuyển</label>
+                <label className="quote-fee-label" htmlFor={`shipping-mode-${quote._id}`}>Vận chuyển {!shippingFeeIsConfirmed && <small className="quote-fee-confirmation-needed">Cần xác nhận</small>}</label>
                 <div className="quote-fee-row">
                   <ThemedSelect id={`shipping-mode-${quote._id}`} label="Vận chuyển" value={shippingMode} disabled={!editable || busy} onChange={(next) => chooseShippingMode(next as ShippingMode)} options={[{ value: "unconfirmed", label: "Chưa chốt" }, { value: "free", label: "Miễn phí" }, { value: "paid", label: "Tính phí" }]} />
                   {shippingMode === "paid" && <MoneyInput value={shippingFeeText} currency={quote.currency} disabled={!editable || busy} placeholder="0" aria-label={`Phí vận chuyển (${quote.currency})`} onChange={setShippingFeeText} />}
                 </div>
               </div>
               <div className="quote-fee-control">
-                <label className="quote-fee-label" htmlFor={`tax-mode-${quote._id}`}>Thuế VAT</label>
+                <label className="quote-fee-label" htmlFor={`tax-mode-${quote._id}`}>Thuế VAT {(!taxRateConfirmed || taxRateText.trim() === "") && <small className="quote-fee-confirmation-needed">Cần xác nhận</small>}</label>
                 <div className="quote-fee-row">
                   <ThemedSelect id={`tax-mode-${quote._id}`} label="Thuế VAT" value={taxMode} disabled={!editable || busy} onChange={(next) => chooseTaxMode(next as TaxMode)} options={[{ value: "unconfirmed", label: "Chưa chốt" }, { value: "zero", label: "0%" }, { value: "rate", label: "Tính VAT" }]} />
                   {taxMode === "rate" && <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} placeholder="%" aria-label="Thuế suất VAT (%)" onChange={(event) => { setTaxRateText(event.target.value); setTaxRateConfirmed(event.target.value.trim() !== "" && Number.isFinite(Number(event.target.value)) && Number(event.target.value) >= 0); }} />}
@@ -2256,6 +2294,34 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
                         <td className="col-amount">
                           <strong className="quote-total-cell">{formatMoney(lineTotal, line.currency)}</strong>
                         </td>
+                      </tr>
+                    );
+                  })}
+                  {displaySupplementalProducts.map((product, index) => {
+                    const quantity = Number(product.quantity);
+                    const unitPrice = Number(product.unitPrice);
+                    const hasQuantity = product.quantity.trim() !== "" && Number.isFinite(quantity) && quantity > 0;
+                    const hasUnitPrice = product.unitPrice.trim() !== "" && Number.isFinite(unitPrice) && unitPrice >= 0;
+                    const lineTotal = hasQuantity && hasUnitPrice
+                      ? Math.round((quantity * unitPrice + Number.EPSILON) * 100) / 100
+                      : null;
+                    return (
+                      <tr key={`supplemental-${product.id}`}>
+                        <td className="quote-item-index">{catalogLines.length + index + 1}</td>
+                        <td>
+                          <div className="quote-item-details">
+                            <div className="quote-item-title-row">
+                              <span className="quote-item-name">{product.name.trim() || "Chưa nhập tên"}</span>
+                              <span className="quote-item-sku">Bổ sung</span>
+                            </div>
+                            {product.description.trim() && <span className="quote-item-desc">{product.description}</span>}
+                            {product.informationField && <span className="quote-item-desc">Bổ sung cho: {product.informationField}</span>}
+                          </div>
+                        </td>
+                        <td className="col-unit"><span className="quote-unit-label">{product.unit.trim() || "—"}</span></td>
+                        <td className="col-qty"><span className="quote-qty-static">{hasQuantity ? quantity.toLocaleString("vi-VN") : "—"}</span></td>
+                        <td className="col-amount"><span className="quote-price-cell">{hasUnitPrice ? formatMoney(unitPrice, quote.currency) : "—"}</span></td>
+                        <td className="col-amount"><strong className="quote-total-cell">{lineTotal === null ? "—" : formatMoney(lineTotal, quote.currency)}</strong></td>
                       </tr>
                     );
                   })}
