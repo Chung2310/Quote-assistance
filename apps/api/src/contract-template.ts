@@ -133,7 +133,7 @@ export function acceptanceBindings(contract: Contract, record: import("./types.j
 
 export function renderContractWithTemplate(template: QuoteTemplate, contract: Contract): Buffer {
   const mode = contractTemplateMode(template);
-  if (mode === "pdf-reference") return makePdfReferenceContractWord(contract);
+  if (mode === "pdf-reference") return removeWordHeaders(makePdfReferenceContractWord(contract));
   if (mode !== "docx") throw new Error("Mẫu này chưa thể điền vào file Word. Hãy tải lên mẫu DOCX có các trường dữ liệu hoặc dùng mẫu PDF hợp đồng đã được dựng lại.");
   const data = {
     ...contract,
@@ -147,9 +147,9 @@ export function renderContractWithTemplate(template: QuoteTemplate, contract: Co
     lines: contract.lines.map((line, index) => ({ ...line, index: index + 1, unitPriceFormatted: formattedMoney(line.unitPrice, contract.currency), lineTotalFormatted: formattedMoney(line.lineTotal, contract.currency) })),
   };
   try {
-    const document = new Docxtemplater(new PizZip(templateBytes(template)), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
+    const document = new Docxtemplater(new PizZip(removeWordHeaders(templateBytes(template))), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
     document.render(data);
-    return document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
+    return removeWordHeaders(document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }));
   } catch (error) {
     throw new Error(error instanceof Error ? `Không điền được mẫu Word: ${error.message}` : "Không điền được mẫu Word đã chọn.");
   }
@@ -278,7 +278,8 @@ export async function renderContractFile(db: Db, template: QuoteTemplate, contra
   if (mode === "pdf-reference" || mode === "docx") return { bytes: renderContractWithTemplate(template, contract), extension: "docx" };
   if (mode === "pdf-ai" || mode === "docx-ai") {
     const plan = await getOrCreateContractFillPlan(db, template, contract, runAi);
-    return { bytes: await renderMappedTemplate(template, contractBindings(contract), plan), extension: mode === "pdf-ai" ? "pdf" : "docx" };
+    const bytes = await renderMappedTemplate(template, contractBindings(contract), plan);
+    return { bytes: mode === "docx-ai" ? removeWordHeaders(bytes) : bytes, extension: mode === "pdf-ai" ? "pdf" : "docx" };
   }
   throw new Error("Mẫu hợp đồng không có định dạng Word hoặc PDF hợp lệ.");
 }
