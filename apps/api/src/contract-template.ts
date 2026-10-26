@@ -6,13 +6,63 @@ import PizZip from "pizzip";
 import { requestTemplatePlan } from "./ai.js";
 import { makePdfReferenceContractWord, words } from "./contract-pdf-reference-word.js";
 import { convertPdfToWord } from "./pdf-to-word.js";
-import { fillSchema, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
+import { applyFontToAllWordRuns, applyFontToTemplateWordParagraphs, fillSchema, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
 import type { Contract, TemplateFillPlan } from "./types.js";
 
 const architecturePdfHash = "72d9a684a94784ed813fac2b861556509f804de16acff141597eb3ab18685c04";
 const mrHiepAcceptanceDocxName = "bien ban nghiem thu mr hiep.docx";
 
 function templateBytes(template: QuoteTemplate) { return Buffer.from(template.data.buffer); }
+
+function removeWordHeaders(bytes: Buffer) {
+  const zip = new PizZip(bytes);
+  const document = zip.file("word/document.xml");
+  if (document) zip.file("word/document.xml", document.asText().replace(/<w:headerReference\b[^>]*(?:\/>|>[\s\S]*?<\/w:headerReference>)/g, ""));
+  for (const name of Object.keys(zip.files)) {
+    if (/^word\/header\d+\.xml$/.test(name) || /^word\/_rels\/header\d+\.xml\.rels$/.test(name)) zip.remove(name);
+  }
+  const relationships = zip.file("word/_rels/document.xml.rels");
+  if (relationships) zip.file("word/_rels/document.xml.rels", relationships.asText().replace(/<Relationship\b(?=[^>]*\bType="[^"]*\/header")[^>]*\/>/g, ""));
+  const contentTypes = zip.file("[Content_Types].xml");
+  if (contentTypes) zip.file("[Content_Types].xml", contentTypes.asText().replace(/<Override\b(?=[^>]*\bPartName="\/word\/header\d+\.xml")[^>]*\/>/g, ""));
+  return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+function fixMrHiepAcceptanceText(xml: string, contract: Contract) {
+  const textRuns = [...xml.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)];
+  if (textRuns.length !== 53) return xml;
+  const replacements = new Map<number, string>([
+    [0, "CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM"], [1, "Độc lập - Tự do - Hạnh phúc"], [2, ""],
+    [4, "BIÊN BẢN NGHIỆM THU "], [5, "BÀN GIAO"], [9, "BÊN A: CHỦ ĐẦU TƯ"], [11, "Địa chỉ"],
+    [14, "BÊN B: ĐƠN VỊ THIẾT KẾ"], [15, contract.companyName], [16, "Địa chỉ"], [18, "MST"],
+    [20, "Đại diện"], [22, "Chức vụ: Giám đốc"],
+    [24, "Hai bên cùng thống nhất tiến hành nghiệm thu và bàn giao hồ sơ theo các nội dung sau đây:"],
+    [25, "1. Thời gian nghiệm thu:"], [28, "2. Đánh giá hồ sơ thiết kế và bàn giao:"],
+    [30, "Khối lượng công việc: Theo đúng nội dung trong Hợp đồng"],
+    [31, "Hình thức hồ sơ: Đảm bảo tính kỹ thuật, mỹ thuật."], [33, "3. Giá trị thanh quyết toán:"],
+    [43, "4. Kết luận:"],
+    [44, "Hai bên thống nhất nghiệm thu hồ sơ đã hoàn thành theo nội dung trong hợp đồng."],
+    [45, "Biên bản được lập thành 02 bản, bên A giữ 01 bản, bên B giữ 01 bản có giá trị pháp lý như nhau."],
+    [46, "ĐẠI DIỆN BÊN A"], [47, "ĐẠI DIỆN BÊN B"], [48, "(Ký tên, đóng dấu)"],
+  ]);
+  let index = 0;
+  return xml.replace(/(<w:t\b[^>]*>)([\s\S]*?)(<\/w:t>)/g, (whole, open: string, _text: string, close: string) => {
+    const replacement = replacements.get(index++);
+    return replacement === undefined ? whole : `${open}${replacement.normalize("NFC").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}${close}`;
+  });
+}
+
+function finalizeAcceptanceWord(bytes: Buffer, template: QuoteTemplate, contract: Contract) {
+  const zip = new PizZip(bytes);
+  const document = zip.file("word/document.xml");
+  if (document) {
+    let xml = document.asText();
+    if (template.originalFilename.toLowerCase().replace(/\.pdf$/i, ".docx") === mrHiepAcceptanceDocxName) xml = fixMrHiepAcceptanceText(xml, contract);
+    zip.file("word/document.xml", applyFontToAllWordRuns(xml, "Arial"));
+  }
+  const withoutLegacyFont = zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+  return removeWordHeaders(withoutLegacyFont);
+}
 
 function hasDocxFields(bytes: Buffer) {
   const zip = new PizZip(bytes);
@@ -119,7 +169,7 @@ export function acceptanceBindings(contract: Contract, record: import("./types.j
 
 export function renderContractWithTemplate(template: QuoteTemplate, contract: Contract): Buffer {
   const mode = contractTemplateMode(template);
-  if (mode === "pdf-reference") return makePdfReferenceContractWord(contract);
+  if (mode === "pdf-reference") return removeWordHeaders(makePdfReferenceContractWord(contract));
   if (mode !== "docx") throw new Error("Mẫu này chưa thể điền vào file Word. Hãy tải lên mẫu DOCX có các trường dữ liệu hoặc dùng mẫu PDF hợp đồng đã được dựng lại.");
   const data = {
     ...contract,
@@ -133,9 +183,9 @@ export function renderContractWithTemplate(template: QuoteTemplate, contract: Co
     lines: contract.lines.map((line, index) => ({ ...line, index: index + 1, unitPriceFormatted: formattedMoney(line.unitPrice, contract.currency), lineTotalFormatted: formattedMoney(line.lineTotal, contract.currency) })),
   };
   try {
-    const document = new Docxtemplater(new PizZip(templateBytes(template)), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
+    const document = new Docxtemplater(new PizZip(removeWordHeaders(templateBytes(template))), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
     document.render(data);
-    return document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
+    return removeWordHeaders(document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }));
   } catch (error) {
     throw new Error(error instanceof Error ? `Không điền được mẫu Word: ${error.message}` : "Không điền được mẫu Word đã chọn.");
   }
@@ -264,7 +314,8 @@ export async function renderContractFile(db: Db, template: QuoteTemplate, contra
   if (mode === "pdf-reference" || mode === "docx") return { bytes: renderContractWithTemplate(template, contract), extension: "docx" };
   if (mode === "pdf-ai" || mode === "docx-ai") {
     const plan = await getOrCreateContractFillPlan(db, template, contract, runAi);
-    return { bytes: await renderMappedTemplate(template, contractBindings(contract), plan), extension: mode === "pdf-ai" ? "pdf" : "docx" };
+    const bytes = await renderMappedTemplate(template, contractBindings(contract), plan);
+    return { bytes: mode === "docx-ai" ? removeWordHeaders(bytes) : bytes, extension: mode === "pdf-ai" ? "pdf" : "docx" };
   }
   throw new Error("Mẫu hợp đồng không có định dạng Word hoặc PDF hợp lệ.");
 }
@@ -344,9 +395,14 @@ export function renderAcceptanceWithTemplate(template: QuoteTemplate, contract: 
   });
   const data = { ...contract, ...record, ...acceptanceBindings(contract, record), lines };
   try {
-    const document = new Docxtemplater(new PizZip(templateBytes(template)), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
+    const zip = new PizZip(removeWordHeaders(templateBytes(template)));
+    for (const name of Object.keys(zip.files).filter((entry) => /^word\/(document|header\d+|footer\d+)\.xml$/.test(entry))) {
+      const part = zip.file(name);
+      if (part) zip.file(name, applyFontToTemplateWordParagraphs(part.asText()));
+    }
+    const document = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
     document.render(data);
-    return document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
+    return finalizeAcceptanceWord(document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }), template, contract);
   } catch (error) {
     throw new Error(error instanceof Error ? `Không điền được mẫu nghiệm thu: ${error.message}` : "Không điền được mẫu nghiệm thu đã chọn.");
   }
@@ -358,7 +414,8 @@ export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, cont
   if (mode === "pdf-reference" || mode === "pdf-ai" || mode === "docx-ai") {
     const wordTemplate = await acceptanceWordTemplate(db, template);
     const plan = await getOrCreateAcceptanceFillPlan(db, wordTemplate, contract, record, runAi);
-    return { bytes: await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan), extension: "docx" };
+    const rendered = await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan, { boundTextFont: "Arial" });
+    return { bytes: finalizeAcceptanceWord(rendered, template, contract), extension: "docx" };
   }
   throw new Error("Mẫu nghiệm thu không có định dạng Word hoặc PDF hợp lệ.");
 }
