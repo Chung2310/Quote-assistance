@@ -221,6 +221,74 @@ export interface Quote {
   rejectionReason?: string;
 }
 
+export interface Contract {
+  _id?: ObjectId;
+  companyId: string;
+  quoteId: string;
+  quoteNumber: string;
+  contractNumber: string;
+  template?: QuoteTemplateSnapshot;
+  status: "draft" | "signed";
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  customerAddress: string;
+  customerTaxId: string;
+  customerRepresentative: string;
+  companyName: string;
+  companyAddress: string;
+  companyTaxId: string;
+  companyRepresentative: string;
+  companyPhone: string;
+  companyEmail: string;
+  lines: QuoteLine[];
+  subtotal: number;
+  taxRate: number;
+  taxAmount: number;
+  shippingFee: number;
+  total: number;
+  currency: string;
+  scope: string;
+  projectName: string;
+  projectAddress: string;
+  deliverables: string;
+  depositAmount: number;
+  bankDetails: string;
+  otherTerms: string;
+  paymentTerms: string;
+  deliveryTerms: string;
+  signingPlace: string;
+  signedDate: string | null;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AcceptanceRecord {
+  _id?: ObjectId;
+  companyId: string;
+  contractId: string;
+  contractNumber: string;
+  acceptanceNumber: string;
+  template?: QuoteTemplateSnapshot;
+  status: "draft" | "completed";
+  acceptedDate: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  result: string;
+  handoverDetails: string;
+  qualityAssessment: string;
+  settlementAmount: number;
+  amountPaid: number;
+  paymentDueDays: number | null;
+  notes: string;
+  lines: Array<{ lineIndex: number; acceptedQuantity: number }>;
+  createdBy: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface TemplateFillPlan {
   edits: Array<{ part: string; find: string; replace: string }>;
   pdfEdits: Array<{ page: number; x: number; y: number; width: number; height: number; fontSize: number; text: string; erase: boolean }>;

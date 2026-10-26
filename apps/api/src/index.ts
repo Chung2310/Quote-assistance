@@ -18,13 +18,15 @@ import { decryptCompanySecret, encryptCompanySecret } from "./secrets.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
 import { estimateFromCustomerQuote } from "./quote-from-customer.js";
+import { makeDocumentWord } from "./document-word.js";
+import { contractTemplateMode, renderAcceptanceFile, renderContractFile } from "./contract-template.js";
 import { adjustEstimateWithRequirements } from "./quote-estimate-adjustment.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { budgetPlanAsQuote, makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
 import { currentTemplate, getOrCreateTemplateFillPlan, inspectTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
-import type { CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
+import type { AcceptanceRecord, CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, Contract, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
 const require = createRequire(import.meta.url);
@@ -391,7 +393,7 @@ async function withAiUsage<T>(db: Db, user: SessionUser, kind: string, work: () 
 }
 
 function templateQuotaMessage(plan: SubscriptionPlan) {
-  return `Gói ${plan.name} đã đạt giới hạn ${plan.templateLimit} mẫu báo giá. Hãy liên hệ quản trị viên để nâng cấp gói.`;
+  return `Gói ${plan.name} đã đạt giới hạn ${plan.templateLimit} mẫu tài liệu. Hãy liên hệ quản trị viên để nâng cấp gói.`;
 }
 
 async function enforceTemplateQuota(request: express.Request, response: express.Response, next: express.NextFunction) {
@@ -1359,14 +1361,16 @@ app.put("/api/admin/settings/sepay", requireSystemAdmin, async (request, respons
 app.get("/api/quote-templates", requireRole("user"), async (request, response) => {
   const db = await connectDatabase();
   const user = userOf(request);
+  const category = (request.query.category === undefined ? "quote" : String(request.query.category)) as NonNullable<QuoteTemplate["category"]>;
+  if (!["quote", "estimate", "contract", "acceptance"].includes(category)) return fail(response, "Loại mẫu không hợp lệ.");
   const cursor = request.query.cursor === undefined ? undefined : asId(String(request.query.cursor));
   if (request.query.cursor !== undefined && !cursor) return fail(response, "Trang danh sách mẫu không hợp lệ.");
   const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) }, { projection: { quoteTemplateId: 1 } });
   const templates = await db.collection<QuoteTemplate>("quoteTemplates")
-    .find({ companyId: user.companyId, deletedAt: { $exists: false }, ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } })
+    .find({ companyId: user.companyId, deletedAt: { $exists: false }, category: category === "quote" ? { $in: ["quote", null] } : category, ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } })
     .sort({ _id: -1 }).limit(13).toArray();
   const page = templates.slice(0, 12);
-  response.json({ templates: page.map(templateDetails), defaultTemplateId: company?.quoteTemplateId ?? null, nextCursor: templates.length > 12 ? page[11]._id!.toHexString() : null });
+  response.json({ templates: page.map(templateDetails), defaultTemplateId: category === "quote" ? company?.quoteTemplateId ?? null : page[0]?._id?.toHexString() ?? null, nextCursor: templates.length > 12 ? page[11]._id!.toHexString() : null });
 });
 
 app.get("/api/quote-template", requireRole("user"), async (request, response) => {
@@ -1375,6 +1379,8 @@ app.get("/api/quote-template", requireRole("user"), async (request, response) =>
 });
 
 app.post("/api/quote-template", requireRole("user"), enforceTemplateQuota, express.raw({ type: "application/octet-stream", limit: "10mb" }), async (request, response) => {
+  const category = request.header("x-template-category") || "quote";
+  if (!["quote", "estimate", "contract", "acceptance"].includes(category)) return fail(response, "Loại mẫu không hợp lệ.");
   if (!Buffer.isBuffer(request.body) || !request.body.length) return fail(response, "Hãy chọn file mẫu báo giá.");
   let name: string;
   try { name = decodeURIComponent(request.header("x-template-name") ?? "").trim(); }
@@ -1393,11 +1399,11 @@ app.post("/api/quote-template", requireRole("user"), enforceTemplateQuota, expre
   if (!await db.collection<Company>("companies").findOne({ _id: companyId })) return fail(response, "Không tìm thấy doanh nghiệp.", 404);
   const usage = await subscriptionUsage(db, user.companyId);
   if (usage.templates.limit !== null && usage.templates.used >= usage.templates.limit) return fail(response, templateQuotaMessage(usage.plan), 429);
-  const template: QuoteTemplate = { companyId: user.companyId, name, originalFilename, extension, bytes: request.body.length, data: new Binary(request.body), createdAt: new Date(), uploadedBy: user.id };
+  const template: QuoteTemplate = { companyId: user.companyId, category: category as QuoteTemplate["category"], name, originalFilename, extension, bytes: request.body.length, data: new Binary(request.body), createdAt: new Date(), uploadedBy: user.id };
   const result = await db.collection<QuoteTemplate>("quoteTemplates").insertOne(template);
   template._id = result.insertedId;
-  await db.collection<Company>("companies").updateOne({ _id: companyId }, { $set: { quoteTemplateId: result.insertedId.toHexString(), updatedAt: new Date() } });
-  await writeAudit(db, user, "quote_template_uploaded", "company", user.companyId, { templateId: result.insertedId.toHexString(), originalFilename });
+  if (category === "quote") await db.collection<Company>("companies").updateOne({ _id: companyId }, { $set: { quoteTemplateId: result.insertedId.toHexString(), updatedAt: new Date() } });
+  await writeAudit(db, user, "quote_template_uploaded", "company", user.companyId, { templateId: result.insertedId.toHexString(), originalFilename, category });
   response.status(201).json({ template: templateDetails(template) });
 });
 
@@ -1413,7 +1419,7 @@ app.delete("/api/quote-template/:id", requireRole("user"), async (request, respo
     { returnDocument: "before", projection: { name: 1, originalFilename: 1 } },
   );
   if (!removed) return fail(response, "Không tìm thấy mẫu báo giá.", 404);
-  const replacement = await templates.find({ companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { _id: 1 } })
+  const replacement = await templates.find({ companyId: user.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } }, { projection: { _id: 1 } })
     .sort({ _id: -1 }).limit(1).next();
   await db.collection<Company>("companies").updateOne(
     { _id: new ObjectId(user.companyId), quoteTemplateId: id.toHexString() },
@@ -1818,7 +1824,7 @@ app.post("/api/quote-requests", requireRole("user"), async (request, response) =
   }
   const usage = await subscriptionUsage(db, user.companyId);
   if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
-  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } });
+  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } });
   const priceList = priceListId ? await db.collection<PriceList>("priceLists").findOne({ _id: priceListId, companyId: user.companyId }, { projection: { data: 0, analysisRows: 0 } }) : null;
   if (!template || (priceListId && !priceList)) return fail(response, "Mẫu báo giá hoặc bảng giá không thuộc doanh nghiệp hoặc không còn tồn tại.", 404);
   const requestFile = requestFileId ? await db.collection<RequestFile>("requestFiles").findOne({ _id: requestFileId, companyId: user.companyId, uploadedBy: user.id }, { projection: { data: 0 } }) : null;
@@ -2134,7 +2140,7 @@ app.get("/api/budget-plans/:id/export", requireRole("user"), async (request, res
   if (request.query.templateId !== undefined && request.query.templateId !== "none" && !templateId) return fail(response, "Mã mẫu Excel không hợp lệ.");
   let bytes: Buffer;
   if (templateId) {
-    const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: plan.companyId, deletedAt: { $exists: false } });
+    const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: plan.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } });
     if (!template) return fail(response, "Không tìm thấy mẫu Excel.", 404);
     if (template.extension !== "xlsx") return fail(response, "Hãy chọn mẫu Excel (.xlsx).", 422);
     try {
@@ -2193,7 +2199,7 @@ app.post("/api/customer-quotes", requireRole("user"), async (request, response) 
   if (existing) return response.json({ quote: quoteForResponse(existing) });
   const usage = await subscriptionUsage(db, user.companyId);
   if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
-  const template = templateId ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }) : null;
+  const template = templateId ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }) : null;
   if (templateId && !template) return fail(response, "Không tìm thấy mẫu báo giá.", 404);
   if (template && template.extension !== "xlsx") return fail(response, "Báo giá khách cần chọn mẫu Excel (.xlsx).", 422);
   const requested = [] as Array<{ catalogItemId: string; quantity: number; unit: string; attributes: Record<string, string> }>;
@@ -2250,7 +2256,7 @@ app.post("/api/quotes/from-customer", requireRole("user"), async (request, respo
   if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
   const [source, template] = await Promise.all([
     quotes.findOne({ _id: sourceId, companyId: user.companyId, kind: "customer" }),
-    db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }),
+    db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false }, category: { $in: ["estimate", "quote", null] } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }),
   ]);
   if (!source) return fail(response, "Không tìm thấy báo giá khách đã chọn.", 404);
   if (!template) return fail(response, "Không tìm thấy mẫu dự toán đã chọn.", 404);
@@ -2455,6 +2461,7 @@ app.delete("/api/quotes/:id", requireRole("user"), async (request, response) => 
   const quotes = db.collection<Quote>("quotes");
   const quote = await quotes.findOne({ _id: id, companyId: user.companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
+  if (await db.collection<Contract>("contracts").findOne({ companyId: user.companyId, quoteId: id.toHexString() })) return fail(response, "Dự toán đã có hợp đồng; không thể xóa nguồn đối chiếu.", 409);
   const result = await quotes.deleteOne({ _id: id, companyId: user.companyId });
   if (!result.deletedCount) return fail(response, "Báo giá không còn tồn tại hoặc đã được xóa.", 404);
   await writeAudit(db, user, "quote_deleted", "quote", id.toHexString(), { quoteNumber: quote.quoteNumber, status: quote.status });
@@ -2692,6 +2699,427 @@ app.post("/api/quotes/:id/reject", requireRole("user"), async (request, response
   response.json({ quote: result });
 });
 
+function validDocumentDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+function validDocumentTime(value: unknown): value is string {
+  return typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+}
+
+function validMoneyAmount(value: unknown, maximum: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= maximum;
+}
+
+function sendWord(response: express.Response, filename: string, bytes: Buffer) {
+  response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  response.send(bytes);
+}
+
+app.get("/api/document-templates/:kind", requireRole("user"), (request, response) => {
+  const kind = request.params.kind;
+  if (kind !== "contract" && kind !== "acceptance") return fail(response, "Không tìm thấy mẫu chứng từ.", 404);
+  sendWord(response, kind === "contract" ? "mau-hop-dong.docx" : "mau-nghiem-thu.docx", makeDocumentWord(kind));
+});
+
+async function usableContractTemplates(db: Db, companyId: string) {
+  const saved = await db.collection<QuoteTemplate>("quoteTemplates")
+    .find({ companyId, category: "contract", deletedAt: { $exists: false } }).sort({ _id: -1 }).limit(100).toArray();
+  return saved.filter((template) => contractTemplateMode(template));
+}
+
+async function usableAcceptanceTemplates(db: Db, companyId: string) {
+  const saved = await db.collection<QuoteTemplate>("quoteTemplates")
+    .find({ companyId, category: "acceptance", deletedAt: { $exists: false } }).sort({ _id: -1 }).limit(100).toArray();
+  return saved.filter((template) => contractTemplateMode(template));
+}
+
+app.get("/api/contract-templates", requireRole("user"), async (request, response) => {
+  const templates = await usableContractTemplates(await connectDatabase(), userOf(request).companyId);
+  response.json({ templates: templates.map((template) => ({ ...templateDetails(template), mode: contractTemplateMode(template) })) });
+});
+
+app.get("/api/acceptance-templates", requireRole("user"), async (request, response) => {
+  const templates = await usableAcceptanceTemplates(await connectDatabase(), userOf(request).companyId);
+  response.json({ templates: templates.map((template) => ({ ...templateDetails(template), mode: contractTemplateMode(template) })) });
+});
+
+app.get("/api/contracts", requireRole("user"), async (request, response) => {
+  const user = userOf(request);
+  const contracts = await (await connectDatabase()).collection<Contract>("contracts")
+    .find({ companyId: user.companyId }).sort({ createdAt: -1 }).limit(200).toArray();
+  response.json({ contracts });
+});
+
+app.get("/api/contracts/prefill", requireRole("user"), async (request, response) => {
+  const user = userOf(request);
+  const companyId = asId(user.companyId);
+  const company = companyId ? await (await connectDatabase()).collection<Company>("companies").findOne({ _id: companyId }) : null;
+  if (!company) return fail(response, "Không tìm thấy hồ sơ doanh nghiệp.", 404);
+  response.json({ company: {
+    name: company.name, address: company.address ?? "", taxId: company.taxId ?? "",
+    representativeName: company.representativeName ?? "", phone: company.phone ?? "", email: company.businessEmail ?? "",
+  } });
+});
+
+app.post("/api/contracts", requireRole("user"), async (request, response) => {
+  const quoteId = asId(request.body?.quoteId);
+  if (!quoteId) return fail(response, "Hãy chọn dự toán hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const quote = await db.collection<Quote>("quotes").findOne({ _id: quoteId, companyId: user.companyId });
+  if (!quote) return fail(response, "Không tìm thấy dự toán.", 404);
+  if (quote.kind === "customer" || quote.status !== "approved" || quoteHasUnresolvedInformation(quote)
+    || !quote.lines.length || quote.lines.some((line) => line.priceUnavailable || !Number.isFinite(line.quantity) || line.quantity <= 0)) {
+    return fail(response, "Chỉ có thể tạo hợp đồng từ dự toán đã duyệt và đủ thông tin.", 409);
+  }
+  const existing = await db.collection<Contract>("contracts").findOne({ companyId: user.companyId, quoteId: quoteId.toHexString() });
+  if (existing) return response.json({ contract: existing });
+  const body = request.body ?? {};
+  const requestedTemplateId = body.templateId ? asId(String(body.templateId)) : null;
+  if (body.templateId && !requestedTemplateId) return fail(response, "Mẫu hợp đồng không hợp lệ.");
+  const templates = db.collection<QuoteTemplate>("quoteTemplates");
+  const selectedTemplate = requestedTemplateId
+    ? await templates.findOne({ _id: requestedTemplateId, companyId: user.companyId, category: "contract", deletedAt: { $exists: false } })
+    : (await usableContractTemplates(db, user.companyId))[0] ?? null;
+  if (requestedTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu hợp đồng đã chọn.", 404);
+  if (selectedTemplate && !contractTemplateMode(selectedTemplate)) return fail(response, "Mẫu hợp đồng cần là file Word hoặc PDF hợp lệ.", 422);
+  const requiredFields = ["customerName", "customerAddress", "customerRepresentative", "companyName", "companyAddress", "companyRepresentative", "scope", "projectName", "projectAddress", "deliverables", "paymentTerms", "deliveryTerms", "signingPlace"] as const;
+  for (const field of requiredFields) {
+    if (!validText(body[field], ["scope", "deliverables", "paymentTerms", "deliveryTerms"].includes(field) ? 4000 : 250)) {
+      return fail(response, `Vui lòng nhập ${field} hợp lệ.`);
+    }
+  }
+  const optionalFields = ["customerEmail", "customerPhone", "customerTaxId", "companyTaxId", "companyPhone", "companyEmail"] as const;
+  for (const field of optionalFields) {
+    if (typeof body[field] !== "string" || body[field].length > 250) return fail(response, `Thông tin ${field} không hợp lệ.`);
+  }
+  if (body.customerEmail.trim() && !validEmail(body.customerEmail.trim())) return fail(response, "Email khách hàng không hợp lệ.");
+  if (body.companyEmail.trim() && !validEmail(body.companyEmail.trim())) return fail(response, "Email doanh nghiệp không hợp lệ.");
+  if (!validDocumentDate(body.signedDate)) return fail(response, "Hãy nhập ngày ký dự kiến hợp lệ.");
+  if (!validMoneyAmount(body.depositAmount, quote.total)) return fail(response, "Tiền đặt cọc phải từ 0 đến tổng giá trị dự toán.");
+  if (typeof body.bankDetails !== "string" || body.bankDetails.length > 1000 || typeof body.otherTerms !== "string" || body.otherTerms.length > 10000) {
+    return fail(response, "Thông tin tài khoản hoặc điều khoản bổ sung quá dài.");
+  }
+  const id = new ObjectId();
+  const now = new Date();
+  const contract: Contract = {
+    _id: id, companyId: user.companyId, quoteId: quoteId.toHexString(), quoteNumber: quote.quoteNumber,
+    contractNumber: `HD-${id.toHexString().slice(-8).toUpperCase()}`, status: "draft",
+    ...(selectedTemplate ? { template: { id: selectedTemplate._id!.toHexString(), name: selectedTemplate.name || selectedTemplate.originalFilename, originalFilename: selectedTemplate.originalFilename } } : {}),
+    customerName: body.customerName.trim(), customerEmail: body.customerEmail.trim(), customerPhone: body.customerPhone.trim(),
+    customerAddress: body.customerAddress.trim(), customerTaxId: body.customerTaxId.trim(), customerRepresentative: body.customerRepresentative.trim(),
+    companyName: body.companyName.trim(), companyAddress: body.companyAddress.trim(), companyTaxId: body.companyTaxId.trim(),
+    companyRepresentative: body.companyRepresentative.trim(), companyPhone: body.companyPhone.trim(), companyEmail: body.companyEmail.trim(),
+    lines: quote.lines.map((line) => ({ ...line })),
+    subtotal: quote.subtotal, taxRate: quote.taxRate, taxAmount: quote.taxAmount,
+    shippingFee: quote.shippingFee ?? 0, total: quote.total, currency: quote.currency,
+    scope: body.scope.trim(), projectName: body.projectName.trim(), projectAddress: body.projectAddress.trim(),
+    deliverables: body.deliverables.trim(), depositAmount: body.depositAmount, bankDetails: body.bankDetails.trim(), otherTerms: body.otherTerms.trim(),
+    paymentTerms: body.paymentTerms.trim(), deliveryTerms: body.deliveryTerms.trim(),
+    signingPlace: body.signingPlace.trim(), signedDate: body.signedDate,
+    createdBy: user.id, createdAt: now, updatedAt: now,
+  };
+  try {
+    await db.collection<Contract>("contracts").insertOne(contract);
+  } catch (error) {
+    if (typeof error === "object" && error && "code" in error && error.code === 11000) {
+      const concurrent = await db.collection<Contract>("contracts").findOne({ companyId: user.companyId, quoteId: quoteId.toHexString() });
+      if (concurrent) return response.json({ contract: concurrent });
+    }
+    throw error;
+  }
+  await writeAudit(db, user, "contract_created", "contract", id.toHexString(), { quoteId: quoteId.toHexString() });
+  response.status(201).json({ contract });
+});
+
+app.get("/api/contracts/:id", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã hợp đồng không hợp lệ.");
+  const user = userOf(request);
+  const contract = await (await connectDatabase()).collection<Contract>("contracts").findOne({ _id: id, companyId: user.companyId });
+  if (!contract) return fail(response, "Không tìm thấy hợp đồng.", 404);
+  response.json({ contract });
+});
+
+app.get(["/api/contracts/:id/docx", "/api/contracts/:id/file"], requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã hợp đồng không hợp lệ.");
+  const user = userOf(request);
+  const db = await connectDatabase();
+  const contract = await db.collection<Contract>("contracts").findOne({ _id: id, companyId: user.companyId });
+  if (!contract) return fail(response, "Không tìm thấy hợp đồng.", 404);
+  const templates = db.collection<QuoteTemplate>("quoteTemplates");
+  const overrideTemplateId = request.query.templateId === undefined ? null : asId(String(request.query.templateId));
+  if (request.query.templateId !== undefined && !overrideTemplateId) return fail(response, "Mã mẫu hợp đồng không hợp lệ.");
+  const savedTemplateId = contract.template?.id ? asId(contract.template.id) : null;
+  if (contract.template && !savedTemplateId) return fail(response, "Mẫu hợp đồng đã lưu không hợp lệ.", 422);
+  const selectedTemplate = overrideTemplateId
+    ? await templates.findOne({ _id: overrideTemplateId, companyId: user.companyId, category: "contract", deletedAt: { $exists: false } })
+    : savedTemplateId
+    ? await templates.findOne({ _id: savedTemplateId, companyId: user.companyId, category: "contract" })
+    : (await usableContractTemplates(db, user.companyId))[0] ?? null;
+  if (overrideTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu hợp đồng đã chọn.", 404);
+  if (savedTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu đã dùng để tạo hợp đồng.", 404);
+  try {
+    const file = selectedTemplate
+      ? await renderContractFile(db, selectedTemplate, contract, (work) => withAiUsage(db, user, "contract_template_map", work))
+      : { bytes: makeDocumentWord("contract", contract), extension: "docx" as const };
+    if (file.extension === "docx") return sendWord(response, `${contract.contractNumber}.docx`, file.bytes);
+    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`${contract.contractNumber}.pdf`)}`);
+    return response.send(file.bytes);
+  } catch (error) { return fail(response, error instanceof Error ? error.message : "Không xuất được hợp đồng theo mẫu đã chọn.", error instanceof AiQuotaExceededError ? 429 : 422); }
+});
+
+app.patch("/api/contracts/:id", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã hợp đồng không hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const current = await db.collection<Contract>("contracts").findOne({ _id: id, companyId: user.companyId, status: "draft" });
+  if (!current) return fail(response, "Chỉ có thể sửa hợp đồng nháp.", 409);
+  const fields = ["scope", "paymentTerms", "deliveryTerms", "projectName", "projectAddress", "deliverables", "signingPlace"] as const;
+  const updates: Record<string, string> = {};
+  for (const field of fields) {
+    const value = request.body?.[field];
+    if (!validText(value, ["scope", "paymentTerms", "deliveryTerms", "deliverables"].includes(field) ? 4000 : 250)) return fail(response, `Thông tin ${field} không hợp lệ.`);
+    updates[field] = value.trim();
+  }
+  for (const [field, limit] of [["bankDetails", 1000], ["otherTerms", 10000]] as const) {
+    const value = request.body?.[field];
+    if (typeof value !== "string" || value.length > limit) return fail(response, `Thông tin ${field} không hợp lệ.`);
+    updates[field] = value.trim();
+  }
+  if (!validMoneyAmount(request.body?.depositAmount, current.total) || !validDocumentDate(request.body?.signedDate)) return fail(response, "Tiền đặt cọc hoặc ngày ký dự kiến không hợp lệ.");
+  const contract = await db.collection<Contract>("contracts").findOneAndUpdate(
+    { _id: id, companyId: user.companyId, status: "draft" },
+    { $set: { ...updates, depositAmount: request.body.depositAmount, signedDate: request.body.signedDate, updatedAt: new Date() } }, { returnDocument: "after" },
+  );
+  if (!contract) return fail(response, "Chỉ có thể sửa hợp đồng nháp.", 409);
+  await writeAudit(db, user, "contract_updated", "contract", id.toHexString());
+  response.json({ contract });
+});
+
+app.post("/api/contracts/:id/sign", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  const signedDate = request.body?.signedDate;
+  if (!id || !validDocumentDate(signedDate)) return fail(response, "Hãy nhập ngày ký hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const draft = await db.collection<Contract>("contracts").findOne({ _id: id, companyId: user.companyId, status: "draft" });
+  if (!draft) return fail(response, "Chỉ có thể xác nhận hợp đồng nháp.", 409);
+  if (!draft.scope.trim() || !draft.paymentTerms.trim() || !draft.deliveryTerms.trim()) {
+    return fail(response, "Hãy hoàn thiện phạm vi, thanh toán và tiến độ trước khi xác nhận ký.", 409);
+  }
+  if (!validText(draft.projectName, 250) || !validText(draft.projectAddress, 250)
+    || !validText(draft.deliverables, 4000) || !validMoneyAmount(draft.depositAmount, draft.total)) {
+    return fail(response, "Hãy bổ sung công trình, hồ sơ bàn giao và tiền đặt cọc trước khi xác nhận ký.", 409);
+  }
+  const contract = await db.collection<Contract>("contracts").findOneAndUpdate(
+    { _id: id, companyId: user.companyId, status: "draft" },
+    { $set: { status: "signed", signedDate, updatedAt: new Date() } }, { returnDocument: "after" },
+  );
+  if (!contract) return fail(response, "Chỉ có thể xác nhận hợp đồng nháp.", 409);
+  await writeAudit(db, user, "contract_signed", "contract", id.toHexString(), { signedDate });
+  response.json({ contract });
+});
+
+app.get("/api/acceptance-records", requireRole("user"), async (request, response) => {
+  const user = userOf(request);
+  const records = await (await connectDatabase()).collection<AcceptanceRecord>("acceptanceRecords")
+    .find({ companyId: user.companyId }).sort({ createdAt: -1 }).limit(200).toArray();
+  response.json({ records });
+});
+
+app.post("/api/acceptance-records", requireRole("user"), async (request, response) => {
+  const contractId = asId(request.body?.contractId);
+  if (!contractId) return fail(response, "Hãy chọn hợp đồng hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const contract = await db.collection<Contract>("contracts").findOne({ _id: contractId, companyId: user.companyId });
+  if (!contract) return fail(response, "Không tìm thấy hợp đồng.", 404);
+  if (contract.status !== "signed") return fail(response, "Hợp đồng cần được xác nhận đã ký trước khi nghiệm thu.", 409);
+  const existing = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ companyId: user.companyId, contractId: contractId.toHexString() });
+  if (existing) return response.json({ record: existing });
+  const requestedTemplateId = request.body?.templateId ? asId(String(request.body.templateId)) : null;
+  if (request.body?.templateId && !requestedTemplateId) return fail(response, "Mẫu nghiệm thu không hợp lệ.");
+  const selectedTemplate = requestedTemplateId
+    ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: requestedTemplateId, companyId: user.companyId, category: "acceptance", deletedAt: { $exists: false } })
+    : (await usableAcceptanceTemplates(db, user.companyId))[0] ?? null;
+  if (requestedTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu nghiệm thu đã chọn.", 404);
+  if (selectedTemplate && !contractTemplateMode(selectedTemplate)) return fail(response, "Mẫu nghiệm thu cần là file Word hoặc PDF hợp lệ.", 422);
+  const { acceptedDate, location, result, notes, lines } = request.body ?? {};
+  if (!validDocumentDate(acceptedDate) || !validText(location, 250) || !validText(result, 2000)
+    || typeof notes !== "string" || notes.length > 4000 || !validAcceptanceLines(lines, contract)) {
+    return fail(response, "Vui lòng nhập đầy đủ ngày, địa điểm, kết quả và khối lượng nghiệm thu hợp lệ.");
+  }
+  if (contract.signedDate && acceptedDate < contract.signedDate) return fail(response, "Ngày nghiệm thu không thể trước ngày ký hợp đồng.");
+  const detailError = acceptanceDetailsError(request.body, contract);
+  if (detailError) return fail(response, detailError);
+  const id = new ObjectId();
+  const now = new Date();
+  const record: AcceptanceRecord = {
+    _id: id, companyId: user.companyId, contractId: contractId.toHexString(), contractNumber: contract.contractNumber,
+    acceptanceNumber: `NT-${id.toHexString().slice(-8).toUpperCase()}`, status: "draft",
+    ...(selectedTemplate ? { template: { id: selectedTemplate._id!.toHexString(), name: selectedTemplate.name || selectedTemplate.originalFilename, originalFilename: selectedTemplate.originalFilename } } : {}),
+    acceptedDate, location: location.trim(), result: result.trim(), notes: notes.trim(), lines,
+    startTime: request.body.startTime, endTime: request.body.endTime,
+    handoverDetails: request.body.handoverDetails.trim(), qualityAssessment: request.body.qualityAssessment.trim(),
+    settlementAmount: request.body.settlementAmount, amountPaid: request.body.amountPaid, paymentDueDays: request.body.paymentDueDays,
+    createdBy: user.id, createdAt: now, updatedAt: now,
+  };
+  try {
+    await db.collection<AcceptanceRecord>("acceptanceRecords").insertOne(record);
+  } catch (error) {
+    if (typeof error === "object" && error && "code" in error && error.code === 11000) {
+      const concurrent = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ companyId: user.companyId, contractId: contractId.toHexString() });
+      if (concurrent) return response.json({ record: concurrent });
+    }
+    throw error;
+  }
+  await writeAudit(db, user, "acceptance_created", "acceptanceRecord", id.toHexString(), { contractId: contractId.toHexString() });
+  response.status(201).json({ record });
+});
+
+function validAcceptanceLines(lines: unknown, contract: Contract): lines is AcceptanceRecord["lines"] {
+  return Array.isArray(lines) && lines.length === contract.lines.length && lines.some((line) => line?.acceptedQuantity > 0)
+    && lines.every((line, index) => typeof line === "object" && line !== null && line.lineIndex === index
+      && typeof line.acceptedQuantity === "number" && Number.isFinite(line.acceptedQuantity)
+      && line.acceptedQuantity >= 0 && line.acceptedQuantity <= contract.lines[index]!.quantity);
+}
+
+function templateFilenameStem(filename: string) {
+  return filename.replace(/\.[^/.]+$/, "").trim().toLocaleLowerCase("vi-VN");
+}
+
+function acceptanceDetailsError(body: Record<string, unknown>, contract: Contract): string | null {
+  if (!validDocumentTime(body.startTime) || !validDocumentTime(body.endTime) || body.endTime <= body.startTime) return "Thời gian nghiệm thu không hợp lệ.";
+  if (!validText(body.handoverDetails, 4000) || !validText(body.qualityAssessment, 2000)) return "Hãy nhập hồ sơ bàn giao và đánh giá chất lượng.";
+  if (!validMoneyAmount(body.settlementAmount, contract.total) || !validMoneyAmount(body.amountPaid, body.settlementAmount)) return "Giá trị quyết toán hoặc số tiền đã thanh toán không hợp lệ.";
+  if (body.paymentDueDays !== null && (!Number.isInteger(body.paymentDueDays) || (body.paymentDueDays as number) < 0 || (body.paymentDueDays as number) > 3650)) return "Thời hạn thanh toán không hợp lệ.";
+  return null;
+}
+
+app.get("/api/acceptance-records/:id", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã nghiệm thu không hợp lệ.");
+  const user = userOf(request);
+  const db = await connectDatabase();
+  const record = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: id, companyId: user.companyId });
+  if (!record) return fail(response, "Không tìm thấy biên bản nghiệm thu.", 404);
+  const contract = await db.collection<Contract>("contracts").findOne({ _id: asId(record.contractId), companyId: user.companyId });
+  if (!contract) return fail(response, "Không tìm thấy hợp đồng liên kết.", 404);
+  response.json({ record, contract });
+});
+
+app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"], requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã nghiệm thu không hợp lệ.");
+  const user = userOf(request);
+  const db = await connectDatabase();
+  const record = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: id, companyId: user.companyId });
+  if (!record) return fail(response, "Không tìm thấy biên bản nghiệm thu.", 404);
+  const contract = await db.collection<Contract>("contracts").findOne({ _id: asId(record.contractId), companyId: user.companyId });
+  if (!contract) return fail(response, "Không tìm thấy hợp đồng liên kết.", 404);
+  const overrideTemplateId = request.query.templateId === undefined ? null : asId(String(request.query.templateId));
+  if (request.query.templateId !== undefined && !overrideTemplateId) return fail(response, "Mã mẫu nghiệm thu không hợp lệ.");
+  const savedTemplateId = record.template?.id ? asId(record.template.id) : null;
+  if (record.template && !savedTemplateId) return fail(response, "Mẫu nghiệm thu đã lưu không hợp lệ.", 422);
+  const templateCollection = db.collection<QuoteTemplate>("quoteTemplates");
+  const savedTemplate = savedTemplateId
+    ? await templateCollection.findOne({ _id: savedTemplateId, companyId: user.companyId, category: "acceptance" })
+    : null;
+  let selectedTemplate = overrideTemplateId
+    ? await templateCollection.findOne({ _id: overrideTemplateId, companyId: user.companyId, category: "acceptance", deletedAt: { $exists: false } })
+    : savedTemplate ?? (await usableAcceptanceTemplates(db, user.companyId))[0] ?? null;
+  if (!overrideTemplateId && savedTemplate?.extension === "pdf") {
+    const sourceStem = templateFilenameStem(savedTemplate.originalFilename);
+    const wordTemplates = await templateCollection.find({
+      companyId: user.companyId, category: "acceptance", extension: "docx", deletedAt: { $exists: false },
+    }).sort({ _id: -1 }).limit(24).toArray();
+    selectedTemplate = wordTemplates.find((template) => templateFilenameStem(template.originalFilename) === sourceStem) ?? savedTemplate;
+  }
+  if (overrideTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu nghiệm thu đã chọn.", 404);
+  if (savedTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu đã dùng để tạo biên bản.", 404);
+  try {
+    const file = selectedTemplate
+      ? await renderAcceptanceFile(db, selectedTemplate, contract, record, (work) => withAiUsage(db, user, "acceptance_template_map", work))
+      : { bytes: makeDocumentWord("acceptance", contract, record) };
+    return sendWord(response, `${record.acceptanceNumber}.docx`, file.bytes);
+  } catch (error) {
+    if (error instanceof Error && /HTTP\s*402/.test(error.message)) {
+      logger.warn("acceptance.word_template_ai_fallback", { recordId: id.toHexString(), templateId: selectedTemplate?._id?.toHexString(), reason: "openrouter_http_402" });
+      response.setHeader("X-Acceptance-Template-Status", "fallback-ai-402");
+      return sendWord(response, `${record.acceptanceNumber}.docx`, makeDocumentWord("acceptance", contract, record));
+    }
+    return fail(response, error instanceof Error ? error.message : "Không xuất được biên bản theo mẫu đã chọn.", error instanceof AiQuotaExceededError ? 429 : 422);
+  }
+});
+
+app.patch("/api/acceptance-records/:id", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  const acceptedDate = request.body?.acceptedDate;
+  const location = request.body?.location;
+  const result = request.body?.result;
+  const notes = request.body?.notes;
+  const lines = request.body?.lines;
+  if (!id || !validDocumentDate(acceptedDate) || !validText(location, 250) || !validText(result, 2000)
+    || typeof notes !== "string" || notes.length > 4000 || !Array.isArray(lines)) {
+    return fail(response, "Thông tin nghiệm thu không hợp lệ.");
+  }
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const current = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: id, companyId: user.companyId });
+  if (!current) return fail(response, "Không tìm thấy biên bản nghiệm thu.", 404);
+  if (current.status !== "draft") return fail(response, "Biên bản đã hoàn tất, không thể sửa.", 409);
+  const contract = await db.collection<Contract>("contracts").findOne({ _id: asId(current.contractId), companyId: user.companyId });
+  if (!contract) return fail(response, "Không tìm thấy hợp đồng liên kết.", 404);
+  if (contract.signedDate && acceptedDate < contract.signedDate) return fail(response, "Ngày nghiệm thu không thể trước ngày ký hợp đồng.");
+  const detailError = acceptanceDetailsError(request.body, contract);
+  if (detailError) return fail(response, detailError);
+  if (!validAcceptanceLines(lines, contract)) {
+    return fail(response, "Khối lượng nghiệm thu phải nằm trong khối lượng hợp đồng.");
+  }
+  const record = await db.collection<AcceptanceRecord>("acceptanceRecords").findOneAndUpdate(
+    { _id: id, companyId: user.companyId, status: "draft" },
+    { $set: { acceptedDate, location: location.trim(), result: result.trim(), notes: notes.trim(), lines,
+      startTime: request.body.startTime, endTime: request.body.endTime,
+      handoverDetails: request.body.handoverDetails.trim(), qualityAssessment: request.body.qualityAssessment.trim(),
+      settlementAmount: request.body.settlementAmount, amountPaid: request.body.amountPaid, paymentDueDays: request.body.paymentDueDays,
+      updatedAt: new Date() } }, { returnDocument: "after" },
+  );
+  if (!record) return fail(response, "Biên bản đã thay đổi, hãy tải lại.", 409);
+  await writeAudit(db, user, "acceptance_updated", "acceptanceRecord", id.toHexString());
+  response.json({ record });
+});
+
+app.post("/api/acceptance-records/:id/complete", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã nghiệm thu không hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const current = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: id, companyId: user.companyId });
+  if (!current) return fail(response, "Không tìm thấy biên bản nghiệm thu.", 404);
+  const contract = await db.collection<Contract>("contracts").findOne({ _id: asId(current.contractId), companyId: user.companyId });
+  if (!contract || contract.status !== "signed") return fail(response, "Hợp đồng liên kết chưa được xác nhận đã ký.", 409);
+  if (contract.signedDate && current.acceptedDate < contract.signedDate) return fail(response, "Ngày nghiệm thu không thể trước ngày ký hợp đồng.", 409);
+  const detailError = acceptanceDetailsError(current as unknown as Record<string, unknown>, contract);
+  if (detailError) return fail(response, detailError, 409);
+  if (!validAcceptanceLines(current.lines, contract)) return fail(response, "Khối lượng nghiệm thu không hợp lệ.", 409);
+  if (!current.lines.some((line) => line.acceptedQuantity > 0)) return fail(response, "Cần ít nhất một hạng mục có khối lượng nghiệm thu.", 409);
+  const record = await db.collection<AcceptanceRecord>("acceptanceRecords").findOneAndUpdate(
+    { _id: id, companyId: user.companyId, status: "draft" },
+    { $set: { status: "completed", updatedAt: new Date() } }, { returnDocument: "after" },
+  );
+  if (!record) return fail(response, "Biên bản đã hoàn tất hoặc đã thay đổi.", 409);
+  await writeAudit(db, user, "acceptance_completed", "acceptanceRecord", id.toHexString());
+  response.json({ record });
+});
+
 app.get("/api/quotes/:id/export", requireRole("user"), async (request, response) => {
   const id = asId(request.params.id);
   if (!id) return fail(response, "Mã báo giá không hợp lệ.");
@@ -2709,7 +3137,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     const selectedId = request.query.templateId === undefined || plainExcel ? null : asId(String(request.query.templateId));
     if (request.query.templateId !== undefined && !plainExcel && !selectedId) return fail(response, "Mã mẫu Excel không hợp lệ.");
     let selected = selectedId
-      ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: selectedId, companyId: quote.companyId, deletedAt: { $exists: false } })
+      ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: selectedId, companyId: quote.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } })
       : !plainExcel && quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
     if (selectedId && !selected) return fail(response, "Không tìm thấy mẫu Excel.", 404);
     if (selected && selected.extension !== "xlsx") {

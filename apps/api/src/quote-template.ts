@@ -19,12 +19,16 @@ export interface QuoteTemplate {
   _id?: ObjectId;
   name?: string;
   companyId: string;
+  category?: "quote" | "estimate" | "contract" | "acceptance" | null;
   originalFilename: string;
   extension: string;
   bytes: number;
   data: Binary;
   fillPlanCache?: Record<string, TemplateFillPlan>;
+  contractFillPlanCache?: Record<string, TemplateFillPlan>;
+  acceptanceFillPlanCache?: Record<string, TemplateFillPlan>;
   xlsxFillPlanCache?: Record<string, XlsxTemplateFillPlan>;
+  convertedWordData?: Binary;
   capacity?: number; // Only for previously created placeholder-based quotes.
   createdAt: Date;
   uploadedBy: string;
@@ -109,14 +113,27 @@ export async function templateAiContent(template: QuoteTemplate): Promise<Record
     ];
   }
   const zip = openZip(bytes);
-  // Send the complete editable Office XML, including cell styles/merges and shared strings.
-  // A base64 Office ZIP is not readable by every chat provider; the original ZIP is retained for export.
-  const parts = officeParts(zip, template.extension).map((part) => ({ part: part.name, xml: part.asText() }));
-  const referenceNames = template.extension === "docx" ? ["word/styles.xml", "word/numbering.xml"] : ["xl/workbook.xml", "xl/styles.xml"];
+  // Keep the original ZIP for export, but omit Word formatting and embedded images from the AI prompt.
+  // Exact text-run XML remains available so returned edits can still target the original document.
+  const parts = officeParts(zip, template.extension).map((part) => ({
+    part: part.name,
+    xml: template.extension === "docx" ? compactDocxXmlForAi(part.asText()) : part.asText(),
+  }));
+  const referenceNames = template.extension === "docx" ? [] : ["xl/workbook.xml", "xl/styles.xml"];
   const referenceParts = referenceNames.flatMap((name) => zip.file(name) ? [{ part: name, xml: zip.file(name)!.asText() }] : []);
   const text = JSON.stringify({ filename: template.originalFilename, format: template.extension, parts, referenceParts });
   if (text.length > 600_000) throw new Error("Mẫu quá lớn để AI đọc trong một lần. Hãy dùng file mẫu gọn hơn.");
   return [{ type: "text", text }];
+}
+
+function compactDocxXmlForAi(xml: string) {
+  const fragments = xml.match(/<w:(?:tbl|tr|tc|p)\b[^>]*>|<\/w:(?:tbl|tr|tc|p)>|<w:t\b[^>]*>[\s\S]*?<\/w:t>|<w:(?:tab|br)\b[^>]*\/>/g) ?? [];
+  return fragments.map((fragment) => {
+    const structuralTag = fragment.match(/^<\/?w:(tbl|tr|tc|p)\b/);
+    if (!structuralTag) return fragment;
+    const tag = structuralTag[1];
+    return fragment.startsWith("</") ? `</${tag}>` : `<${tag}>`;
+  }).join("");
 }
 
 export function previewDocxHtml(bytes: Buffer, filename: string) {
@@ -136,7 +153,7 @@ export function previewDocxHtml(bytes: Buffer, filename: string) {
   return `<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(filename)}</title><style>body{font:15px/1.65 Arial,sans-serif;color:#27352c;max-width:850px;margin:32px auto;padding:32px;background:#fff;box-shadow:0 2px 18px #0001}p{margin:0 0 9px;min-height:1em}@media(max-width:600px){body{margin:0;padding:18px}}</style></head><body>${paragraphs || "<p>File không có văn bản để xem trước.</p>"}</body></html>`;
 }
 
-const fillSchema = {
+export const fillSchema = {
   type: "object", additionalProperties: false, required: ["edits", "pdfEdits"],
   properties: {
     edits: { type: "array", items: { type: "object", additionalProperties: false, required: ["part", "find", "replace"], properties: { part: { type: "string" }, find: { type: "string" }, replace: { type: "string" } } } },
@@ -209,9 +226,7 @@ export function validateFillPlan(raw: unknown, quote: Quote): TemplateFillPlan {
   return plan;
 }
 
-async function renderAiTemplate(template: QuoteTemplate, quote: Quote, raw: TemplateFillPlan) {
-  const plan = validateFillPlan(raw, quote);
-  const values = quoteValues(quote);
+export async function renderMappedTemplate(template: QuoteTemplate, values: Record<string, string>, plan: TemplateFillPlan) {
   const interpolate = (text: string, xml = false) => text.replace(/\[\[(\w+)\]\]/g, (_token, key: string) => xml ? xmlEscape(values[key]) : values[key]);
   const bytes = Buffer.from(template.data.buffer);
   if (template.extension !== "pdf") {
@@ -263,6 +278,10 @@ async function renderAiTemplate(template: QuoteTemplate, quote: Quote, raw: Temp
     page.drawText(text, { x: edit.x + 2, y: edit.y + edit.height - size - 2, font, size, lineHeight: size * 1.2, color: rgb(0, 0, 0) });
   }
   return Buffer.from(await pdf.save());
+}
+
+async function renderAiTemplate(template: QuoteTemplate, quote: Quote, raw: TemplateFillPlan) {
+  return renderMappedTemplate(template, quoteValues(quote), validateFillPlan(raw, quote));
 }
 
 function openZip(bytes: Buffer) {
@@ -1534,13 +1553,13 @@ export async function inspectTemplate(bytes: Buffer, extension: string) {
 }
 
 export function templateDetails(template: QuoteTemplate) {
-  return { id: template._id!.toHexString(), name: template.name || template.originalFilename, originalFilename: template.originalFilename, extension: template.extension, bytes: template.bytes, createdAt: template.createdAt };
+  return { id: template._id!.toHexString(), name: template.name || template.originalFilename, originalFilename: template.originalFilename, extension: template.extension, bytes: template.bytes, createdAt: template.createdAt, category: template.category ?? "quote" };
 }
 
 export async function currentTemplate(db: Db, companyId: string) {
   const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(companyId) });
   const templates = db.collection<QuoteTemplate>("quoteTemplates");
-  const active = { companyId, deletedAt: { $exists: false } };
+  const active = { companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] as const } };
   const selected = company?.quoteTemplateId && ObjectId.isValid(company.quoteTemplateId)
     ? await templates.findOne({ ...active, _id: new ObjectId(company.quoteTemplateId) }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }) : null;
   return selected ?? templates.find(active, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }).sort({ _id: -1 }).limit(1).next();

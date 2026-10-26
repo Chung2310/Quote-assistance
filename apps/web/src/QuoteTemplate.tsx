@@ -11,7 +11,16 @@ export interface TemplateDetails {
   extension: string;
   bytes: number;
   createdAt: string;
+  category?: TemplateCategory;
 }
+
+export type TemplateCategory = "quote" | "estimate" | "contract" | "acceptance";
+const templateTabs: { id: TemplateCategory; label: string }[] = [
+  { id: "quote", label: "Mẫu báo giá" },
+  { id: "estimate", label: "Dự toán" },
+  { id: "contract", label: "Hợp đồng" },
+  { id: "acceptance", label: "Nghiệm thu" },
+];
 
 interface TemplatePage {
   templates: TemplateDetails[];
@@ -41,6 +50,8 @@ export function QuoteTemplatePanel({
   onUsageChanged?: () => void;
 }) {
   const [template, setTemplate] = useState<TemplateDetails | null>(null);
+  const [category, setCategory] = useState<TemplateCategory>("quote");
+  const categoryLabel = templateTabs.find((tab) => tab.id === category)!.label;
   const [templates, setTemplates] = useState<TemplateDetails[]>([]);
   const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -52,6 +63,7 @@ export function QuoteTemplatePanel({
   const [loadFailed, setLoadFailed] = useState(false);
   const notify = useAppNotification();
   const [preview, setPreview] = useState<PreviewFile | null>(null);
+  const loadVersion = useRef(0);
 
   // Search & Filter
   const [search, setSearch] = useState("");
@@ -64,32 +76,36 @@ export function QuoteTemplatePanel({
   const uploadBlockedMessage = usageError
     ? "Không thể kiểm tra hạn mức mẫu. Hãy tải lại để tiếp tục."
     : templateLimitReached && templateUsage
-    ? `Gói hiện tại đã dùng hết ${templateUsage.limit} mẫu báo giá.`
+    ? `Gói hiện tại đã dùng hết ${templateUsage.limit} mẫu tài liệu.`
     : "Đang kiểm tra hạn mức mẫu…";
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
     setLoading(true);
     setLoadFailed(false);
     try {
       if (selecting) {
         const result = await api<{ template: TemplateDetails | null }>("/api/quote-template");
+        if (version !== loadVersion.current) return;
         setTemplate(result.template);
         setTemplates(result.template ? [result.template] : []);
         setDefaultTemplateId(result.template?.id ?? null);
         setNextCursor(null);
       } else {
-        const result = await api<TemplatePage>("/api/quote-templates");
+        const result = await api<TemplatePage>(`/api/quote-templates?category=${category}`);
+        if (version !== loadVersion.current) return;
         setTemplates(result.templates);
         setDefaultTemplateId(result.defaultTemplateId);
         setNextCursor(result.nextCursor);
       }
     } catch (cause) {
+      if (version !== loadVersion.current) return;
       setLoadFailed(true);
-      notify(cause instanceof Error ? cause.message : "Không tải được mẫu báo giá.", "error");
+      notify(cause instanceof Error ? cause.message : `Không tải được ${categoryLabel.toLowerCase()}.`, "error");
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
-  }, [selecting, notify]);
+  }, [selecting, notify, category, categoryLabel]);
 
   useEffect(() => {
     void load();
@@ -97,19 +113,22 @@ export function QuoteTemplatePanel({
 
   const loadMore = async () => {
     if (!nextCursor || loadingMore) return;
+    const version = loadVersion.current;
     setLoadingMore(true);
     try {
-      const result = await api<TemplatePage>(`/api/quote-templates?cursor=${encodeURIComponent(nextCursor)}`);
+      const result = await api<TemplatePage>(`/api/quote-templates?category=${category}&cursor=${encodeURIComponent(nextCursor)}`);
+      if (version !== loadVersion.current) return;
       setTemplates((current) => [
         ...current,
         ...result.templates.filter((entry) => !current.some((existing) => existing.id === entry.id)),
       ]);
-      setDefaultTemplateId(result.defaultTemplateId);
+      if (category === "quote") setDefaultTemplateId(result.defaultTemplateId);
       setNextCursor(result.nextCursor);
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : "Không tải thêm được mẫu báo giá.", "error");
+      if (version !== loadVersion.current) return;
+      notify(cause instanceof Error ? cause.message : `Không tải thêm được ${categoryLabel.toLowerCase()}.`, "error");
     } finally {
-      setLoadingMore(false);
+      if (version === loadVersion.current) setLoadingMore(false);
     }
   };
 
@@ -117,8 +136,8 @@ export function QuoteTemplatePanel({
     if (
       deletingId ||
       !(await confirm({
-        title: "Xóa mẫu báo giá?",
-        message: `Mẫu “${entry.name || entry.originalFilename}” sẽ không còn dùng cho báo giá mới. Các báo giá đã tạo vẫn giữ mẫu này.`,
+        title: `Xóa ${categoryLabel.toLowerCase()}?`,
+        message: `Mẫu “${entry.name || entry.originalFilename}” sẽ bị xóa khỏi danh sách. Tài liệu đã tạo vẫn giữ dữ liệu của mình.`,
         confirmLabel: "Xóa mẫu",
         tone: "danger",
       }))
@@ -130,9 +149,9 @@ export function QuoteTemplatePanel({
       setPreview(null);
       await load();
       onUsageChanged?.();
-      notify("Đã xóa mẫu báo giá thành công.", "success");
+      notify(`Đã xóa ${categoryLabel.toLowerCase()} thành công.`, "success");
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : "Không xóa được mẫu báo giá.", "error");
+      notify(cause instanceof Error ? cause.message : `Không xóa được ${categoryLabel.toLowerCase()}.`, "error");
     } finally {
       setDeletingId(null);
     }
@@ -165,6 +184,9 @@ export function QuoteTemplatePanel({
 
   return (
     <div className="templates-page">
+      {!selecting && <nav className="qt-category-tabs" aria-label="Loại mẫu tài liệu">
+        {templateTabs.map((tab) => <button key={tab.id} type="button" className={category === tab.id ? "active" : ""} aria-current={category === tab.id ? "page" : undefined} onClick={() => { loadVersion.current += 1; setCategory(tab.id); setSearch(""); setFilterFormat("all"); setTemplates([]); setNextCursor(null); setLoadingMore(false); }}>{tab.label}</button>)}
+      </nav>}
       {/* Header Hero Banner */}
       <section className="qt-header-banner">
         <div className="qt-header-copy">
@@ -176,17 +198,17 @@ export function QuoteTemplatePanel({
               <line x1="16" y1="17" x2="8" y2="17" />
               <polyline points="10 9 9 9 8 9" />
             </svg>
-            Mẫu Báo Giá Doanh Nghiệp
+            {categoryLabel} doanh nghiệp
           </span>
-          <h1>Quản lý Mẫu Báo Giá</h1>
+          <h1>Quản lý {categoryLabel}</h1>
           <p>
-            Khai báo và tùy biến mẫu báo giá chuẩn (Word, Excel, PDF). Hệ thống sẽ tự động điền danh mục sản phẩm, đơn giá và thông tin khách hàng vào mẫu khi xuất file.
+            {category === "quote" || category === "estimate" ? "Lưu mẫu Word, Excel hoặc PDF để sử dụng khi tạo và xuất tài liệu." : "Lưu, xem trước và tải về các mẫu tài liệu của doanh nghiệp."}
           </p>
         </div>
 
-        {canManage && !onContinue && (
+        {!onContinue && (
           <div className="qt-header-actions">
-            <button
+            {canManage && <button
               type="button"
               className="qt-create-btn"
               disabled={loading || loadingMore || uploadBlocked}
@@ -197,8 +219,8 @@ export function QuoteTemplatePanel({
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
-              <span>Tải lên mẫu mới</span>
-            </button>
+              <span>Tải lên {categoryLabel.toLowerCase()} mới</span>
+            </button>}
           </div>
         )}
       </section>
@@ -229,7 +251,7 @@ export function QuoteTemplatePanel({
           </div>
           <div className="qt-kpi-body">
             <span className="qt-kpi-value">{stats.total}</span>
-            <span className="qt-kpi-sub">Mẫu báo giá đã khai báo</span>
+            <span className="qt-kpi-sub">{categoryLabel} đã lưu</span>
           </div>
         </div>
 
@@ -271,7 +293,7 @@ export function QuoteTemplatePanel({
 
         <div className="qt-kpi-card">
           <div className="qt-kpi-top">
-            <span className="qt-kpi-label">Mẫu mặc định</span>
+            <span className="qt-kpi-label">{category === "quote" ? "Mẫu mặc định" : "Mẫu mới nhất"}</span>
             <div className="qt-kpi-icon tone-amber">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -283,7 +305,7 @@ export function QuoteTemplatePanel({
               {stats.defaultItem ? stats.defaultItem.name || stats.defaultItem.originalFilename : "Chưa đặt"}
             </span>
             <span className="qt-kpi-sub">
-              {stats.defaultItem ? `Định dạng .${stats.defaultItem.extension.toUpperCase()}` : "Tự động chọn mẫu đầu tiên"}
+              {stats.defaultItem ? `Định dạng .${stats.defaultItem.extension.toUpperCase()}` : "Chưa có mẫu"}
             </span>
           </div>
         </div>
@@ -325,7 +347,7 @@ export function QuoteTemplatePanel({
             <input
               type="text"
               className="qt-search-input"
-              placeholder="Tìm theo tên mẫu báo giá hoặc tên file..."
+              placeholder={`Tìm theo tên ${categoryLabel.toLowerCase()} hoặc tên file...`}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -344,7 +366,7 @@ export function QuoteTemplatePanel({
               className={`qt-filter-btn ${filterFormat === "default" ? "active" : ""}`}
               onClick={() => setFilterFormat("default")}
             >
-              Mặc định <span className="qt-filter-count">{defaultTemplateId ? 1 : 0}</span>
+              {category === "quote" ? "Mặc định" : "Mới nhất"} <span className="qt-filter-count">{defaultTemplateId ? 1 : 0}</span>
             </button>
             <button
               type="button"
@@ -374,17 +396,17 @@ export function QuoteTemplatePanel({
         {loading ? (
           <div style={{ padding: "60px 24px", display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
             <div className="spinner spinner-dark" />
-            <span style={{ fontSize: 13, color: "#64748b" }}>Đang tải danh sách mẫu báo giá…</span>
+            <span style={{ fontSize: 13, color: "#64748b" }}>Đang tải danh sách {categoryLabel.toLowerCase()}…</span>
           </div>
         ) : filteredTemplates.length === 0 ? (
           <div className="qt-empty-state">
             <div className="qt-empty-icon">
               <img src="/images/quote-empty-3d.svg" alt="" />
             </div>
-            <h3>{templates.length === 0 ? "Bắt đầu với mẫu báo giá đầu tiên" : "Không tìm thấy mẫu báo giá phù hợp"}</h3>
+            <h3>{templates.length === 0 ? `Chưa có ${categoryLabel.toLowerCase()} nào` : "Không tìm thấy mẫu phù hợp"}</h3>
             <p>
               {templates.length === 0
-                ? "Tải lên file mẫu Word (.docx), Excel (.xlsx) hoặc PDF theo quy chuẩn của doanh nghiệp để tự động xuất báo giá cho khách."
+                ? `Tải lên file ${categoryLabel.toLowerCase()} Word (.docx), Excel (.xlsx) hoặc PDF của doanh nghiệp.`
                 : "Thử tìm kiếm với từ khóa khác hoặc chuyển sang chế độ xem tất cả định dạng."}
             </p>
             {templates.length === 0 && canManage && !onContinue && !uploadBlocked && (
@@ -394,7 +416,7 @@ export function QuoteTemplatePanel({
                 onClick={() => setCreating(true)}
                 style={{ marginTop: 8 }}
               >
-                + Tải lên mẫu báo giá đầu tiên
+                + Tải lên {categoryLabel.toLowerCase()} đầu tiên
               </button>
             )}
           </div>
@@ -415,7 +437,7 @@ export function QuoteTemplatePanel({
                     {isDefault && (
                       <span className="qt-default-badge">
                         <span>★</span>
-                        <span>Mặc định</span>
+                        <span>{category === "quote" ? "Mặc định" : "Mới nhất"}</span>
                       </span>
                     )}
                   </div>
@@ -563,11 +585,12 @@ export function QuoteTemplatePanel({
       {/* Create / Upload Template Dialog */}
       {creating && canManage && !onContinue && !uploadBlocked && (
         <CreateTemplateDialog
+          category={category}
           onClose={() => setCreating(false)}
           onQuotaExceeded={() => onUsageChanged?.()}
           onSaved={() => {
             setCreating(false);
-            notify("Đã lưu mẫu báo giá thành công.", "success");
+            notify(`Đã lưu ${categoryLabel.toLowerCase()} thành công.`, "success");
             void load();
             onUsageChanged?.();
           }}
@@ -578,14 +601,17 @@ export function QuoteTemplatePanel({
 }
 
 function CreateTemplateDialog({
+  category,
   onClose,
   onSaved,
   onQuotaExceeded,
 }: {
+  category: TemplateCategory;
   onClose: () => void;
   onSaved: (template: TemplateDetails) => void;
   onQuotaExceeded?: () => void;
 }) {
+  const categoryLabel = templateTabs.find((tab) => tab.id === category)!.label;
   const dialog = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -637,7 +663,7 @@ function CreateTemplateDialog({
     event.preventDefault();
     if (busy || !file) return;
     if (!name.trim()) {
-      setError("Vui lòng nhập tên mẫu báo giá.");
+      setError(`Vui lòng nhập tên ${categoryLabel.toLowerCase()}.`);
       return;
     }
     if (!/\.(docx|xlsx|pdf)$/i.test(file.name)) {
@@ -650,7 +676,7 @@ function CreateTemplateDialog({
     }
 
     setBusy(true);
-    setTaskProgress({ label: "Đang tải mẫu báo giá lên", detail: "Tiến độ gửi file" });
+    setTaskProgress({ label: `Đang tải ${categoryLabel.toLowerCase()} lên`, detail: "Tiến độ gửi file" });
     try {
       const result = await apiUploadWithProgress<{ template: TemplateDetails }>(
         "/api/quote-template",
@@ -659,18 +685,19 @@ function CreateTemplateDialog({
           "Content-Type": "application/octet-stream",
           "X-File-Name": encodeURIComponent(file.name),
           "X-Template-Name": encodeURIComponent(name.trim()),
+          "X-Template-Category": category,
         },
         (progress) =>
           setTaskProgress(
             progress >= 100
               ? { label: "Đang kiểm tra và lưu mẫu", detail: "Đang xử lý file trên máy chủ…" }
-              : { label: "Đang tải mẫu báo giá lên", progress, detail: "Tiến độ gửi file" }
+              : { label: `Đang tải ${categoryLabel.toLowerCase()} lên`, progress, detail: "Tiến độ gửi file" }
           )
       );
       onSaved(result.template);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded?.();
-      setError(cause instanceof Error ? cause.message : "Không lưu được mẫu báo giá.");
+      setError(cause instanceof Error ? cause.message : `Không lưu được ${categoryLabel.toLowerCase()}.`);
     } finally {
       setBusy(false);
       setTaskProgress(null);
@@ -698,7 +725,7 @@ function CreateTemplateDialog({
             </svg>
           </div>
           <div>
-            <h2 id="create-template-title">Tải Lên Mẫu Báo Giá Mới</h2>
+            <h2 id="create-template-title">Tải lên {categoryLabel} mới</h2>
             <p>Hỗ trợ tài liệu Word (.docx), bảng tính Excel (.xlsx) hoặc tài liệu PDF</p>
           </div>
         </div>
@@ -713,7 +740,7 @@ function CreateTemplateDialog({
           {/* File Dropzone */}
           <div className="qt-form-group">
             <label>
-              <span>1. File mẫu báo giá *</span>
+              <span>1. File {categoryLabel.toLowerCase()} *</span>
               <span style={{ fontSize: 11, color: "#64748b", fontWeight: 400 }}>(Tối đa 10 MB)</span>
             </label>
 
@@ -804,19 +831,19 @@ function CreateTemplateDialog({
                 maxLength={200}
                 required
                 disabled={busy}
-                placeholder="Ví dụ: Mẫu Báo Giá Chuẩn Doanh Nghiệp 2026"
+                placeholder={`Ví dụ: ${categoryLabel} chuẩn doanh nghiệp 2026`}
                 onChange={(event) => setName(event.target.value)}
               />
             </div>
           </div>
 
           {/* Guidelines box */}
-          <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, fontSize: 12, color: "#475569", lineHeight: 1.5 }}>
+          {(category === "quote" || category === "estimate") && <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 10, padding: 14, fontSize: 12, color: "#475569", lineHeight: 1.5 }}>
             <strong style={{ color: "#0f172a", display: "block", marginBottom: 4 }}>
               💡 Lưu ý về cơ chế điền mẫu tự động:
             </strong>
             Hệ thống AI sẽ tự động phân tích bảng và các trường văn bản trong file mẫu của bạn để điền Tên khách hàng, Mã báo giá, Ngày tạo, Bảng danh mục sản phẩm, Đơn giá và Tổng tiền khi người dùng bấm xuất báo giá.
-          </div>
+          </div>}
 
           {taskProgress && <TaskProgress {...taskProgress} />}
         </div>
@@ -831,7 +858,7 @@ function CreateTemplateDialog({
             disabled={!name.trim() || !file || busy}
           >
             {busy ? <span className="spinner" /> : "✓"}
-            <span>{busy ? "Đang xử lý & lưu…" : "Lưu mẫu báo giá"}</span>
+            <span>{busy ? "Đang xử lý & lưu…" : `Lưu ${categoryLabel.toLowerCase()}`}</span>
           </button>
         </div>
       </form>

@@ -45,6 +45,21 @@ const pageMetadata: Record<string, { title: string; description: string; robots:
     description: "Quản lý báo giá của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
+  "/hop-dong": {
+    title: "Hợp đồng — iGen Trợ lí báo giá",
+    description: "Quản lý hợp đồng được lập từ dự toán đã duyệt.",
+    robots: "noindex,nofollow",
+  },
+  "/chung-tu": {
+    title: "Hợp đồng & Nghiệm thu — iGen Trợ lí báo giá",
+    description: "Quản lý hợp đồng và biên bản nghiệm thu trong cùng một quy trình.",
+    robots: "noindex,nofollow",
+  },
+  "/nghiem-thu": {
+    title: "Nghiệm thu — iGen Trợ lí báo giá",
+    description: "Quản lý biên bản nghiệm thu từ hợp đồng đã ký.",
+    robots: "noindex,nofollow",
+  },
   "/bao-gia-khach": {
     title: "Báo giá khách hàng — iGen Trợ lí báo giá",
     description: "Tạo và quản lý báo giá gửi khách hàng.",
@@ -56,8 +71,8 @@ const pageMetadata: Record<string, { title: string; description: string; robots:
     robots: "noindex,nofollow",
   },
   "/mau-bao-gia": {
-    title: "Mẫu báo giá — iGen Trợ lí báo giá",
-    description: "Quản lý mẫu báo giá của doanh nghiệp.",
+    title: "Mẫu tài liệu — iGen Trợ lí báo giá",
+    description: "Quản lý mẫu báo giá, dự toán, hợp đồng và nghiệm thu của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
   "/bang-gia": {
@@ -121,10 +136,11 @@ function redirectOldOrTrailingPath(request: import("express").Request, response:
 
 function renderPageMetadata(html: string, request: import("express").Request) {
   const pathname = pagePath(request);
-  const quoteDetailPage = /^\/(bao-gia|bao-gia-khach)\/[a-f0-9]{24}$/i.test(pathname);
-  const page = pageMetadata[pathname] ?? (quoteDetailPage ? {
-    title: "Chi tiết báo giá — iGen Trợ lí báo giá",
-    description: "Xem và chỉnh sửa báo giá của doanh nghiệp.",
+  const documentDetailPage = /^\/(bao-gia|bao-gia-khach|hop-dong|nghiem-thu)\/[a-f0-9]{24}$/i.test(pathname)
+    || /^\/chung-tu\/(hop-dong|nghiem-thu)\/[a-f0-9]{24}$/i.test(pathname);
+  const page = pageMetadata[pathname] ?? (documentDetailPage ? {
+    title: "Chi tiết chứng từ — iGen Trợ lí báo giá",
+    description: "Xem và chỉnh sửa chứng từ của doanh nghiệp.",
     robots: "noindex,nofollow",
   } : {
     title: "Không tìm thấy trang — iGen Trợ lí báo giá",
@@ -160,7 +176,7 @@ function renderPageMetadata(html: string, request: import("express").Request) {
     const json = JSON.stringify(structuredData).replace(/</g, "\\u003c");
     result = result.replace("</head>", `    <script id="application-structured-data" type="application/ld+json">${json}</script>\n  </head>`);
   }
-  return { html: result, status: pageMetadata[pathname] || quoteDetailPage ? 200 : 404 };
+  return { html: result, status: pageMetadata[pathname] || documentDetailPage ? 200 : 404 };
 }
 
 function attachSeoEndpoints(app: Express) {
