@@ -10,16 +10,20 @@ import VietnameseDatePicker from "./VietnameseDatePicker";
 import CustomerQuotes from "./CustomerQuotes";
 import CustomerQuoteDetail from "./CustomerProductListDetail";
 import BudgetPlanner from "./BudgetPlanner";
+import ContractWorkflow from "./ContractWorkflow";
+import { ContractCreationDialog } from "./DocumentDialogs";
 import FilePreview, { type PreviewFile } from "./FilePreview";
 import { QuoteTemplatePanel, type TemplateDetails } from "./QuoteTemplate";
 import { NotificationProvider, NotificationToast, TaskProgress, useAppNotification, useConfirmation, useNotification, type ConfirmOptions, type Notify, type TaskProgressState } from "./Feedback";
 import "./settings.css";
 import "./quote-supplement.css";
 
-type Section = "home" | "quotes" | "budgetPlanner" | "customerQuotes" | "catalog" | "templates" | "profile";
+type Section = "home" | "quotes" | "documents" | "budgetPlanner" | "customerQuotes" | "catalog" | "templates" | "profile";
+type DocumentView = "contracts" | "acceptances";
 const sectionPaths: Record<Section, string> = {
   home: "/tong-quan",
   quotes: "/bao-gia",
+  documents: "/chung-tu",
   budgetPlanner: "/tu-van-ngan-sach",
   customerQuotes: "/bao-gia-khach",
   templates: "/mau-bao-gia",
@@ -31,12 +35,15 @@ function normalizedPath(pathname: string) {
   return pathname.replace(/\/+$/, "") || "/";
 }
 
-function userRouteForPath(pathname: string): { section: Section; quoteId: string | null } | null {
+function userRouteForPath(pathname: string, search = ""): { section: Section; quoteId: string | null; documentView?: DocumentView } | null {
   const path = normalizedPath(pathname);
   const section = (Object.entries(sectionPaths) as Array<[Section, string]>).find(([, value]) => value === path)?.[0];
-  if (section) return { section, quoteId: null };
+  if (section) return { section, quoteId: null, ...(section === "documents" ? { documentView: new URLSearchParams(search).get("tab") === "nghiem-thu" ? "acceptances" as const : "contracts" as const } : {}) };
+  if (path === "/hop-dong" || path === "/nghiem-thu") return { section: "documents", quoteId: null, documentView: path === "/hop-dong" ? "contracts" : "acceptances" };
+  const documentMatch = path.match(/^\/(?:chung-tu\/)?(hop-dong|nghiem-thu)\/([a-f0-9]{24})$/i);
+  if (documentMatch) return { section: "documents", quoteId: documentMatch[2], documentView: documentMatch[1] === "hop-dong" ? "contracts" : "acceptances" };
   const quoteMatch = path.match(/^\/(bao-gia|bao-gia-khach)\/([a-f0-9]{24})$/i);
-  return quoteMatch ? { section: quoteMatch[1] === "bao-gia-khach" ? "customerQuotes" : "quotes", quoteId: quoteMatch[2] } : null;
+  return quoteMatch ? { section: quoteMatch[1] === "bao-gia" ? "quotes" : "customerQuotes", quoteId: quoteMatch[2] } : null;
 }
 interface SubscriptionUsage {
   plan: SubscriptionPlanSummary;
@@ -186,10 +193,12 @@ async function confirmSession(expectedUser: User) {
 function UserApp() {
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
-  const initialRoute = useRef(userRouteForPath(window.location.pathname));
+  const initialRoute = useRef(userRouteForPath(window.location.pathname, window.location.search));
   const [section, setSection] = useState<Section>(initialRoute.current?.section ?? "home");
   const [quoteId, setQuoteId] = useState<string | null>(initialRoute.current?.quoteId ?? null);
+  const [documentView, setDocumentView] = useState<DocumentView>(initialRoute.current?.documentView ?? "contracts");
   const [creatingQuote, setCreatingQuote] = useState(false);
+  const [creatingContractFromQuote, setCreatingContractFromQuote] = useState<Quote | null>(null);
   const { notification, notify, dismiss } = useNotification();
   const { confirm, dialog: confirmationDialog } = useConfirmation();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -211,7 +220,7 @@ function UserApp() {
         setSection("profile");
         setQuoteId(null);
         window.history.replaceState(null, "", sectionPaths.profile);
-      } else if (!userRouteForPath(window.location.pathname)) {
+      } else if (!userRouteForPath(window.location.pathname, window.location.search)) {
         setSection("home");
         setQuoteId(null);
         window.history.replaceState(null, "", sectionPaths.home);
@@ -223,8 +232,8 @@ function UserApp() {
   }, []);
   useEffect(() => {
     const syncRoute = () => {
-      const route = userRouteForPath(window.location.pathname);
-      if (route) { setSection(route.section); setQuoteId(route.quoteId); }
+      const route = userRouteForPath(window.location.pathname, window.location.search);
+      if (route) { setSection(route.section); setQuoteId(route.quoteId); setDocumentView(route.documentView ?? "contracts"); }
     };
     window.addEventListener("popstate", syncRoute);
     return () => window.removeEventListener("popstate", syncRoute);
@@ -232,9 +241,10 @@ function UserApp() {
   const handleLogin = (signedIn: User, planCode?: string) => {
     const requestedPaidPlan = planCode && planCode !== "free" && /^[a-z][a-z0-9-]{0,60}$/i.test(planCode) ? planCode : null;
     const route = requestedPaidPlan ? { section: "profile" as Section, quoteId: null } : initialRoute.current ?? { section: "home" as Section, quoteId: null };
-    window.history.replaceState(null, "", route.quoteId ? `${sectionPaths[route.section]}/${route.quoteId}` : sectionPaths[route.section]);
+    window.history.replaceState(null, "", requestedPaidPlan ? sectionPaths.profile : initialRoute.current ? `${window.location.pathname}${window.location.search}` : sectionPaths.home);
     setSection(route.section);
     setQuoteId(route.quoteId);
+    setDocumentView(route.documentView ?? "contracts");
     setRequestedPlanCode(requestedPaidPlan);
     setUser(signedIn);
   };
@@ -298,9 +308,10 @@ function UserApp() {
   const signOut = async () => { await api("/api/auth/logout", { method: "POST" }).catch(() => undefined); setUser(null); setSection("home"); window.location.replace("/"); };
   const navigateSection = (nextSection: Section) => {
     const target = sectionPaths[nextSection];
-    if (normalizedPath(window.location.pathname) !== target) window.history.pushState(null, "", target);
+    if (`${normalizedPath(window.location.pathname)}${window.location.search}` !== target) window.history.pushState(null, "", target);
     setQuoteId(null);
     setSection(nextSection);
+    if (nextSection === "documents") setDocumentView("contracts");
   };
   const closeQuote = () => {
     window.history.replaceState(null, "", sectionPaths[section === "customerQuotes" ? "customerQuotes" : "quotes"]);
@@ -312,9 +323,25 @@ function UserApp() {
   const openQuote = (id: string, kind: "estimate" | "customer" = "estimate") => {
     const nextSection = kind === "customer" ? "customerQuotes" : "quotes";
     const target = `${sectionPaths[nextSection]}/${id}`;
-    if (normalizedPath(window.location.pathname) !== target) window.history.pushState(null, "", target);
+    if (`${normalizedPath(window.location.pathname)}${window.location.search}` !== target) window.history.pushState(null, "", target);
     setSection(nextSection);
     setQuoteId(id);
+  };
+  const openWorkflow = (view: "contracts" | "acceptances", id?: string) => {
+    const slug = view === "contracts" ? "hop-dong" : "nghiem-thu";
+    const target = id ? `${sectionPaths.documents}/${slug}/${id}` : view === "contracts" ? sectionPaths.documents : `${sectionPaths.documents}?tab=nghiem-thu`;
+    if (`${normalizedPath(window.location.pathname)}${window.location.search}` !== target) window.history.pushState(null, "", target);
+    setSection("documents");
+    setDocumentView(view);
+    setQuoteId(id ?? null);
+  };
+  const createContract = async (quote: Quote) => {
+    try {
+      const { contracts } = await api<{ contracts: Array<{ _id: string; quoteId: string }> }>("/api/contracts");
+      const existing = contracts.find((contract) => contract.quoteId === quote._id);
+      if (existing) openWorkflow("contracts", existing._id);
+      else setCreatingContractFromQuote(quote);
+    } catch (cause) { notify(cause instanceof Error ? cause.message : "Không tạo được hợp đồng.", "error"); }
   };
   const removeQuote = async (quote: Quote) => {
     if (deletingQuoteRef.current) return;
@@ -343,9 +370,10 @@ function UserApp() {
       <nav className="side-nav">
         <NavButton icon="home" label="Tổng quan" href={sectionPaths.home} active={!quoteId && section === "home"} onClick={() => navigateSection("home")} />
         <NavButton icon="quote" label="Dự toán" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
+        <NavButton icon="file" label="Hợp đồng & Nghiệm thu" href={sectionPaths.documents} active={section === "documents"} onClick={() => navigateSection("documents")} />
         <NavButton icon="spark" label="Tư vấn ngân sách" href={sectionPaths.budgetPlanner} active={!quoteId && section === "budgetPlanner"} onClick={() => navigateSection("budgetPlanner")} />
         <NavButton icon="file" label="Báo giá khách" href={sectionPaths.customerQuotes} active={!quoteId && section === "customerQuotes"} onClick={() => navigateSection("customerQuotes")} />
-        <NavButton icon="template" label="Mẫu báo giá" href={sectionPaths.templates} active={!quoteId && section === "templates"} onClick={() => navigateSection("templates")} />
+        <NavButton icon="template" label="Mẫu tài liệu" href={sectionPaths.templates} active={!quoteId && section === "templates"} onClick={() => navigateSection("templates")} />
         <NavButton icon="box" label="Bảng giá" href={sectionPaths.catalog} active={!quoteId && section === "catalog"} onClick={() => navigateSection("catalog")} />
       </nav>
       <div className="sidebar-bottom">
@@ -353,10 +381,12 @@ function UserApp() {
       </div>
     </aside>
     <div className="main-column">
-      <main className="main-content">{quoteId && section === "customerQuotes" ?
+      <main className="main-content">{section === "documents" ?
+        <ContractWorkflow key={`${documentView}-${quoteId ?? "list"}`} view={documentView} id={quoteId} navigate={openWorkflow} openQuote={(id) => openQuote(id)} notify={notify} confirm={confirm} />
+        : quoteId && section === "customerQuotes" ?
         <CustomerQuoteDetail key={quoteId} id={quoteId} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} />
         : quoteId ?
-          <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} />
+          <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} onCreateContract={createContract} />
           : section === "home" ?
             <Dashboard key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} canReview onOpen={openQuote} onCreate={createQuote} onNavigate={navigateSection} onDeleteQuote={(quote) => void removeQuote(quote)} />
             : section === "quotes" ?
@@ -372,6 +402,7 @@ function UserApp() {
                       : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
     {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); }} onCreated={(id) => { setCreatingQuote(false); refresh(); notify("Bản nháp báo giá đã được tạo."); openQuote(id); }} />}
+    {creatingContractFromQuote && <ContractCreationDialog quote={creatingContractFromQuote} onClose={() => setCreatingContractFromQuote(null)} onCreated={(id) => { setCreatingContractFromQuote(null); openWorkflow("contracts", id); notify("Đã tạo hợp đồng.", "success"); }} notify={notify} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
     {confirmationDialog}
   </div></NotificationProvider>;
@@ -1065,7 +1096,7 @@ function CreateEstimateFromQuoteDialog({ onClose, onCreated }: { onClose: () => 
   useEffect(() => {
     let live = true;
     setTemplatesLoading(true);
-    loadQuoteTemplates().then((options) => {
+    loadQuoteTemplates("estimate").then((options) => {
       if (!live) return;
       setTemplates(options.templates);
       setTemplateId(options.templates.find((entry) => entry.id === options.defaultTemplateId)?.id ?? options.templates[0]?.id ?? "");
@@ -1130,6 +1161,7 @@ function CreateEstimateFromQuoteDialog({ onClose, onCreated }: { onClose: () => 
         </select>
       </label>
       {!templatesLoading && templates.length === 0 && <p className="field-hint">Chưa có mẫu dự toán đã lưu.</p>}
+      {!templatesLoading && templates[0]?.category === "quote" && <p className="field-hint">Chưa có mẫu dự toán riêng; đang dùng mẫu báo giá đã lưu.</p>}
       {error && <p className="estimate-from-quote-error" role="alert">{error}</p>}
       {busy && <TaskProgress label="Đang tạo dự toán" detail={sourceRequirements.trim() ? "AI đang đọc yêu cầu và điều chỉnh các dòng sản phẩm…" : "Sao chép sản phẩm và đơn giá từ báo giá khách…"} />}
       <div className="estimate-from-quote-actions"><button type="button" className="button button-soft" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="button button-primary" disabled={!selectedSource || !templateId || busy}>{busy ? "Đang tạo…" : "Tạo dự toán"}</button></div>
@@ -1171,16 +1203,17 @@ function QuoteTemplateDropdown({ templates, value, defaultTemplateId, disabled, 
   </div>;
 }
 
-async function loadQuoteTemplates(): Promise<Pick<QuoteOptions, "templates" | "defaultTemplateId">> {
+async function loadQuoteTemplates(category: "quote" | "estimate" = "quote"): Promise<Pick<QuoteOptions, "templates" | "defaultTemplateId">> {
   const templates: TemplateDetails[] = [];
   let cursor: string | null = null;
   let defaultTemplateId: string | null = null;
   do {
-    const page: { templates: TemplateDetails[]; nextCursor: string | null; defaultTemplateId: string | null } = await api(`/api/quote-templates${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`);
+    const page: { templates: TemplateDetails[]; nextCursor: string | null; defaultTemplateId: string | null } = await api(`/api/quote-templates?category=${category}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`);
     templates.push(...page.templates);
     defaultTemplateId = page.defaultTemplateId;
     cursor = page.nextCursor;
   } while (cursor);
+  if (category === "estimate" && templates.length === 0) return loadQuoteTemplates("quote");
   return { templates, defaultTemplateId };
 }
 
@@ -1451,7 +1484,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   );
 }
 
-function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQuote }: { id: string; user: User; onBack: () => void; onChanged: () => void; onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean>; onDeleteQuote: (quote: Quote) => void }) {
+function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQuote, onCreateContract }: { id: string; user: User; onBack: () => void; onChanged: () => void; onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean>; onDeleteQuote: (quote: Quote) => void; onCreateContract: (quote: Quote) => Promise<void> }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [taxRateText, setTaxRateText] = useState("0");
@@ -1790,6 +1823,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
         </div>
 
         <div className="quote-header-actions">
+          {quote.status === "approved" && quote.kind !== "customer" && <button type="button" className="button button-primary" disabled={busy} onClick={() => void onCreateContract(quote)}><Icon name="file" size={16} />Tạo / xem hợp đồng</button>}
           {editable && (
             <button
               type="button"

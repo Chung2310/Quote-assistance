@@ -48,7 +48,36 @@ function safeLogText(value: unknown) {
 
 export async function logAiProviderFailure(response: Response, context: AiProviderFailureContext) {
   let payload: unknown;
-  try { payload = await response.json(); } catch { payload = undefined; }
+  const reader = response.body?.getReader();
+  if (reader) {
+    let timedOut = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const readPayload = async () => {
+      const decoder = new TextDecoder();
+      let text = "";
+      while (text.length <= 64 * 1024) {
+        const { value, done } = await reader.read();
+        if (done) {
+          text += decoder.decode();
+          return JSON.parse(text) as unknown;
+        }
+        text += decoder.decode(value, { stream: true });
+      }
+      await reader.cancel().catch(() => undefined);
+      return undefined;
+    };
+    try {
+      payload = await Promise.race([
+        readPayload(),
+        new Promise<undefined>((resolve) => { timeout = setTimeout(() => { timedOut = true; resolve(undefined); }, 2_000); }),
+      ]);
+    } catch {
+      payload = undefined;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+      if (timedOut) await reader.cancel().catch(() => undefined);
+    }
+  }
   const body = isRecord(payload) ? payload : {};
   const error = isRecord(body.error) ? body.error : {};
   const metadata = isRecord(error.metadata) ? error.metadata : {};
