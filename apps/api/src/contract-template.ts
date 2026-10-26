@@ -14,6 +14,20 @@ const mrHiepAcceptanceDocxName = "bien ban nghiem thu mr hiep.docx";
 
 function templateBytes(template: QuoteTemplate) { return Buffer.from(template.data.buffer); }
 
+function removeWordHeaders(bytes: Buffer) {
+  const zip = new PizZip(bytes);
+  const document = zip.file("word/document.xml");
+  if (document) zip.file("word/document.xml", document.asText().replace(/<w:headerReference\b[^>]*(?:\/>|>[\s\S]*?<\/w:headerReference>)/g, ""));
+  for (const name of Object.keys(zip.files)) {
+    if (/^word\/header\d+\.xml$/.test(name) || /^word\/_rels\/header\d+\.xml\.rels$/.test(name)) zip.remove(name);
+  }
+  const relationships = zip.file("word/_rels/document.xml.rels");
+  if (relationships) zip.file("word/_rels/document.xml.rels", relationships.asText().replace(/<Relationship\b(?=[^>]*\bType="[^"]*\/header")[^>]*\/>/g, ""));
+  const contentTypes = zip.file("[Content_Types].xml");
+  if (contentTypes) zip.file("[Content_Types].xml", contentTypes.asText().replace(/<Override\b(?=[^>]*\bPartName="\/word\/header\d+\.xml")[^>]*\/>/g, ""));
+  return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
 function hasDocxFields(bytes: Buffer) {
   const zip = new PizZip(bytes);
   const text = Object.keys(zip.files).filter((name) => /^word\/(document|header\d+|footer\d+)\.xml$/.test(name))
@@ -344,14 +358,14 @@ export function renderAcceptanceWithTemplate(template: QuoteTemplate, contract: 
   });
   const data = { ...contract, ...record, ...acceptanceBindings(contract, record), lines };
   try {
-    const zip = new PizZip(templateBytes(template));
+    const zip = new PizZip(removeWordHeaders(templateBytes(template)));
     for (const name of Object.keys(zip.files).filter((entry) => /^word\/(document|header\d+|footer\d+)\.xml$/.test(entry))) {
       const part = zip.file(name);
       if (part) zip.file(name, applyFontToTemplateWordParagraphs(part.asText()));
     }
     const document = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
     document.render(data);
-    return document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
+    return removeWordHeaders(document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }));
   } catch (error) {
     throw new Error(error instanceof Error ? `Không điền được mẫu nghiệm thu: ${error.message}` : "Không điền được mẫu nghiệm thu đã chọn.");
   }
@@ -363,7 +377,8 @@ export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, cont
   if (mode === "pdf-reference" || mode === "pdf-ai" || mode === "docx-ai") {
     const wordTemplate = await acceptanceWordTemplate(db, template);
     const plan = await getOrCreateAcceptanceFillPlan(db, wordTemplate, contract, record, runAi);
-    return { bytes: await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan, { boundTextFont: "Arial" }), extension: "docx" };
+    const rendered = await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan, { boundTextFont: "Arial" });
+    return { bytes: removeWordHeaders(rendered), extension: "docx" };
   }
   throw new Error("Mẫu nghiệm thu không có định dạng Word hoặc PDF hợp lệ.");
 }
