@@ -793,6 +793,13 @@
   font-weight: 700;
 }
 
+.quote-fee-confirmation-needed {
+  margin-left: 6px;
+  color: #b45309;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .quote-fee-row {
   display: flex;
   gap: 10px;

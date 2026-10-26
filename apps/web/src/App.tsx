@@ -1755,6 +1755,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     ...(!shippingFeeIsConfirmed ? ["Phí vận chuyển"] : []),
     ...(!taxRateConfirmed || taxRateText.trim() === "" ? ["VAT"] : []),
   ];
+  const unresolvedItemCount = unresolvedOtherInformation.length + missingSetupInformation.length + unresolvedProductNeeds.length;
   const catalogLines = quote.lines.filter((line) => line.source !== "supplemental");
   const displaySupplementalProducts = supplementalProducts.filter(hasSupplementalProductContent);
   const visibleLineCount = catalogLines.length + displaySupplementalProducts.length;
@@ -2005,7 +2006,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
           <div className="banner-info-wrap">
             <span className="banner-icon"><Icon name="spark" size={20} /></span>
             <div className="banner-text-box">
-              <h3>Còn thông tin cần bổ sung</h3>
+              <h3>Còn {unresolvedItemCount} mục cần xác nhận trước khi duyệt</h3>
               <p>{[
                 ...unresolvedOtherInformation,
                 ...missingSetupInformation.map((field) => `${field}: chưa xác nhận`),
@@ -2158,14 +2159,14 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             <div className="section-title quote-terms-heading"><div><h2>Chi phí & điều khoản</h2><p>Chưa chốt sẽ chưa vào tổng.</p></div></div>
             <div className="quote-terms-grid">
               <div className="quote-fee-control">
-                <label className="quote-fee-label" htmlFor={`shipping-mode-${quote._id}`}>Vận chuyển</label>
+                <label className="quote-fee-label" htmlFor={`shipping-mode-${quote._id}`}>Vận chuyển {!shippingFeeIsConfirmed && <small className="quote-fee-confirmation-needed">Cần xác nhận</small>}</label>
                 <div className="quote-fee-row">
                   <ThemedSelect id={`shipping-mode-${quote._id}`} label="Vận chuyển" value={shippingMode} disabled={!editable || busy} onChange={(next) => chooseShippingMode(next as ShippingMode)} options={[{ value: "unconfirmed", label: "Chưa chốt" }, { value: "free", label: "Miễn phí" }, { value: "paid", label: "Tính phí" }]} />
                   {shippingMode === "paid" && <MoneyInput value={shippingFeeText} currency={quote.currency} disabled={!editable || busy} placeholder="0" aria-label={`Phí vận chuyển (${quote.currency})`} onChange={setShippingFeeText} />}
                 </div>
               </div>
               <div className="quote-fee-control">
-                <label className="quote-fee-label" htmlFor={`tax-mode-${quote._id}`}>Thuế VAT</label>
+                <label className="quote-fee-label" htmlFor={`tax-mode-${quote._id}`}>Thuế VAT {(!taxRateConfirmed || taxRateText.trim() === "") && <small className="quote-fee-confirmation-needed">Cần xác nhận</small>}</label>
                 <div className="quote-fee-row">
                   <ThemedSelect id={`tax-mode-${quote._id}`} label="Thuế VAT" value={taxMode} disabled={!editable || busy} onChange={(next) => chooseTaxMode(next as TaxMode)} options={[{ value: "unconfirmed", label: "Chưa chốt" }, { value: "zero", label: "0%" }, { value: "rate", label: "Tính VAT" }]} />
                   {taxMode === "rate" && <input type="number" min="0" max="100" step="any" value={taxRateText} disabled={!editable || busy} placeholder="%" aria-label="Thuế suất VAT (%)" onChange={(event) => { setTaxRateText(event.target.value); setTaxRateConfirmed(event.target.value.trim() !== "" && Number.isFinite(Number(event.target.value)) && Number(event.target.value) >= 0); }} />}
