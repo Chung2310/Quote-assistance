@@ -226,7 +226,35 @@ export function validateFillPlan(raw: unknown, quote: Quote): TemplateFillPlan {
   return plan;
 }
 
-export async function renderMappedTemplate(template: QuoteTemplate, values: Record<string, string>, plan: TemplateFillPlan) {
+function setWordRunFont(run: string, font: string) {
+  const fonts = `<w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:eastAsia="${font}" w:cs="${font}"/>`;
+  const language = `<w:lang w:val="vi-VN" w:eastAsia="vi-VN"/>`;
+  const properties = /<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/.exec(run);
+  if (properties) {
+    let content = properties[0];
+    const fontTag = /<w:rFonts\b[^>]*(?:\/>|>[\s\S]*?<\/w:rFonts>)/;
+    const languageTag = /<w:lang\b[^>]*(?:\/>|>[\s\S]*?<\/w:lang>)/;
+    content = fontTag.test(content) ? content.replace(fontTag, fonts) : content.replace(/(<w:rPr\b[^>]*>)/, `$1${fonts}`);
+    content = languageTag.test(content) ? content.replace(languageTag, language) : content.replace(/(<w:rPr\b[^>]*>)/, `$1${language}`);
+    return run.replace(properties[0], content);
+  }
+  const emptyProperties = /<w:rPr\b[^>]*\/>/;
+  if (emptyProperties.test(run)) return run.replace(emptyProperties, `<w:rPr>${fonts}${language}</w:rPr>`);
+  return run.replace(/(<w:r\b[^>]*>)/, `$1<w:rPr>${fonts}${language}</w:rPr>`);
+}
+
+export function applyFontToBoundWordRuns(xml: string, font = "Arial") {
+  return xml.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (run) => /\[\[\w+\]\]/.test(run) ? setWordRunFont(run, font) : run);
+}
+
+export function applyFontToTemplateWordParagraphs(xml: string, font = "Arial") {
+  return xml.replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, (paragraph) => {
+    if (!/\{[\s\S]*?\}/.test(paragraph)) return paragraph;
+    return paragraph.replace(/<w:r\b[^>]*>[\s\S]*?<\/w:r>/g, (run) => setWordRunFont(run, font));
+  });
+}
+
+export async function renderMappedTemplate(template: QuoteTemplate, values: Record<string, string>, plan: TemplateFillPlan, options: { boundTextFont?: string } = {}) {
   const interpolate = (text: string, xml = false) => text.replace(/\[\[(\w+)\]\]/g, (_token, key: string) => xml ? xmlEscape(values[key]) : values[key]);
   const bytes = Buffer.from(template.data.buffer);
   if (template.extension !== "pdf") {
@@ -250,7 +278,8 @@ export async function renderMappedTemplate(template: QuoteTemplate, values: Reco
           if ((child.nodeType === 3 || child.nodeType === 4) && /\[\[\w+\]\]/.test(child.nodeValue ?? "") && element.localName !== "t") throw new Error("AI đặt dữ liệu ngoài ô văn bản của mẫu.");
         }
       }
-      const xml = interpolate(markup, true);
+      const preparedMarkup = options.boundTextFont ? applyFontToBoundWordRuns(markup, options.boundTextFont) : markup;
+      const xml = interpolate(preparedMarkup, true);
       validateXml(xml);
       if (document.documentElement?.nodeName !== validateXml(originals.get(part)!).documentElement?.nodeName) throw new Error("AI thay đổi cấu trúc gốc của mẫu.");
       const oldLinks = new Set(originals.get(part)!.match(/(?:r:id|r:embed|r:link)="[^"]*"/g));

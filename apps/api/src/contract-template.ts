@@ -6,7 +6,7 @@ import PizZip from "pizzip";
 import { requestTemplatePlan } from "./ai.js";
 import { makePdfReferenceContractWord, words } from "./contract-pdf-reference-word.js";
 import { convertPdfToWord } from "./pdf-to-word.js";
-import { fillSchema, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
+import { applyFontToTemplateWordParagraphs, fillSchema, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
 import type { Contract, TemplateFillPlan } from "./types.js";
 
 const architecturePdfHash = "72d9a684a94784ed813fac2b861556509f804de16acff141597eb3ab18685c04";
@@ -344,7 +344,12 @@ export function renderAcceptanceWithTemplate(template: QuoteTemplate, contract: 
   });
   const data = { ...contract, ...record, ...acceptanceBindings(contract, record), lines };
   try {
-    const document = new Docxtemplater(new PizZip(templateBytes(template)), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
+    const zip = new PizZip(templateBytes(template));
+    for (const name of Object.keys(zip.files).filter((entry) => /^word\/(document|header\d+|footer\d+)\.xml$/.test(entry))) {
+      const part = zip.file(name);
+      if (part) zip.file(name, applyFontToTemplateWordParagraphs(part.asText()));
+    }
+    const document = new Docxtemplater(zip, { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
     document.render(data);
     return document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
   } catch (error) {
@@ -358,7 +363,7 @@ export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, cont
   if (mode === "pdf-reference" || mode === "pdf-ai" || mode === "docx-ai") {
     const wordTemplate = await acceptanceWordTemplate(db, template);
     const plan = await getOrCreateAcceptanceFillPlan(db, wordTemplate, contract, record, runAi);
-    return { bytes: await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan), extension: "docx" };
+    return { bytes: await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan, { boundTextFont: "Arial" }), extension: "docx" };
   }
   throw new Error("Mẫu nghiệm thu không có định dạng Word hoặc PDF hợp lệ.");
 }
