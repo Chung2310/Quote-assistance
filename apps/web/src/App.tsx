@@ -125,6 +125,18 @@ function isSupplementalProductInformation(value: string) {
   return /\b(san pham|mat hang|hang muc|nhan cong|vat tu|don gia|gia|ma hang|ma san pham|product|item|labor|material|sku|price|pricing|mosaic|op lat|gach|trang tri|decoration|finishing|installation|thi cong|lap dat)\b/.test(text);
 }
 
+function sameProductLineName(first: string, second: string) {
+  const tokens = (value: string): string[] => value.toLocaleLowerCase("vi").normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").match(/[a-z0-9]+/g) ?? [];
+  const firstTokens = tokens(first);
+  const secondTokens = tokens(second);
+  if (!firstTokens.length || !secondTokens.length) return false;
+  const smaller = firstTokens.length <= secondTokens.length ? firstTokens : secondTokens;
+  const larger = firstTokens.length <= secondTokens.length ? secondTokens : firstTokens;
+  return firstTokens.join(" ") === secondTokens.join(" ")
+    || (smaller.length >= 2 && smaller.every((token) => larger.includes(token)));
+}
+
 function canSupplementMissingInformation(value: string) {
   if (isTaxMissingInformation(value) || isShippingMissingInformation(value)) return false;
   return !isSupplementalProductInformation(value);
@@ -1541,13 +1553,23 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
         quantity: String(line.quantity),
         unitPrice: line.priceUnavailable ? "" : String(line.unitPrice),
       }));
-      for (const suggestion of value.suggestedProducts ?? []) {
-        if (!suggestion.informationField || supplementalDrafts.some((product) => product.informationField === suggestion.informationField)) continue;
-        supplementalDrafts.push(createSupplementalProductDraft(suggestion.informationField, suggestion, false));
+      const productInformationFields = [...new Set([
+        ...(value.suggestedProducts ?? []).map((product) => product.informationField).filter((field): field is string => Boolean(field)),
+        ...value.informationNeeded.filter(isSupplementalProductInformation),
+      ])];
+      for (const field of productInformationFields) {
+        if (supplementalDrafts.some((product) => product.informationField === field)) continue;
+        const suggestion = value.suggestedProducts?.find((product) => product.informationField === field);
+        const candidateName = suggestion?.name?.trim() || suggestedNameFromMissingField(field);
+        const matchingProductIndex = candidateName
+          ? supplementalDrafts.findIndex((product) => !product.informationField && sameProductLineName(product.name, candidateName))
+          : -1;
+        if (matchingProductIndex >= 0) {
+          supplementalDrafts[matchingProductIndex] = { ...supplementalDrafts[matchingProductIndex]!, informationField: field };
+        } else {
+          supplementalDrafts.push(createSupplementalProductDraft(field, suggestion, false));
+        }
       }
-      const draftedInformationFields = new Set(supplementalDrafts.map((product) => product.informationField).filter((field): field is string => Boolean(field)));
-      value.informationNeeded.filter((field) => isSupplementalProductInformation(field) && !draftedInformationFields.has(field))
-        .forEach((field) => supplementalDrafts.push(createSupplementalProductDraft(field, undefined, false)));
       setSupplementalProducts(supplementalDrafts);
       setValidityDaysText(value.validityDays == null ? "" : String(value.validityDays));
       setCompletionDateText(value.completionDate ?? "");
