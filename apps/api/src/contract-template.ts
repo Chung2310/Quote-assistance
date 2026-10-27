@@ -6,6 +6,8 @@ import PizZip from "pizzip";
 import { requestTemplatePlan } from "./ai.js";
 import { makePdfReferenceContractWord, words } from "./contract-pdf-reference-word.js";
 import { convertPdfToWord } from "./pdf-to-word.js";
+import { makeDocumentWord } from "./document-word.js";
+import { logger } from "./logger.js";
 import { applyFontToAllWordRuns, applyFontToTemplateWordParagraphs, fillSchema, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
 import type { Contract, TemplateFillPlan } from "./types.js";
 
@@ -68,7 +70,7 @@ function hasDocxFields(bytes: Buffer) {
   const zip = new PizZip(bytes);
   const text = Object.keys(zip.files).filter((name) => /^word\/(document|header\d+|footer\d+)\.xml$/.test(name))
     .map((name) => zip.file(name)?.asText().replace(/<[^>]*>/g, "") ?? "").join("");
-  return /\{(?:contractNumber|acceptanceNumber|acceptedDate|companyName|customerName|projectName|settlementAmount|#lines)\}/.test(text);
+  return /\{(?:contractNumber|quoteNumber|acceptanceNumber|acceptedDate|company\w+|customer\w+|project\w+|scope|deliverables|paymentTerms|deliveryTerms|signingPlace|signedDate(?:Display)?|bankDetails|otherTerms|currency|subtotal(?:Formatted)?|taxRate|taxAmount(?:Formatted)?|shippingFee(?:Formatted)?|total(?:Formatted|InWords)?|depositAmount(?:Formatted|InWords)?|balance(?:Formatted|InWords)?|settlementAmount(?:Formatted)?|line_\d+_\w+|#lines)\}/.test(text);
 }
 
 export type ContractTemplateMode = "pdf-reference" | "pdf-ai" | "docx" | "docx-ai";
@@ -170,8 +172,9 @@ export function acceptanceBindings(contract: Contract, record: import("./types.j
 export function renderContractWithTemplate(template: QuoteTemplate, contract: Contract): Buffer {
   const mode = contractTemplateMode(template);
   if (mode === "pdf-reference") return removeWordHeaders(makePdfReferenceContractWord(contract));
-  if (mode !== "docx") throw new Error("Mẫu này chưa thể điền vào file Word. Hãy tải lên mẫu DOCX có các trường dữ liệu hoặc dùng mẫu PDF hợp đồng đã được dựng lại.");
+  if (mode !== "docx") throw new Error("Mẫu này chưa có trường dữ liệu Word. Hãy dùng luồng điền mẫu Word bằng AI.");
   const data = {
+    ...contractBindings(contract),
     ...contract,
     signedDateDisplay: contract.signedDate ? new Date(`${contract.signedDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }) : "",
     subtotalFormatted: formattedMoney(contract.subtotal, contract.currency),
@@ -183,9 +186,9 @@ export function renderContractWithTemplate(template: QuoteTemplate, contract: Co
     lines: contract.lines.map((line, index) => ({ ...line, index: index + 1, unitPriceFormatted: formattedMoney(line.unitPrice, contract.currency), lineTotalFormatted: formattedMoney(line.lineTotal, contract.currency) })),
   };
   try {
-    const document = new Docxtemplater(new PizZip(removeWordHeaders(templateBytes(template))), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
+    const document = new Docxtemplater(new PizZip(templateBytes(template)), { paragraphLoop: true, linebreaks: true, nullGetter: () => "" });
     document.render(data);
-    return removeWordHeaders(document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" }));
+    return document.getZip().generate({ type: "nodebuffer", compression: "DEFLATE" });
   } catch (error) {
     throw new Error(error instanceof Error ? `Không điền được mẫu Word: ${error.message}` : "Không điền được mẫu Word đã chọn.");
   }
@@ -309,13 +312,18 @@ async function getOrCreateContractFillPlan(db: Db, template: QuoteTemplate, cont
   return plan;
 }
 
-export async function renderContractFile(db: Db, template: QuoteTemplate, contract: Contract, runAi: AiRunner = (work) => work()): Promise<{ bytes: Buffer; extension: "docx" | "pdf" }> {
+export async function renderContractFile(db: Db, template: QuoteTemplate, contract: Contract, runAi: AiRunner = (work) => work()): Promise<{ bytes: Buffer; extension: "docx" | "pdf"; fallback?: boolean }> {
   const mode = contractTemplateMode(template);
   if (mode === "pdf-reference" || mode === "docx") return { bytes: renderContractWithTemplate(template, contract), extension: "docx" };
   if (mode === "pdf-ai" || mode === "docx-ai") {
-    const plan = await getOrCreateContractFillPlan(db, template, contract, runAi);
-    const bytes = await renderMappedTemplate(template, contractBindings(contract), plan);
-    return { bytes: mode === "docx-ai" ? removeWordHeaders(bytes) : bytes, extension: mode === "pdf-ai" ? "pdf" : "docx" };
+    try {
+      const plan = await getOrCreateContractFillPlan(db, template, contract, runAi);
+      const bytes = await renderMappedTemplate(template, contractBindings(contract), plan);
+      return { bytes, extension: mode === "pdf-ai" ? "pdf" : "docx" };
+    } catch (error) {
+      logger.warn("contract.word_template_ai_fallback", { templateId: template._id?.toHexString(), reason: error instanceof Error ? error.name : "UnknownError" });
+      return { bytes: makeDocumentWord("contract", contract), extension: "docx", fallback: true };
+    }
   }
   throw new Error("Mẫu hợp đồng không có định dạng Word hoặc PDF hợp lệ.");
 }
@@ -408,14 +416,19 @@ export function renderAcceptanceWithTemplate(template: QuoteTemplate, contract: 
   }
 }
 
-export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, contract: Contract, record: import("./types.js").AcceptanceRecord, runAi: AiRunner = (work) => work()): Promise<{ bytes: Buffer; extension: "docx" }> {
+export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, contract: Contract, record: import("./types.js").AcceptanceRecord, runAi: AiRunner = (work) => work()): Promise<{ bytes: Buffer; extension: "docx"; fallback?: boolean }> {
   const mode = contractTemplateMode(template);
   if (mode === "docx") return { bytes: renderAcceptanceWithTemplate(template, contract, record), extension: "docx" };
   if (mode === "pdf-reference" || mode === "pdf-ai" || mode === "docx-ai") {
-    const wordTemplate = await acceptanceWordTemplate(db, template);
-    const plan = await getOrCreateAcceptanceFillPlan(db, wordTemplate, contract, record, runAi);
-    const rendered = await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan, { boundTextFont: "Arial" });
-    return { bytes: finalizeAcceptanceWord(rendered, template, contract), extension: "docx" };
+    try {
+      const wordTemplate = await acceptanceWordTemplate(db, template);
+      const plan = await getOrCreateAcceptanceFillPlan(db, wordTemplate, contract, record, runAi);
+      const rendered = await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan, { boundTextFont: "Arial" });
+      return { bytes: finalizeAcceptanceWord(rendered, template, contract), extension: "docx" };
+    } catch (error) {
+      logger.warn("acceptance.word_template_ai_fallback", { templateId: template._id?.toHexString(), reason: error instanceof Error ? error.name : "UnknownError" });
+      return { bytes: makeDocumentWord("acceptance", contract, record), extension: "docx", fallback: true };
+    }
   }
   throw new Error("Mẫu nghiệm thu không có định dạng Word hoặc PDF hợp lệ.");
 }
