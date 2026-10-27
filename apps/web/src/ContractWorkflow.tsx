@@ -200,7 +200,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
         const body = await response.json().catch(() => null) as { error?: string } | null;
         throw new Error(body?.error || "Không tải được tài liệu đã điền.");
       }
-      const usedDefaultTemplate = response.headers.get("X-Acceptance-Template-Status") === "fallback-ai-402";
+      const usedDefaultTemplate = ["fallback-ai-error", "fallback-ai-402"].includes(response.headers.get("X-Acceptance-Template-Status") ?? "");
+      const usedDefaultContract = response.headers.get("X-Contract-Template-Status") === "fallback-ai-error";
       const disposition = response.headers.get("Content-Disposition") ?? "";
       const filenameMatch = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
       const quotedFilename = /filename="([^"]+)"/i.exec(disposition);
@@ -213,7 +214,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
-      if (usedDefaultTemplate) notify("Đã tải Word mẫu mặc định. AI trả HTTP 402 nên chưa áp dụng mẫu bạn chọn; hãy kiểm tra số dư OpenRouter.", "error");
+      if (usedDefaultContract) notify("Đã tải hợp đồng Word theo mẫu mặc định vì AI không điền được mẫu đã chọn. File dùng dữ liệu hợp đồng đã lưu; mẫu bạn chọn chưa được áp dụng.", "success");
+      if (usedDefaultTemplate) notify("Đã tải biên bản nghiệm thu Word theo mẫu mặc định vì AI không điền được mẫu đã chọn. File dùng dữ liệu nghiệm thu đã lưu; mẫu bạn chọn chưa được áp dụng.", "success");
     } catch (error) { notify(error instanceof Error ? error.message : "Không tải được tài liệu đã điền.", "error"); }
     finally { setDownloading(false); }
   };
@@ -244,7 +246,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const acceptedValue = !isContract && record ? contract.lines.reduce((sum, line, index) => sum + Math.round((quantities[index] ?? 0) * line.unitPrice * 100) / 100, 0) : 0;
   const savedWordTemplateId = isContract ? contract.template?.id : record?.template?.id;
   const wordTemplateId = wordTemplateOverride
-    || (savedWordTemplateId && (!wordTemplates.length || wordTemplates.some((template) => template.id === savedWordTemplateId)) ? savedWordTemplateId : "")
+    || (savedWordTemplateId && wordTemplates.some((template) => template.id === savedWordTemplateId) ? savedWordTemplateId : "")
     || wordTemplates[0]?.id || "";
   const selectedTemplateMode = wordTemplates.find((template) => template.id === wordTemplateId)?.mode;
   const wordUrl = `${isContract ? `/api/contracts/${contract._id}/file` : `/api/acceptance-records/${record!._id}/file`}${wordTemplateId ? `?templateId=${encodeURIComponent(wordTemplateId)}` : ""}`;
