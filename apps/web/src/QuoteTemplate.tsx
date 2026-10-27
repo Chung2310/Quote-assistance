@@ -310,29 +310,6 @@ export function QuoteTemplatePanel({
           </div>
         </div>
 
-        <div className="qt-kpi-card">
-          <div className="qt-kpi-top">
-            <span className="qt-kpi-label">Định dạng hỗ trợ</span>
-            <div className="qt-kpi-icon tone-purple">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polyline points="16 16 12 12 8 16" />
-                <line x1="12" y1="12" x2="12" y2="21" />
-                <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3" />
-                <polyline points="16 16 12 12 8 16" />
-              </svg>
-            </div>
-          </div>
-          <div className="qt-kpi-body">
-            <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
-              <span className="qt-format-pill docx">Word ({stats.docxCount})</span>
-              <span className="qt-format-pill xlsx">Excel ({stats.xlsxCount})</span>
-              <span className="qt-format-pill pdf">PDF ({stats.pdfCount})</span>
-            </div>
-            <span className="qt-kpi-sub" style={{ marginTop: 6 }}>
-              Tương thích hoàn toàn các mẫu văn phòng
-            </span>
-          </div>
-        </div>
       </section>
 
       {/* Main Content Card: Search, Filter & Grid */}
@@ -375,20 +352,20 @@ export function QuoteTemplatePanel({
             >
               Word (.docx) <span className="qt-filter-count">{stats.docxCount}</span>
             </button>
-            <button
+            {(category !== "acceptance" && category !== "contract") && <button
               type="button"
               className={`qt-filter-btn ${filterFormat === "xlsx" ? "active" : ""}`}
               onClick={() => setFilterFormat("xlsx")}
             >
               Excel (.xlsx) <span className="qt-filter-count">{stats.xlsxCount}</span>
-            </button>
-            <button
+            </button>}
+            {(category !== "acceptance" && category !== "contract") && <button
               type="button"
               className={`qt-filter-btn ${filterFormat === "pdf" ? "active" : ""}`}
               onClick={() => setFilterFormat("pdf")}
             >
               PDF (.pdf) <span className="qt-filter-count">{stats.pdfCount}</span>
-            </button>
+            </button>}
           </div>
         </div>
 
@@ -406,7 +383,7 @@ export function QuoteTemplatePanel({
             <h3>{templates.length === 0 ? `Chưa có ${categoryLabel.toLowerCase()} nào` : "Không tìm thấy mẫu phù hợp"}</h3>
             <p>
               {templates.length === 0
-                ? `Tải lên file ${categoryLabel.toLowerCase()} Word (.docx), Excel (.xlsx) hoặc PDF của doanh nghiệp.`
+                ? `Tải lên file ${categoryLabel.toLowerCase()} ${(category === "acceptance" || category === "contract") ? "Word (.docx)" : "Word (.docx), Excel (.xlsx) hoặc PDF"} của doanh nghiệp.`
                 : "Thử tìm kiếm với từ khóa khác hoặc chuyển sang chế độ xem tất cả định dạng."}
             </p>
             {templates.length === 0 && canManage && !onContinue && !uploadBlocked && (
@@ -643,6 +620,10 @@ function CreateTemplateDialog({
 
   const handleFileChange = (selected: File | null) => {
     if (!selected) return;
+    if ((category === "acceptance" || category === "contract") && !/\.docx$/i.test(selected.name)) {
+      setError("Mẫu hợp đồng và nghiệm thu chỉ hỗ trợ file Word (.docx).");
+      return;
+    }
     setFile(selected);
     if (!name.trim()) {
       // Suggest clean template name from file name without extension
@@ -664,6 +645,10 @@ function CreateTemplateDialog({
     if (busy || !file) return;
     if (!name.trim()) {
       setError(`Vui lòng nhập tên ${categoryLabel.toLowerCase()}.`);
+      return;
+    }
+    if ((category === "acceptance" || category === "contract") && !/\.docx$/i.test(file.name)) {
+      setError("Mẫu hợp đồng và nghiệm thu chỉ hỗ trợ file Word (.docx).");
       return;
     }
     if (!/\.(docx|xlsx|pdf)$/i.test(file.name)) {
@@ -726,7 +711,7 @@ function CreateTemplateDialog({
           </div>
           <div>
             <h2 id="create-template-title">Tải lên {categoryLabel} mới</h2>
-            <p>Hỗ trợ tài liệu Word (.docx), bảng tính Excel (.xlsx) hoặc tài liệu PDF</p>
+            <p>{(category === "acceptance" || category === "contract") ? "Chỉ hỗ trợ tài liệu Word (.docx)" : "Hỗ trợ tài liệu Word (.docx), bảng tính Excel (.xlsx) hoặc tài liệu PDF"}</p>
           </div>
         </div>
 
@@ -756,7 +741,7 @@ function CreateTemplateDialog({
               >
                 <input
                   type="file"
-                  accept=".docx,.xlsx,.pdf"
+                  accept={(category === "acceptance" || category === "contract") ? ".docx" : ".docx,.xlsx,.pdf"}
                   required
                   disabled={busy}
                   onChange={(event) => handleFileChange(event.target.files?.[0] ?? null)}
@@ -770,12 +755,12 @@ function CreateTemplateDialog({
                 </div>
                 <div className="qt-dropzone-text">
                   <strong>Kéo thả file mẫu vào đây, hoặc bấm để duyệt file</strong>
-                  <span>Chọn file Word (.docx), Excel (.xlsx) hoặc PDF từ máy tính của bạn</span>
+                  <span>{(category === "acceptance" || category === "contract") ? "Chọn file Word (.docx) từ máy tính của bạn" : "Chọn file Word (.docx), Excel (.xlsx) hoặc PDF từ máy tính của bạn"}</span>
                 </div>
                 <div className="qt-dropzone-badges">
                   <span className="qt-format-pill docx">.DOCX</span>
-                  <span className="qt-format-pill xlsx">.XLSX</span>
-                  <span className="qt-format-pill pdf">.PDF</span>
+                  {(category !== "acceptance" && category !== "contract") && <span className="qt-format-pill xlsx">.XLSX</span>}
+                  {(category !== "acceptance" && category !== "contract") && <span className="qt-format-pill pdf">.PDF</span>}
                 </div>
               </div>
             ) : (

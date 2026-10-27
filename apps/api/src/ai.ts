@@ -400,6 +400,13 @@ export async function analyzeRequest(requestText: string, items: CatalogItem[], 
   };
 }
 
+export class TemplateAiCreditError extends Error {
+  constructor() {
+    super("Không thể điền mẫu bằng AI vì số dư hoặc hạn mức khóa OpenRouter không đủ (HTTP 402). Hãy bổ sung số dư/điều chỉnh hạn mức khóa, hoặc dùng mẫu Word có trường dữ liệu để xuất không cần AI.");
+    this.name = "TemplateAiCreditError";
+  }
+}
+
 export async function requestTemplatePlan<T = unknown>(content: Record<string, unknown>[], schema: Record<string, unknown>, validate: (raw: unknown) => T | Promise<T> = (raw) => raw as T, options: { xlsxSemanticMap?: boolean; systemPrompt?: string; maxTokens?: number } = {}): Promise<T> {
   if (!config.openRouterApiKey) throw new Error("Dịch vụ AI chưa được cấu hình để điền mẫu tài liệu.");
   const messages: AiChatMessage[] = [
@@ -446,7 +453,10 @@ export async function requestTemplatePlan<T = unknown>(content: Record<string, u
       throw new Error("AI không thể đọc mẫu Excel.");
     },
     decode: async (response) => validate(parseJsonResponse(responseContent(await response.json()))),
-    onHttpError: async (response) => { throw new Error(`Dịch vụ AI không điền được mẫu (HTTP ${response.status}). Hãy thử lại.`); },
+    onHttpError: async (response) => {
+      if (response.status === 402) throw new TemplateAiCreditError();
+      throw new Error(`Dịch vụ AI không điền được mẫu (HTTP ${response.status}). Hãy thử lại.`);
+    },
     invalidResponseMessage: "AI trả về cách điền mẫu không hợp lệ sau khi thử lại. Hãy kiểm tra file mẫu.",
   }).catch((error: unknown) => {
     if (options.xlsxSemanticMap && error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name))
