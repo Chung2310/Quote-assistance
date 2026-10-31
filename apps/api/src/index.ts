@@ -7,6 +7,7 @@ import PdfPrinter from "pdfmake";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
 import { connectDatabase, closeDatabase } from "./db.js";
+import { databaseConnectionDiagnostics } from "./database-diagnostics.js";
 import { login, logout, requireAuth, requireSystemAdmin, requireRole } from "./auth.js";
 import { hashPassword } from "./password.js";
 import { analyzeRequest, suggestUnmatchedExplicitRequestLines } from "./ai.js";
@@ -3264,7 +3265,8 @@ connectDatabase()
     });
   })
   .catch((error: unknown) => {
-    logger.error("database.connection_failed", { errorName: error instanceof Error ? error.name : "UnknownError" });
+    const diagnostics = databaseConnectionDiagnostics(error);
+    logger.error("database.connection_failed", { errorName: diagnostics.errorName, connectionCodes: diagnostics.connectionCodes.join(",") || "UNKNOWN" });
     void shutdown().finally(() => process.exit(1));
   });
 

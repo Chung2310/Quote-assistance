@@ -676,6 +676,22 @@
   text-align: right;
 }
 
+.workflow-acceptance-table-wrap th:nth-child(5),
+.workflow-acceptance-table-wrap td:nth-child(5) {
+  text-align: center;
+}
+
+.workflow-acceptance-table-wrap input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-height: 16px;
+  padding: 0;
+  border: 0;
+  accent-color: #15803d;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
 .workflow-totals {
   width: min(100%, 360px);
   display: grid;
@@ -873,11 +889,17 @@
 
   .workflow-form textarea,
   .workflow-form input,
-  .workflow-table-wrap input {
+  .workflow-table-wrap input:not([type="checkbox"]) {
     padding: 0;
     border: 0;
     resize: none;
     appearance: textfield;
+  }
+
+  .workflow-acceptance-table-wrap input[type="checkbox"] {
+    appearance: auto;
+    -webkit-appearance: checkbox;
+    print-color-adjust: exact;
   }
 
   .workflow-form button {
