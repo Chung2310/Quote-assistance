@@ -12,9 +12,12 @@ Tại **Settings → Secrets and variables → Actions**, chỉ cần:
 | Secret | SSH_USER | Tài khoản SSH có quyền chạy Docker |
 | Secret | SSH_KEY | Private key không có passphrase; public key tương ứng nằm trong authorized_keys trên VPS |
 | Secret | SSH_PORT | Cổng SSH, ví dụ 22 |
-| Variable | ENV_FILE | Toàn bộ nội dung file .env, không phải đường dẫn |
+| Secret | ENV_FILE | Toàn bộ nội dung file .env cho develop, không phải đường dẫn |
+| Secret | ENV_FILE_PROD | Toàn bộ nội dung file .env cho production |
 
-ENV_FILE chứa cấu hình ứng dụng, gồm MONGODB_URI và SESSION_SECRET ít nhất 32 ký tự. Các giá trị OPENROUTER_API_KEY, model, storage hoặc cấu hình khác của ứng dụng cũng đặt trong file này theo .env.example. Không cần khai báo từng giá trị thành GitHub Secrets/Variables riêng.
+ENV_FILE chứa cấu hình ứng dụng, gồm MONGODB_URI và SESSION_SECRET ít nhất 32 ký tự. Các giá trị OPENROUTER_API_KEY, model, storage hoặc cấu hình khác của ứng dụng cũng đặt trong file này theo .env.example. Chỉ lưu ENV_FILE và ENV_FILE_PROD trong Actions Secrets, không lưu trong Variables: giá trị Variables không được tự động che trong log. Production sử dụng SSH_HOST_PROD, SSH_USER_PROD, SSH_KEY_PROD và SSH_PORT_PROD tương ứng.
+
+Nếu trước đây đã lưu file môi trường trong Variables, vô hiệu hóa khóa API cũ, thay các thông tin bí mật có thể đã lộ, tạo Secrets tương ứng rồi xóa Variables cũ. Kiểm tra log Actions của bước deploy trước khi xóa log chứa bí mật. Workflow không còn đọc cấu hình từ Variables; cần tạo Secrets trước khi triển khai bản này.
 
 Ví dụ cấu trúc ENV_FILE (thay bằng cấu hình thật):
 ```dotenv
@@ -26,7 +29,7 @@ OPENROUTER_API_KEY=
 OPENROUTER_MODEL=openai/gpt-4.1-mini
 ```
 
-Parser hỗ trợ dấu nháy, comment và xuống dòng CRLF của dotenv; không chạy nội dung như shell script. Giá trị nhiều dòng không được hỗ trợ bởi Docker env-file. Nội dung ENV_FILE không được in trong log, commit hoặc đưa vào image. NODE_ENV được đặt thành production; PORT lấy từ ENV_FILE, mặc định 3013.
+Parser hỗ trợ dấu nháy, comment và xuống dòng CRLF của dotenv; không chạy nội dung như shell script. Giá trị nhiều dòng không được hỗ trợ bởi Docker env-file. Không in nội dung ENV_FILE trong log, commit hoặc đưa vào image. NODE_ENV được đặt thành production; PORT lấy từ ENV_FILE, mặc định 3013.
 
 GITHUB_TOKEN do GitHub tự cấp để publish/pull GHCR, không cần thêm secret này. Package GHCR cần cấp quyền truy cập cho repository.
 
@@ -36,9 +39,9 @@ VPS Linux x86_64 cần Docker Engine, Bash, tar, flock. SSH_USER phải có quy�
 
 SSH dùng accept-new: nhận host key ở lần kết nối đầu của job, sau đó kiểm tra cùng key trong các kết nối còn lại. Không yêu cầu secret known_hosts riêng.
 
-Tên container được lấy từ tên repository và tag nhánh GitHub/GHCR ở cuối image, viết thường; với repository `Chung2310/Quote-assistance`, nhánh production dùng `quote-assistance-production`. Image vẫn được pull theo digest. Khi nâng cấp, deploy nhận diện container của nhánh develop/production, tên repository cũ `quote-assistance`, hoặc tên cũ `bao-gia`, rồi thay thế an toàn. Hai nhánh dùng chung SSH secrets, `ENV_FILE` và cổng nên chỉ có một container của ứng dụng chạy tại một thời điểm; deploy nhánh mới sẽ thay container hiện tại. Deploy in hostname và tài khoản Docker đích để đối chiếu VPS. Các lượt deploy được xếp hàng. Cổng host bằng PORT trong ENV_FILE, bind 0.0.0.0. Cấu hình Nginx/Caddy trên VPS có thể chuyển HTTPS tới 127.0.0.1:3013 (hoặc PORT bạn chọn). MongoDB phải truy cập được từ container; localhost trong URI là container ứng dụng, không phải VPS.
+Tên container được lấy từ tên repository và tag nhánh GitHub/GHCR ở cuối image, viết thường; với repository `Chung2310/Quote-assistance`, nhánh production dùng `quote-assistance-production`. Image vẫn được pull theo digest. Khi nâng cấp, deploy nhận diện container của nhánh develop/production, tên repository cũ `quote-assistance`, hoặc tên cũ `bao-gia`, rồi thay thế an toàn. Hai nhánh dùng các bộ Secrets riêng; nếu trỏ tới cùng VPS, logic tìm container cũ có thể thay container của nhánh kia. Deploy in hostname và tài khoản Docker đích để đối chiếu VPS. Các lượt deploy được xếp hàng. Cổng host bằng PORT trong ENV_FILE, bind 0.0.0.0. Cấu hình Nginx/Caddy trên VPS có thể chuyển HTTPS tới 127.0.0.1:3013 (hoặc PORT bạn chọn). MongoDB phải truy cập được từ container; localhost trong URI là container ứng dụng, không phải VPS.
 
-Nếu MongoDB chạy trong container trên cùng VPS, deploy tự tìm network từ hostname/alias trong MONGODB_URI. Nếu URI dùng localhost/127.0.0.1, deploy tìm container đang publish đúng cổng MongoDB rồi chuyển host/port sang địa chỉ nội bộ của container đó; user/password/database/query được giữ nguyên. Không sửa variable ENV_FILE trên GitHub. Nếu có nhiều container trùng cổng hoặc không tìm được container, deploy dừng và báo rõ. MongoDB chạy trực tiếp trên host không được tự chuyển theo cơ chế này.
+Nếu MongoDB chạy trong container trên cùng VPS, deploy tự tìm network từ hostname/alias trong MONGODB_URI. Nếu URI dùng localhost/127.0.0.1, deploy tìm container đang publish đúng cổng MongoDB rồi chuyển host/port sang địa chỉ nội bộ của container đó; user/password/database/query được giữ nguyên. Thao tác này không thay đổi Secret trên GitHub. Nếu có nhiều container trùng cổng hoặc không tìm được container, deploy dừng và báo rõ. MongoDB chạy trực tiếp trên host không được tự chuyển theo cơ chế này.
 
 Có thể thêm DOCKER_NETWORK=tên-network vào chính ENV_FILE để chỉ định network, không cần thêm GitHub Secret/Variable. Container thử và container chính đều dùng network này. Với Docker default bridge, kết nối dùng IP nội bộ; nếu MongoDB được tạo lại và đổi IP, cần deploy lại ứng dụng. Với network riêng, dùng DNS tên container.
 

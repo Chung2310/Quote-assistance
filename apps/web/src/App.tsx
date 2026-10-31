@@ -22,7 +22,7 @@ type Section = "home" | "quotes" | "documents" | "budgetPlanner" | "customerQuot
 type DocumentView = "contracts" | "acceptances";
 const sectionPaths: Record<Section, string> = {
   home: "/tong-quan",
-  quotes: "/bao-gia",
+  quotes: "/du-toan",
   documents: "/chung-tu",
   budgetPlanner: "/tu-van-ngan-sach",
   customerQuotes: "/bao-gia-khach",
@@ -39,11 +39,12 @@ function userRouteForPath(pathname: string, search = ""): { section: Section; qu
   const path = normalizedPath(pathname);
   const section = (Object.entries(sectionPaths) as Array<[Section, string]>).find(([, value]) => value === path)?.[0];
   if (section) return { section, quoteId: null, ...(section === "documents" ? { documentView: new URLSearchParams(search).get("tab") === "nghiem-thu" ? "acceptances" as const : "contracts" as const } : {}) };
+  if (path === "/baogia" || path === "/bao-gia") return { section: "quotes", quoteId: null };
   if (path === "/hop-dong" || path === "/nghiem-thu") return { section: "documents", quoteId: null, documentView: path === "/hop-dong" ? "contracts" : "acceptances" };
   const documentMatch = path.match(/^\/(?:chung-tu\/)?(hop-dong|nghiem-thu)\/([a-f0-9]{24})$/i);
   if (documentMatch) return { section: "documents", quoteId: documentMatch[2], documentView: documentMatch[1] === "hop-dong" ? "contracts" : "acceptances" };
-  const quoteMatch = path.match(/^\/(bao-gia|bao-gia-khach)\/([a-f0-9]{24})$/i);
-  return quoteMatch ? { section: quoteMatch[1] === "bao-gia" ? "quotes" : "customerQuotes", quoteId: quoteMatch[2] } : null;
+  const quoteMatch = path.match(/^\/(du-toan|baogia|bao-gia|bao-gia-khach)\/([a-f0-9]{24})$/i);
+  return quoteMatch ? { section: quoteMatch[1] === "bao-gia-khach" ? "customerQuotes" : "quotes", quoteId: quoteMatch[2] } : null;
 }
 interface SubscriptionUsage {
   plan: SubscriptionPlanSummary;
@@ -220,6 +221,25 @@ function UserApp() {
   const [usageError, setUsageError] = useState<string | null>(null);
   const deletingQuoteRef = useRef(false);
   useEffect(() => {
+    if (!user) return;
+    const sectionTitles: Record<Section, string> = {
+      home: "Tổng quan",
+      quotes: "Dự toán",
+      documents: documentView === "contracts" ? "Hợp đồng" : "Nghiệm thu",
+      budgetPlanner: "Tư vấn ngân sách",
+      customerQuotes: "Báo giá khách hàng",
+      catalog: "Bảng giá",
+      templates: "Mẫu tài liệu",
+      profile: "Trang cá nhân",
+    };
+    const title = quoteId
+      ? section === "documents"
+        ? `Chi tiết ${documentView === "contracts" ? "hợp đồng" : "nghiệm thu"}`
+        : section === "customerQuotes" ? "Chi tiết báo giá khách hàng" : "Chi tiết dự toán"
+      : sectionTitles[section];
+    document.title = `${title} — iGen Trợ lí báo giá`;
+  }, [user, section, documentView, quoteId]);
+  useEffect(() => {
     api<{ user: User }>("/api/auth/me").then(({ user: signedIn }) => {
       if (signedIn.role === "admin") {
         window.location.replace("/quan-tri");
@@ -341,7 +361,7 @@ function UserApp() {
   };
   const openWorkflow = (view: "contracts" | "acceptances", id?: string) => {
     const slug = view === "contracts" ? "hop-dong" : "nghiem-thu";
-    const target = id ? `${sectionPaths.documents}/${slug}/${id}` : view === "contracts" ? sectionPaths.documents : `${sectionPaths.documents}?tab=nghiem-thu`;
+    const target = id ? `/${slug}/${id}` : `/${slug}`;
     if (`${normalizedPath(window.location.pathname)}${window.location.search}` !== target) window.history.pushState(null, "", target);
     setSection("documents");
     setDocumentView(view);
@@ -381,10 +401,11 @@ function UserApp() {
       <div className="brand-lockup"><img className="brand-logo-image brand-logo-baogia" src="/images/logo-baogia.png" alt="iGen Trợ lí báo giá" /></div>
       <nav className="side-nav">
         <NavButton icon="home" label="Tổng quan" href={sectionPaths.home} active={!quoteId && section === "home"} onClick={() => navigateSection("home")} />
-        <NavButton icon="quote" label="Dự toán" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
-        <NavButton icon="file" label="Hợp đồng & Nghiệm thu" href={sectionPaths.documents} active={section === "documents"} onClick={() => navigateSection("documents")} />
         <NavButton icon="spark" label="Tư vấn ngân sách" href={sectionPaths.budgetPlanner} active={!quoteId && section === "budgetPlanner"} onClick={() => navigateSection("budgetPlanner")} />
         <NavButton icon="file" label="Báo giá khách" href={sectionPaths.customerQuotes} active={!quoteId && section === "customerQuotes"} onClick={() => navigateSection("customerQuotes")} />
+        <NavButton icon="quote" label="Dự toán" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
+        <NavButton icon="file" label="Hợp đồng" href="/hop-dong" active={section === "documents" && documentView === "contracts"} onClick={() => openWorkflow("contracts")} />
+        <NavButton icon="file" label="Nghiệm thu" href="/nghiem-thu" active={section === "documents" && documentView === "acceptances"} onClick={() => openWorkflow("acceptances")} />
         <NavButton icon="template" label="Mẫu tài liệu" href={sectionPaths.templates} active={!quoteId && section === "templates"} onClick={() => navigateSection("templates")} />
         <NavButton icon="box" label="Bảng giá" href={sectionPaths.catalog} active={!quoteId && section === "catalog"} onClick={() => navigateSection("catalog")} />
       </nav>

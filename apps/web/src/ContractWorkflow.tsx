@@ -222,8 +222,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
 
   if (loading) return <div className="workflow-page"><div className="workflow-loading"><span className="spinner spinner-dark" />Đang tải dữ liệu…</div></div>;
   const sectionHeader = <>
-    <header className="workflow-header"><div className="workflow-header-copy"><span className="workflow-header-badge">QUY TRÌNH CHỨNG TỪ</span><h1>Hợp đồng &amp; Nghiệm thu</h1><p>Theo dõi chứng từ từ dự toán đã duyệt đến bàn giao.</p></div></header>
-    <div className="workflow-tabs" role="tablist" aria-label="Loại chứng từ"><button type="button" role="tab" aria-selected={view === "contracts"} className={view === "contracts" ? "active" : ""} onClick={() => navigate("contracts")}>Hợp đồng</button><button type="button" role="tab" aria-selected={view === "acceptances"} className={view === "acceptances" ? "active" : ""} onClick={() => navigate("acceptances")}>Nghiệm thu</button></div>
+    <header className="workflow-header"><div className="workflow-header-copy"><span className="workflow-header-badge">{id ? view === "contracts" ? "CHI TIẾT HỢP ĐỒNG" : "CHI TIẾT NGHIỆM THU" : view === "contracts" ? "QUẢN LÝ HỢP ĐỒNG" : "QUẢN LÝ NGHIỆM THU"}</span><h1>{view === "contracts" ? "Hợp đồng" : "Nghiệm thu"}</h1><p>{view === "contracts" ? id ? "Nội dung và trạng thái hồ sơ hợp đồng." : "Theo dõi các hợp đồng được tạo từ dự toán đã duyệt." : id ? "Thông tin bàn giao, khối lượng và giá trị nghiệm thu." : "Theo dõi biên bản nghiệm thu từ các hợp đồng đã ký."}</p></div></header>
   </>;
   if (!id) return <div className="workflow-page">
     {sectionHeader}
@@ -272,7 +271,17 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
         <label>Điều khoản bổ sung{editable ? <textarea value={otherTerms} onChange={(event) => setOtherTerms(event.target.value)} maxLength={10000} rows={4} /> : <p className="workflow-text-value">{otherTerms || "—"}</p>}</label>
         {editable && <button className="button button-soft" type="submit" disabled={busy}>Lưu nội dung</button>}
       </form>}
-      <div className="workflow-table-wrap"><table><thead><tr><th>STT</th><th>Hạng mục</th><th>ĐVT</th><th>Khối lượng HĐ</th>{!isContract && <th>Khối lượng NT</th>}<th>Đơn giá</th><th>Thành tiền</th></tr></thead><tbody>{contract.lines.map((line, index) => <tr key={index}><td>{index + 1}</td><td><strong>{line.name}</strong>{line.description && <small>{line.description}</small>}</td><td>{line.unit}</td><td>{line.quantity}</td>{!isContract && <td><input aria-label={`Khối lượng nghiệm thu ${line.name}`} type="number" min="0" max={line.quantity} step="any" disabled={!editable} value={quantities[index] ?? 0} onChange={(event) => setQuantities((current) => current.map((value, i) => i === index ? Number(event.target.value) : value))} /></td>}<td>{formatMoney(line.unitPrice, contract.currency)}</td><td>{formatMoney(isContract ? line.lineTotal : Math.round((quantities[index] ?? 0) * line.unitPrice * 100) / 100, contract.currency)}</td></tr>)}</tbody></table></div>
+      <div className={`workflow-table-wrap ${!isContract ? "workflow-acceptance-table-wrap" : ""}`}><table>
+        <thead><tr><th>STT</th><th>Hạng mục</th><th>ĐVT</th><th>Khối lượng HĐ</th>{!isContract && <><th>Chọn</th><th>Khối lượng NT</th></>}<th>Đơn giá</th><th>Thành tiền</th></tr></thead>
+        <tbody>{contract.lines.map((line, index) => <tr key={index}>
+          <td>{index + 1}</td><td><strong>{line.name}</strong>{line.description && <small>{line.description}</small>}</td><td>{line.unit}</td><td>{line.quantity}</td>
+          {!isContract && <>
+            <td><input type="checkbox" aria-label={`Chọn hạng mục ${line.name} để nghiệm thu`} checked={(quantities[index] ?? 0) > 0} disabled={!editable} onChange={(event) => { const checked = event.currentTarget.checked; setQuantities((current) => current.map((value, i) => i === index ? checked ? line.quantity : 0 : value)); }} /></td>
+            <td><input aria-label={`Khối lượng nghiệm thu ${line.name}`} type="number" min="0" max={line.quantity} step="any" disabled={!editable || (quantities[index] ?? 0) <= 0} value={quantities[index] ?? 0} onChange={(event) => setQuantities((current) => current.map((value, i) => i === index ? Number(event.target.value) : value))} /></td>
+          </>}
+          <td>{formatMoney(line.unitPrice, contract.currency)}</td><td>{formatMoney(isContract ? line.lineTotal : Math.round((quantities[index] ?? 0) * line.unitPrice * 100) / 100, contract.currency)}</td>
+        </tr>)}</tbody>
+      </table></div>
       {isContract ? <div className="workflow-totals"><p>Tạm tính: <b>{formatMoney(contract.subtotal, contract.currency)}</b></p><p>VAT ({contract.taxRate * 100}%): <b>{formatMoney(contract.taxAmount, contract.currency)}</b></p><p>Vận chuyển: <b>{formatMoney(contract.shippingFee, contract.currency)}</b></p><strong>Tổng giá trị hợp đồng: {formatMoney(contract.total, contract.currency)}</strong></div> : <div className="workflow-totals"><strong>Giá trị hạng mục nghiệm thu (trước thuế): {formatMoney(acceptedValue, contract.currency)}</strong></div>}
       {!isContract && record && <form className="workflow-form" onSubmit={(event) => void saveAcceptance(event)}>
         <h2>Thời gian và hồ sơ bàn giao</h2>

@@ -12,8 +12,10 @@ const legacyRoutes: Record<string, string> = {
   "/login": "/dang-nhap",
   "/app": "/tong-quan",
   "/admin": "/quan-tri",
+  "/bao-gia": "/du-toan",
+  "/baogia": "/du-toan",
   "/ung-dung": "/tong-quan",
-  "/ung-dung/bao-gia": "/bao-gia",
+  "/ung-dung/bao-gia": "/du-toan",
   "/ung-dung/mau-bao-gia": "/mau-bao-gia",
   "/ung-dung/bang-gia": "/bang-gia",
   "/ung-dung/tai-khoan": "/tai-khoan",
@@ -40,9 +42,9 @@ const pageMetadata: Record<string, { title: string; description: string; robots:
     description: "Không gian làm việc báo giá của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
-  "/bao-gia": {
-    title: "Báo giá — iGen Trợ lí báo giá",
-    description: "Quản lý báo giá của doanh nghiệp.",
+  "/du-toan": {
+    title: "Dự toán — iGen Trợ lí báo giá",
+    description: "Quản lý dự toán của doanh nghiệp.",
     robots: "noindex,nofollow",
   },
   "/hop-dong": {
@@ -51,8 +53,8 @@ const pageMetadata: Record<string, { title: string; description: string; robots:
     robots: "noindex,nofollow",
   },
   "/chung-tu": {
-    title: "Hợp đồng & Nghiệm thu — iGen Trợ lí báo giá",
-    description: "Quản lý hợp đồng và biên bản nghiệm thu trong cùng một quy trình.",
+    title: "Hợp đồng — iGen Trợ lí báo giá",
+    description: "Quản lý hợp đồng được lập từ dự toán đã duyệt.",
     robots: "noindex,nofollow",
   },
   "/nghiem-thu": {
@@ -120,8 +122,8 @@ function pagePath(request: import("express").Request) {
 
 function redirectOldOrTrailingPath(request: import("express").Request, response: import("express").Response) {
   const pathname = pagePath(request);
-  const oldQuoteDetail = pathname.match(/^\/ung-dung\/bao-gia\/([a-f0-9]{24})$/i);
-  let targetPath = oldQuoteDetail ? `/bao-gia/${oldQuoteDetail[1]}` : legacyRoutes[pathname] ?? pathname;
+  const oldQuoteDetail = pathname.match(/^\/(?:ung-dung\/)?(?:bao-gia|baogia)\/([a-f0-9]{24})$/i);
+  let targetPath = oldQuoteDetail ? `/du-toan/${oldQuoteDetail[1]}` : legacyRoutes[pathname] ?? pathname;
   const url = new URL(request.originalUrl, "http://local");
   if (pathname === "/login" && url.searchParams.get("mode") === "register") targetPath = "/dang-ky";
   if (targetPath === "/dang-nhap" || targetPath === "/dang-ky") url.searchParams.delete("mode");
@@ -136,7 +138,7 @@ function redirectOldOrTrailingPath(request: import("express").Request, response:
 
 function renderPageMetadata(html: string, request: import("express").Request) {
   const pathname = pagePath(request);
-  const documentDetailPage = /^\/(bao-gia|bao-gia-khach|hop-dong|nghiem-thu)\/[a-f0-9]{24}$/i.test(pathname)
+  const documentDetailPage = /^\/(du-toan|baogia|bao-gia|bao-gia-khach|hop-dong|nghiem-thu)\/[a-f0-9]{24}$/i.test(pathname)
     || /^\/chung-tu\/(hop-dong|nghiem-thu)\/[a-f0-9]{24}$/i.test(pathname);
   const page = pageMetadata[pathname] ?? (documentDetailPage ? {
     title: "Chi tiết chứng từ — iGen Trợ lí báo giá",
