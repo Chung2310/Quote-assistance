@@ -17,7 +17,7 @@ export interface TemplateDetails {
 export type TemplateCategory = "quote" | "estimate" | "contract" | "acceptance";
 const templateTabs: { id: TemplateCategory; label: string }[] = [
   { id: "quote", label: "Mẫu báo giá" },
-  { id: "estimate", label: "Dự toán" },
+  { id: "estimate", label: "Mẫu dự toán" },
   { id: "contract", label: "Hợp đồng" },
   { id: "acceptance", label: "Nghiệm thu" },
 ];
@@ -31,6 +31,7 @@ interface TemplatePage {
 export function QuoteTemplatePanel({
   canManage,
   confirm,
+  initialCategory = "quote",
   onContinue,
   onManage,
   templateUsage,
@@ -41,6 +42,7 @@ export function QuoteTemplatePanel({
 }: {
   canManage: boolean;
   confirm: (options: ConfirmOptions) => Promise<boolean>;
+  initialCategory?: TemplateCategory;
   onContinue?: (template: TemplateDetails) => void;
   onManage?: () => void;
   templateUsage?: { used: number; limit: number | null; remaining: number | null } | null;
@@ -50,7 +52,7 @@ export function QuoteTemplatePanel({
   onUsageChanged?: () => void;
 }) {
   const [template, setTemplate] = useState<TemplateDetails | null>(null);
-  const [category, setCategory] = useState<TemplateCategory>("quote");
+  const [category, setCategory] = useState<TemplateCategory>(initialCategory);
   const categoryLabel = templateTabs.find((tab) => tab.id === category)!.label;
   const [templates, setTemplates] = useState<TemplateDetails[]>([]);
   const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);

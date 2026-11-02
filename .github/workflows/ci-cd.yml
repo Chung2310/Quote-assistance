@@ -112,7 +112,7 @@ jobs:
           SSH_USER: ${{ secrets[github.ref_name == 'production' && 'SSH_USER_PROD' || 'SSH_USER'] }}
           SSH_KEY: ${{ secrets[github.ref_name == 'production' && 'SSH_KEY_PROD' || 'SSH_KEY'] }}
           SSH_PORT: ${{ secrets[github.ref_name == 'production' && 'SSH_PORT_PROD' || 'SSH_PORT'] || '22' }}
-          ENV_FILE: ${{ vars[github.ref_name == 'production' && 'ENV_FILE_PROD' || 'ENV_FILE'] || secrets[github.ref_name == 'production' && 'ENV_FILE_PROD' || 'ENV_FILE'] }}
+          ENV_FILE: ${{ secrets[github.ref_name == 'production' && 'ENV_FILE_PROD' || 'ENV_FILE'] }}
           IMAGE: ${{ needs.publish-image.outputs.image }}@${{ needs.publish-image.outputs.digest }}
           IMAGE_TAG: ${{ needs.publish-image.outputs.image }}:${{ needs.publish-image.outputs.tag }}
           GHCR_USER: ${{ github.actor }}

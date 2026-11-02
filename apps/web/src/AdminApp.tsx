@@ -206,6 +206,16 @@ export default function AdminApp() {
   const { confirm, dialog: confirmationDialog } = useConfirmation();
 
   useEffect(() => {
+    const sectionTitles: Record<AdminSection, string> = {
+      businesses: "Doanh nghiệp",
+      plans: "Gói dịch vụ",
+      contacts: "Yêu cầu liên hệ",
+      payments: "Thanh toán",
+    };
+    document.title = `${sectionTitles[activeSection]} — Quản trị iGen Trợ lí báo giá`;
+  }, [activeSection]);
+
+  useEffect(() => {
     api<{ user: User }>("/api/auth/me")
       .then(({ user }) => {
         setCurrentUser(user);

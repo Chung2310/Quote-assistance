@@ -1004,6 +1004,77 @@
   -webkit-text-fill-color: #aebfc6 !important;
 }
 
+/* Keep admin actions in the same button system as the main workspace. */
+#root :is(.admin-shell, .admin-login-screen, .admin-access-card) .admin-button {
+  box-sizing: border-box;
+  min-height: 40px !important;
+  height: auto !important;
+  padding: 0 16px !important;
+  border-width: 1px !important;
+  border-style: solid !important;
+  border-radius: 10px !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: system-ui, sans-serif !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: none !important;
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+
+#root :is(.admin-shell, .admin-login-screen, .admin-access-card) .admin-button-primary {
+  background: #00adfc !important;
+  border-color: #00adfc !important;
+  color: #fff !important;
+}
+
+#root :is(.admin-shell, .admin-login-screen, .admin-access-card) .admin-button-primary:hover:not(:disabled) {
+  background: #008fce !important;
+  border-color: #008fce !important;
+  color: #fff !important;
+  transform: translateY(-1px);
+}
+
+#root :is(.admin-shell, .admin-login-screen, .admin-access-card) .admin-button-secondary {
+  background: #fff !important;
+  border-color: #d6e2ea !important;
+  color: #087eae !important;
+}
+
+#root :is(.admin-shell, .admin-login-screen, .admin-access-card) .admin-button-secondary:hover:not(:disabled) {
+  background: #eff9ff !important;
+  border-color: #a9dff5 !important;
+  color: #006f9f !important;
+}
+
+#root :is(.admin-shell, .admin-login-screen, .admin-access-card) .admin-button:disabled {
+  background: #f1f5f8 !important;
+  border-color: #dbe4ea !important;
+  color: #81909a !important;
+  box-shadow: none !important;
+  opacity: 1;
+  transform: none;
+}
+
+#root :is(.admin-shell, .admin-login-screen, .admin-access-card) .admin-button:focus-visible {
+  outline: 3px solid rgba(0, 173, 252, .28) !important;
+  outline-offset: 2px;
+}
+
+#root .admin-shell .admin-icon-button {
+  box-sizing: border-box;
+  width: 34px !important;
+  min-width: 34px;
+  height: 34px !important;
+  min-height: 34px;
+  padding: 0 !important;
+  border-radius: 8px !important;
+}
+
 /* Make admin state badges easy to scan by status. */
 #root .admin-shell .admin-status {
   color: #0369a1 !important;
