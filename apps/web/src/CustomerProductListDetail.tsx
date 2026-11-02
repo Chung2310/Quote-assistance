@@ -13,6 +13,7 @@ export default function CustomerProductListDetail({
   onToast,
   confirm,
   onDeleteQuote,
+  onCreateEstimate,
 }: {
   id: string;
   onBack: () => void;
@@ -20,6 +21,7 @@ export default function CustomerProductListDetail({
   onToast: Notify;
   confirm: (options: ConfirmOptions) => Promise<boolean>;
   onDeleteQuote: (quote: Quote) => void;
+  onCreateEstimate: (quote: Quote) => void;
 }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [templates, setTemplates] = useState<CustomerExcelTemplate[]>([]);
@@ -269,6 +271,20 @@ export default function CustomerProductListDetail({
 
           {/* Action Toolbar */}
           <div className="cqd-actions-toolbar">
+            <button
+              type="button"
+              className="button button-soft"
+              disabled={busy || totalItemsCount === 0}
+              onClick={() => onCreateEstimate(quote)}
+              title={totalItemsCount === 0 ? "Báo giá chưa có sản phẩm để tạo dự toán" : undefined}
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                <path d="M14 2v6h6M12 18v-6M9 15h6" />
+              </svg>
+              <span>Tạo dự toán</span>
+            </button>
+
             {!isApproved && (
               <button
                 type="button"

@@ -159,6 +159,9 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<ProductStatusKey>("all");
   const [sortBy, setSortBy] = useState<SortOption>("default");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [exporting, setExporting] = useState(false);
   const [editingProduct, setEditingProduct] = useState<CatalogItem | null>(null);
   const [pendingImports, setPendingImports] = useState<PendingImport[]>([]);
   const [preview, setPreview] = useState<PreviewFile | null>(null);
@@ -225,6 +228,30 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
     return result;
   }, [products, query, statusFilter, sortBy, today]);
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [query, statusFilter, sortBy, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / pageSize));
+  const visiblePage = Math.min(currentPage, totalPages);
+  const firstVisibleProduct = filteredProducts.length ? (visiblePage - 1) * pageSize + 1 : 0;
+  const lastVisibleProduct = Math.min(visiblePage * pageSize, filteredProducts.length);
+  const visibleProducts = useMemo(
+    () => filteredProducts.slice((visiblePage - 1) * pageSize, visiblePage * pageSize),
+    [filteredProducts, pageSize, visiblePage],
+  );
+  const paginationItems = useMemo<Array<number | "ellipsis-left" | "ellipsis-right">>(() => {
+    if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+    const start = Math.max(2, Math.min(visiblePage - 1, totalPages - 3));
+    const end = Math.min(totalPages - 1, Math.max(visiblePage + 1, start + 2));
+    const pages: Array<number | "ellipsis-left" | "ellipsis-right"> = [1];
+    if (start > 2) pages.push("ellipsis-left");
+    for (let page = start; page <= end; page++) pages.push(page);
+    if (end < totalPages - 1) pages.push("ellipsis-right");
+    pages.push(totalPages);
+    return pages;
+  }, [totalPages, visiblePage]);
+
   const hasActiveFilters = Boolean(query.trim()) || statusFilter !== "all" || sortBy !== "default";
 
   const resetFilters = () => {
@@ -232,6 +259,47 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
     setStatusFilter("all");
     setSortBy("default");
     searchInputRef.current?.focus();
+  };
+
+  const exportExcel = async () => {
+    if (exporting || !filteredProducts.length) return;
+    setExporting(true);
+    try {
+      const XLSX = await import("xlsx");
+      const attributeKeys = [...new Set(filteredProducts.flatMap((item) => Object.keys(item.attributes ?? {})))];
+      const attributeHeaders = attributeKeys.map((key) => `Thuộc tính: ${key}`);
+      const headers = ["Mã hàng", "Tên sản phẩm", "Quy cách / mô tả", "Đơn vị", "Đơn giá", "Tiền tệ", "Trạng thái", "Hiệu lực từ", "Hiệu lực đến", ...attributeHeaders];
+      const rows = filteredProducts.map((item) => ({
+        "Mã hàng": item.sku,
+        "Tên sản phẩm": item.name,
+        "Quy cách / mô tả": item.description ?? "",
+        "Đơn vị": item.unit,
+        "Đơn giá": item.price,
+        "Tiền tệ": item.currency,
+        "Trạng thái": productStatus(item, today).label,
+        "Hiệu lực từ": item.effectiveFrom ?? "",
+        "Hiệu lực đến": item.effectiveTo ?? "",
+        ...Object.fromEntries(attributeKeys.map((key) => [`Thuộc tính: ${key}`, item.attributes?.[key] ?? ""])),
+      }));
+      const sheet = XLSX.utils.json_to_sheet(rows, { header: headers });
+      const columnSamples = rows.slice(0, 200);
+      sheet["!cols"] = headers.map((header) => {
+        let width = header.length;
+        for (const row of columnSamples) width = Math.max(width, String(row[header as keyof typeof row] ?? "").length);
+        return { wch: Math.min(width + 2, 50) };
+      });
+      if (sheet["!ref"]) sheet["!autofilter"] = { ref: sheet["!ref"] };
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sheet, "Bảng giá");
+      const now = new Date();
+      const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+      XLSX.writeFile(workbook, `bang-gia-${date}.xlsx`);
+      onToast(`Đã xuất ${filteredProducts.length} sản phẩm ra Excel.`, "success");
+    } catch (cause) {
+      onToast(cause instanceof Error ? cause.message : "Không thể xuất bảng giá ra Excel.", "error");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const statusTabs: Array<{ key: ProductStatusKey; label: string; count: number }> = [
@@ -362,7 +430,10 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
   return <div className={`page-stack price-list-page ${!loading && products.length === 0 ? "is-empty" : ""}`}>
     <section className="page-heading-row price-list-heading">
       <div><div className="price-list-title-row"><h1>Bảng giá</h1>{!loading && <span className="price-list-total-badge">{products.length} sản phẩm</span>}</div></div>
-      {(loading || products.length > 0) && <button className="button button-primary price-list-add-button" disabled={busy || loading || pendingImports.length > 0} onClick={() => input.current?.click()}>{busy ? "Đang đọc tài liệu…" : "Thêm bảng giá"}</button>}
+      {(loading || products.length > 0) && <div className="price-list-header-actions">
+        {products.length > 0 && <button type="button" className="button button-soft price-list-export-button" disabled={loading || exporting || !filteredProducts.length} title={`Xuất ${filteredProducts.length} sản phẩm theo kết quả tìm kiếm và bộ lọc`} onClick={() => void exportExcel()}>{exporting ? "Đang xuất…" : "Xuất Excel"}</button>}
+        <button type="button" className="button button-primary price-list-add-button" disabled={busy || loading || pendingImports.length > 0} onClick={() => input.current?.click()}>{busy ? "Đang đọc tài liệu…" : "Thêm bảng giá"}</button>
+      </div>}
       <input ref={input} type="file" hidden multiple disabled={busy || pendingImports.length > 0} accept=".csv,.xlsx,.xls" onChange={(event) => void upload(event)} />
     </section>
     {taskProgress && <TaskProgress {...taskProgress} />}
@@ -532,6 +603,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
           </button>
         </div>
       ) : (
+        <>
         <div className="table-scroll">
           <table className="data-table price-list-table">
             <thead>
@@ -545,7 +617,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
               </tr>
             </thead>
             <tbody>
-              {filteredProducts.map((item) => {
+              {visibleProducts.map((item) => {
                 const status = productStatus(item, today);
                 return (
                   <tr key={item._id}>
@@ -595,6 +667,27 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
             </tbody>
           </table>
         </div>
+        <nav className="price-list-pagination" aria-label="Phân trang danh sách sản phẩm">
+          <div className="price-list-pagination-info">
+            <span>Hiển thị <strong>{firstVisibleProduct}–{lastVisibleProduct}</strong> / {filteredProducts.length} sản phẩm</span>
+            <label className="price-list-page-size">
+              <span>Sản phẩm / trang</span>
+              <select aria-label="Số sản phẩm mỗi trang" value={pageSize} onChange={(event) => setPageSize(Number(event.target.value))}>
+                {[25, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="price-list-pagination-controls" role="group" aria-label="Điều hướng trang">
+            <button type="button" aria-label="Trang đầu" title="Trang đầu" disabled={visiblePage === 1} onClick={() => setCurrentPage(1)}>«</button>
+            <button type="button" aria-label="Trang trước" title="Trang trước" disabled={visiblePage === 1} onClick={() => setCurrentPage(visiblePage - 1)}>‹</button>
+            {paginationItems.map((item) => typeof item === "number" ? (
+              <button key={item} type="button" aria-label={`Trang ${item}`} aria-current={item === visiblePage ? "page" : undefined} className={item === visiblePage ? "is-current" : ""} onClick={() => setCurrentPage(item)}>{item}</button>
+            ) : <span key={item} className="price-list-pagination-ellipsis" aria-hidden="true">…</span>)}
+            <button type="button" aria-label="Trang tiếp" title="Trang tiếp" disabled={visiblePage === totalPages} onClick={() => setCurrentPage(visiblePage + 1)}>›</button>
+            <button type="button" aria-label="Trang cuối" title="Trang cuối" disabled={visiblePage === totalPages} onClick={() => setCurrentPage(totalPages)}>»</button>
+          </div>
+        </nav>
+        </>
       )}
     </section>
     {files.length > 0 && <details className="content-card price-list-sources">

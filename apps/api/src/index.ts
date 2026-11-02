@@ -1659,7 +1659,7 @@ app.post("/api/price-list", requireRole("user"), express.raw({ type: "applicatio
 app.get("/api/catalog", requireRole("user"), async (request, response) => {
   const db = await connectDatabase();
   const user = userOf(request);
-  const items = await scoped<CatalogItem>(db, "catalogItems", user).sort({ sku: 1 }).limit(2000).toArray();
+  const items = await scoped<CatalogItem>(db, "catalogItems", user).sort({ sku: 1 }).limit(5000).toArray();
   response.json({ items, currency: config.currency });
 });
 
@@ -1813,7 +1813,7 @@ app.post("/api/quote-requests", requireRole("user"), async (request, response) =
   const templateId = asId(String(request.body?.templateId ?? ""));
   const priceListId = asId(String(request.body?.priceListId ?? ""));
   if (!validText(idempotencyKey, 100) || typeof customerName !== "string" || customerName.length > 250 || typeof customerPhone !== "string" || customerPhone.length > 50 || typeof customerEmail !== "string" || customerEmail.length > 250 || typeof requestText !== "string" || requestText.length > 10_000 || (!requestText.trim() && !requestFileId) || (request.body?.requestFileId && !requestFileId) || !templateId || (request.body?.priceListId !== undefined && !priceListId)) {
-    fail(response, "Hãy chọn mẫu báo giá và nhập yêu cầu khách hàng hoặc tải file yêu cầu (văn bản tối đa 10.000 ký tự).");
+    fail(response, "Hãy chọn mẫu dự toán và nhập yêu cầu khách hàng hoặc tải file yêu cầu (văn bản tối đa 10.000 ký tự).");
     return;
   }
   const db = await connectDatabase();
@@ -1826,9 +1826,9 @@ app.post("/api/quote-requests", requireRole("user"), async (request, response) =
   }
   const usage = await subscriptionUsage(db, user.companyId);
   if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
-  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } });
+  const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false }, category: "estimate" }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } });
   const priceList = priceListId ? await db.collection<PriceList>("priceLists").findOne({ _id: priceListId, companyId: user.companyId }, { projection: { data: 0, analysisRows: 0 } }) : null;
-  if (!template || (priceListId && !priceList)) return fail(response, "Mẫu báo giá hoặc bảng giá không thuộc doanh nghiệp hoặc không còn tồn tại.", 404);
+  if (!template || (priceListId && !priceList)) return fail(response, "Mẫu dự toán hoặc bảng giá không thuộc doanh nghiệp hoặc không còn tồn tại.", 404);
   const requestFile = requestFileId ? await db.collection<RequestFile>("requestFiles").findOne({ _id: requestFileId, companyId: user.companyId, uploadedBy: user.id }, { projection: { data: 0 } }) : null;
   if (requestFileId && !requestFile) return fail(response, "Không tìm thấy file yêu cầu đã tải lên.", 404);
   const document: QuoteRequest = {
@@ -2258,7 +2258,7 @@ app.post("/api/quotes/from-customer", requireRole("user"), async (request, respo
   if (usage.quotes.limit !== null && usage.quotes.used >= usage.quotes.limit) return fail(response, quoteQuotaMessage(usage.plan), 429);
   const [source, template] = await Promise.all([
     quotes.findOne({ _id: sourceId, companyId: user.companyId, kind: "customer" }),
-    db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false }, category: { $in: ["estimate", "quote", null] } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }),
+    db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, deletedAt: { $exists: false }, category: "estimate" }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } }),
   ]);
   if (!source) return fail(response, "Không tìm thấy báo giá khách đã chọn.", 404);
   if (!template) return fail(response, "Không tìm thấy mẫu dự toán đã chọn.", 404);
@@ -2355,6 +2355,7 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
   const shippingFee = shippingFeeConfirmed ? 0 : null;
   const quote: Quote = {
     companyId: user.companyId,
+    kind: "estimate",
     template: source.template,
     ...(source.priceListId ? { priceList: { id: source.priceListId, originalFilename: source.priceListFilename ?? "" } } : {}),
     ...(source.requestFile ? { requestFile: source.requestFile } : {}),
@@ -2838,13 +2839,30 @@ app.post("/api/contracts", requireRole("user"), async (request, response) => {
   response.status(201).json({ contract });
 });
 
+async function contractWithSourceLines(db: Db, contract: Contract): Promise<Contract> {
+  if (Array.isArray(contract.lines) && contract.lines.length > 0) return contract;
+  const quoteId = asId(contract.quoteId);
+  if (!quoteId) return contract;
+  const quote = await db.collection<Quote>("quotes").findOne({ _id: quoteId, companyId: contract.companyId });
+  if (!quote || !Array.isArray(quote.lines) || quote.lines.length === 0) return contract;
+  const lines = quote.lines.map((line) => ({ ...line }));
+  if (contract._id) {
+    await db.collection<Contract>("contracts").updateOne(
+      { _id: contract._id, companyId: contract.companyId, $or: [{ lines: { $exists: false } }, { lines: { $size: 0 } }] },
+      { $set: { lines } },
+    );
+  }
+  return { ...contract, lines };
+}
+
 app.get("/api/contracts/:id", requireRole("user"), async (request, response) => {
   const id = asId(request.params.id);
   if (!id) return fail(response, "Mã hợp đồng không hợp lệ.");
   const user = userOf(request);
-  const contract = await (await connectDatabase()).collection<Contract>("contracts").findOne({ _id: id, companyId: user.companyId });
-  if (!contract) return fail(response, "Không tìm thấy hợp đồng.", 404);
-  response.json({ contract });
+  const db = await connectDatabase();
+  const stored = await db.collection<Contract>("contracts").findOne({ _id: id, companyId: user.companyId });
+  if (!stored) return fail(response, "Không tìm thấy hợp đồng.", 404);
+  response.json({ contract: await contractWithSourceLines(db, stored) });
 });
 
 app.get(["/api/contracts/:id/docx", "/api/contracts/:id/file"], requireRole("user"), async (request, response) => {
@@ -2948,8 +2966,9 @@ app.post("/api/acceptance-records", requireRole("user"), async (request, respons
   if (!contractId) return fail(response, "Hãy chọn hợp đồng hợp lệ.");
   const db = await connectDatabase();
   const user = userOf(request);
-  const contract = await db.collection<Contract>("contracts").findOne({ _id: contractId, companyId: user.companyId });
-  if (!contract) return fail(response, "Không tìm thấy hợp đồng.", 404);
+  const storedContract = await db.collection<Contract>("contracts").findOne({ _id: contractId, companyId: user.companyId });
+  if (!storedContract) return fail(response, "Không tìm thấy hợp đồng.", 404);
+  const contract = await contractWithSourceLines(db, storedContract);
   if (contract.status !== "signed") return fail(response, "Hợp đồng cần được xác nhận đã ký trước khi nghiệm thu.", 409);
   const existing = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ companyId: user.companyId, contractId: contractId.toHexString() });
   if (existing) return response.json({ record: existing });
@@ -3019,9 +3038,9 @@ app.get("/api/acceptance-records/:id", requireRole("user"), async (request, resp
   const db = await connectDatabase();
   const record = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: id, companyId: user.companyId });
   if (!record) return fail(response, "Không tìm thấy biên bản nghiệm thu.", 404);
-  const contract = await db.collection<Contract>("contracts").findOne({ _id: asId(record.contractId), companyId: user.companyId });
-  if (!contract) return fail(response, "Không tìm thấy hợp đồng liên kết.", 404);
-  response.json({ record, contract });
+  const storedContract = await db.collection<Contract>("contracts").findOne({ _id: asId(record.contractId), companyId: user.companyId });
+  if (!storedContract) return fail(response, "Không tìm thấy hợp đồng liên kết.", 404);
+  response.json({ record, contract: await contractWithSourceLines(db, storedContract) });
 });
 
 app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"], requireRole("user"), async (request, response) => {
@@ -3080,8 +3099,9 @@ app.patch("/api/acceptance-records/:id", requireRole("user"), async (request, re
   const current = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: id, companyId: user.companyId });
   if (!current) return fail(response, "Không tìm thấy biên bản nghiệm thu.", 404);
   if (current.status !== "draft") return fail(response, "Biên bản đã hoàn tất, không thể sửa.", 409);
-  const contract = await db.collection<Contract>("contracts").findOne({ _id: asId(current.contractId), companyId: user.companyId });
-  if (!contract) return fail(response, "Không tìm thấy hợp đồng liên kết.", 404);
+  const storedContract = await db.collection<Contract>("contracts").findOne({ _id: asId(current.contractId), companyId: user.companyId });
+  if (!storedContract) return fail(response, "Không tìm thấy hợp đồng liên kết.", 404);
+  const contract = await contractWithSourceLines(db, storedContract);
   if (contract.signedDate && acceptedDate < contract.signedDate) return fail(response, "Ngày nghiệm thu không thể trước ngày ký hợp đồng.");
   const detailError = acceptanceDetailsError(request.body, contract);
   if (detailError) return fail(response, detailError);
@@ -3108,8 +3128,9 @@ app.post("/api/acceptance-records/:id/complete", requireRole("user"), async (req
   const user = userOf(request);
   const current = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: id, companyId: user.companyId });
   if (!current) return fail(response, "Không tìm thấy biên bản nghiệm thu.", 404);
-  const contract = await db.collection<Contract>("contracts").findOne({ _id: asId(current.contractId), companyId: user.companyId });
-  if (!contract || contract.status !== "signed") return fail(response, "Hợp đồng liên kết chưa được xác nhận đã ký.", 409);
+  const storedContract = await db.collection<Contract>("contracts").findOne({ _id: asId(current.contractId), companyId: user.companyId });
+  if (!storedContract || storedContract.status !== "signed") return fail(response, "Hợp đồng liên kết chưa được xác nhận đã ký.", 409);
+  const contract = await contractWithSourceLines(db, storedContract);
   if (contract.signedDate && current.acceptedDate < contract.signedDate) return fail(response, "Ngày nghiệm thu không thể trước ngày ký hợp đồng.", 409);
   const detailError = acceptanceDetailsError(current as unknown as Record<string, unknown>, contract);
   if (detailError) return fail(response, detailError, 409);
