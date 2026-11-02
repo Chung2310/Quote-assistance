@@ -154,7 +154,11 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       const { records: saved } = await api<{ records: AcceptanceRecord[] }>("/api/acceptance-records");
       const existing = saved.find((item) => item.contractId === source._id);
       if (existing) navigate("acceptances", existing._id);
-      else setShowAcceptanceDialog(true);
+      else {
+        const { contract: latest } = await api<{ contract: Contract }>(`/api/contracts/${source._id}`);
+        setContract(latest);
+        setShowAcceptanceDialog(true);
+      }
     } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được nghiệm thu.", "error"); }
     finally { setBusy(false); }
   };
@@ -222,8 +226,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
 
   if (loading) return <div className="workflow-page"><div className="workflow-loading"><span className="spinner spinner-dark" />Đang tải dữ liệu…</div></div>;
   const sectionHeader = <>
-    <header className="workflow-header"><div className="workflow-header-copy"><span className="workflow-header-badge">QUY TRÌNH CHỨNG TỪ</span><h1>Hợp đồng &amp; Nghiệm thu</h1><p>Theo dõi chứng từ từ dự toán đã duyệt đến bàn giao.</p></div></header>
-    <div className="workflow-tabs" role="tablist" aria-label="Loại chứng từ"><button type="button" role="tab" aria-selected={view === "contracts"} className={view === "contracts" ? "active" : ""} onClick={() => navigate("contracts")}>Hợp đồng</button><button type="button" role="tab" aria-selected={view === "acceptances"} className={view === "acceptances" ? "active" : ""} onClick={() => navigate("acceptances")}>Nghiệm thu</button></div>
+    <header className="workflow-header"><div className="workflow-header-copy"><span className="workflow-header-badge">{id ? view === "contracts" ? "CHI TIẾT HỢP ĐỒNG" : "CHI TIẾT NGHIỆM THU" : view === "contracts" ? "QUẢN LÝ HỢP ĐỒNG" : "QUẢN LÝ NGHIỆM THU"}</span><h1>{view === "contracts" ? "Hợp đồng" : "Nghiệm thu"}</h1><p>{view === "contracts" ? id ? "Nội dung và trạng thái hồ sơ hợp đồng." : "Theo dõi các hợp đồng được tạo từ dự toán đã duyệt." : id ? "Thông tin bàn giao, khối lượng và giá trị nghiệm thu." : "Theo dõi biên bản nghiệm thu từ các hợp đồng đã ký."}</p></div></header>
   </>;
   if (!id) return <div className="workflow-page">
     {sectionHeader}
@@ -239,60 +242,243 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       </button>)}</div> : <div className="workflow-empty"><h2>Chưa có biên bản nghiệm thu</h2><p>Mở hợp đồng đã ký và chọn “Tạo nghiệm thu”.</p></div>}
   </div>;
 
-  if (!contract || (view === "acceptances" && !record)) return <div className="workflow-page">{sectionHeader}<button className="button button-soft" onClick={() => navigate(view)}>Quay lại</button><p>Không tìm thấy chứng từ.</p></div>;
-  const isContract = view === "contracts";
-  const editable = isContract ? contract.status === "draft" : record?.status === "draft";
-  const title = isContract ? contract.contractNumber : record!.acceptanceNumber;
-  const acceptedValue = !isContract && record ? contract.lines.reduce((sum, line, index) => sum + Math.round((quantities[index] ?? 0) * line.unitPrice * 100) / 100, 0) : 0;
-  const savedWordTemplateId = isContract ? contract.template?.id : record?.template?.id;
+  if (!contract || (view === "acceptances" && !record)) {
+    return <div className="workflow-page">{sectionHeader}<button className="button button-soft" onClick={() => navigate(view)}>Quay lại</button><p>Không tìm thấy chứng từ.</p></div>;
+  }
+
+  const savedWordTemplateId = view === "contracts" ? contract.template?.id : record?.template?.id;
   const wordTemplateId = wordTemplateOverride
     || (savedWordTemplateId && wordTemplates.some((template) => template.id === savedWordTemplateId) ? savedWordTemplateId : "")
     || wordTemplates[0]?.id || "";
   const selectedTemplateMode = wordTemplates.find((template) => template.id === wordTemplateId)?.mode;
-  const wordUrl = `${isContract ? `/api/contracts/${contract._id}/file` : `/api/acceptance-records/${record!._id}/file`}${wordTemplateId ? `?templateId=${encodeURIComponent(wordTemplateId)}` : ""}`;
-  return <div className="workflow-page">
-    {sectionHeader}
-    <div className="workflow-toolbar"><button className="button button-soft" onClick={() => navigate(view)}>← Danh sách</button><div className="workflow-toolbar-actions">{wordTemplates.length > 0 && <label className="workflow-word-template">Mẫu xuất<select aria-label="Mẫu chứng từ khi tải" value={wordTemplateId} onChange={(event) => setWordTemplateOverride(event.target.value)} disabled={downloading}>{wordTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select></label>}<button className="button button-primary" type="button" disabled={downloading} onClick={() => void downloadDocument(wordUrl)}>{downloading ? (selectedTemplateMode === "pdf-ai" || selectedTemplateMode === "docx-ai" ? "AI đang đọc và điền mẫu…" : "Đang tải…") : `Tải ${isContract && selectedTemplateMode === "pdf-ai" ? "PDF" : "Word"} đã điền`}</button><button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>{isContract && contract.status === "signed" && <button className="button button-soft" disabled={busy} onClick={() => void createAcceptance(contract)}>Tạo nghiệm thu</button>}{!isContract && <button className="button button-soft" onClick={() => navigate("contracts", contract._id)}>Xem hợp đồng</button>}</div></div>
-    <article className="workflow-document">
-      <div className="workflow-document-top"><div><strong>{contract.companyName || "BÊN CUNG CẤP"}</strong><p>{contract.companyAddress}</p><p>Mã số thuế: {contract.companyTaxId || "—"}</p></div><div><strong>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</strong><p>Độc lập - Tự do - Hạnh phúc</p></div></div>
-      <div className="workflow-title"><h1>{isContract ? "HỢP ĐỒNG" : "BIÊN BẢN NGHIỆM THU"}</h1><strong>Số: {title}</strong>{editable && <p>BẢN NHÁP</p>}<p>{isContract ? `Căn cứ dự toán ${contract.quoteNumber}` : `Căn cứ hợp đồng ${contract.contractNumber}`}</p><p>{isContract ? `${editable ? "Ngày ký dự kiến" : "Ngày ký"}: ${contract.signedDate ?? "Chưa ký"} · Tại: ${contract.signingPlace ?? "—"}` : `Ngày nghiệm thu: ${acceptedDate} · Tại: ${location}`}</p></div>
-      {isContract && contract.template && <p className="workflow-template-source">Mẫu hợp đồng: {contract.template.name}</p>}
-      {!isContract && record?.template && <p className="workflow-template-source">Mẫu nghiệm thu: {record.template.name}</p>}
-      <div className="workflow-parties"><div><h2>Bên A · Khách hàng</h2><p><b>{contract.customerName}</b></p><p>Đại diện: {contract.customerRepresentative || "—"}</p><p>Địa chỉ: {contract.customerAddress || "—"} · MST: {contract.customerTaxId || "—"}</p><p>Email: {contract.customerEmail || "—"} · Điện thoại: {contract.customerPhone || "—"}</p></div><div><h2>Bên B · Đơn vị thực hiện</h2><p><b>{contract.companyName || "—"}</b></p><p>Đại diện: {contract.companyRepresentative || "—"}</p><p>Địa chỉ: {contract.companyAddress || "—"} · MST: {contract.companyTaxId || "—"}</p><p>Email: {contract.companyEmail || "—"} · Điện thoại: {contract.companyPhone || "—"}</p></div></div>
-      <div className="workflow-project"><h2>Công trình / dự án</h2><p><b>{contract.projectName || "—"}</b> · {contract.projectAddress || "—"}</p></div>
-      {isContract && <form className="workflow-form" onSubmit={(event) => void saveContract(event)}>
-        <h2>Nội dung và điều khoản</h2>
-        <div className="workflow-two-fields"><label>Tên công trình / dự án{editable ? <input required maxLength={250} value={projectName} onChange={(event) => setProjectName(event.target.value)} /> : <p className="workflow-text-value">{projectName}</p>}</label><label>Địa điểm thực hiện{editable ? <input required maxLength={250} value={projectAddress} onChange={(event) => setProjectAddress(event.target.value)} /> : <p className="workflow-text-value">{projectAddress}</p>}</label></div>
-        <label>Địa điểm ký{editable ? <input required maxLength={250} value={signingPlace} onChange={(event) => setSigningPlace(event.target.value)} /> : <p className="workflow-text-value">{signingPlace}</p>}</label>
-        <label>Phạm vi công việc{editable ? <textarea required value={scope} onChange={(event) => setScope(event.target.value)} maxLength={4000} rows={3} placeholder="Mô tả phạm vi thực hiện" /> : <p className="workflow-text-value">{scope}</p>}</label>
-        <label>Hồ sơ / sản phẩm bàn giao{editable ? <textarea required value={deliverables} onChange={(event) => setDeliverables(event.target.value)} maxLength={4000} rows={3} /> : <p className="workflow-text-value">{deliverables}</p>}</label>
-        <div className="workflow-two-fields"><label>Tiền đặt cọc / tạm ứng{editable ? <input type="number" min="0" max={contract.total} step="any" value={depositAmount} onChange={(event) => setDepositAmount(Number(event.target.value))} /> : <p className="workflow-text-value">{formatMoney(depositAmount, contract.currency)}</p>}</label><label>Thông tin tài khoản{editable ? <input maxLength={1000} value={bankDetails} onChange={(event) => setBankDetails(event.target.value)} /> : <p className="workflow-text-value">{bankDetails || "—"}</p>}</label></div>
-        <label>Điều khoản thanh toán{editable ? <textarea required value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} maxLength={4000} rows={3} placeholder="Các đợt và hình thức thanh toán" /> : <p className="workflow-text-value">{paymentTerms}</p>}</label>
-        <label>Tiến độ và bàn giao{editable ? <textarea required value={deliveryTerms} onChange={(event) => setDeliveryTerms(event.target.value)} maxLength={4000} rows={3} placeholder="Thời gian và điều kiện bàn giao" /> : <p className="workflow-text-value">{deliveryTerms}</p>}</label>
-        <label>Điều khoản bổ sung{editable ? <textarea value={otherTerms} onChange={(event) => setOtherTerms(event.target.value)} maxLength={10000} rows={4} /> : <p className="workflow-text-value">{otherTerms || "—"}</p>}</label>
-        {editable && <button className="button button-soft" type="submit" disabled={busy}>Lưu nội dung</button>}
-      </form>}
-      <div className="workflow-table-wrap"><table><thead><tr><th>STT</th><th>Hạng mục</th><th>ĐVT</th><th>Khối lượng HĐ</th>{!isContract && <th>Khối lượng NT</th>}<th>Đơn giá</th><th>Thành tiền</th></tr></thead><tbody>{contract.lines.map((line, index) => <tr key={index}><td>{index + 1}</td><td><strong>{line.name}</strong>{line.description && <small>{line.description}</small>}</td><td>{line.unit}</td><td>{line.quantity}</td>{!isContract && <td><input aria-label={`Khối lượng nghiệm thu ${line.name}`} type="number" min="0" max={line.quantity} step="any" disabled={!editable} value={quantities[index] ?? 0} onChange={(event) => setQuantities((current) => current.map((value, i) => i === index ? Number(event.target.value) : value))} /></td>}<td>{formatMoney(line.unitPrice, contract.currency)}</td><td>{formatMoney(isContract ? line.lineTotal : Math.round((quantities[index] ?? 0) * line.unitPrice * 100) / 100, contract.currency)}</td></tr>)}</tbody></table></div>
-      {isContract ? <div className="workflow-totals"><p>Tạm tính: <b>{formatMoney(contract.subtotal, contract.currency)}</b></p><p>VAT ({contract.taxRate * 100}%): <b>{formatMoney(contract.taxAmount, contract.currency)}</b></p><p>Vận chuyển: <b>{formatMoney(contract.shippingFee, contract.currency)}</b></p><strong>Tổng giá trị hợp đồng: {formatMoney(contract.total, contract.currency)}</strong></div> : <div className="workflow-totals"><strong>Giá trị hạng mục nghiệm thu (trước thuế): {formatMoney(acceptedValue, contract.currency)}</strong></div>}
-      {!isContract && record && <form className="workflow-form" onSubmit={(event) => void saveAcceptance(event)}>
-        <h2>Thời gian và hồ sơ bàn giao</h2>
-        <label>Ngày nghiệm thu{editable ? <input type="date" required min={contract.signedDate ?? undefined} value={acceptedDate} onChange={(event) => setAcceptedDate(event.target.value)} /> : <p className="workflow-text-value">{acceptedDate}</p>}</label>
-        <label>Địa điểm nghiệm thu{editable ? <input required maxLength={250} value={location} onChange={(event) => setLocation(event.target.value)} /> : <p className="workflow-text-value">{location}</p>}</label>
-        <div className="workflow-two-fields"><label>Giờ bắt đầu{editable ? <input type="time" required value={startTime} onChange={(event) => setStartTime(event.target.value)} /> : <p className="workflow-text-value">{startTime}</p>}</label><label>Giờ kết thúc{editable ? <input type="time" required min={startTime} value={endTime} onChange={(event) => setEndTime(event.target.value)} /> : <p className="workflow-text-value">{endTime}</p>}</label></div>
-        <label>Hồ sơ / sản phẩm đã bàn giao{editable ? <textarea required maxLength={4000} rows={3} value={handoverDetails} onChange={(event) => setHandoverDetails(event.target.value)} /> : <p className="workflow-text-value">{handoverDetails}</p>}</label>
-        <label>Đánh giá chất lượng{editable ? <textarea required maxLength={2000} rows={3} value={qualityAssessment} onChange={(event) => setQualityAssessment(event.target.value)} /> : <p className="workflow-text-value">{qualityAssessment}</p>}</label>
-        <label>Kết quả nghiệm thu{editable ? <textarea required value={result} onChange={(event) => setResult(event.target.value)} maxLength={2000} rows={3} /> : <p className="workflow-text-value">{result}</p>}</label>
-        <h2>Giá trị quyết toán</h2>
-        <div className="workflow-two-fields"><label>Giá trị quyết toán{editable ? isVnd ? <span className="workflow-money-field"><input type="text" required inputMode="numeric" autoComplete="off" maxLength={22} value={settlementAmountText} onChange={(event) => updateVndInput(event, setSettlementAmountText)} /><span aria-hidden="true">₫</span></span> : <input type="number" required min="0" max={contract.total} step="any" value={settlementAmountText} onChange={(event) => setSettlementAmountText(event.target.value)} /> : <p className="workflow-text-value">{formatMoney(settlementAmount, contract.currency)}</p>}</label><label>Đã thanh toán{editable ? isVnd ? <span className="workflow-money-field"><input type="text" required inputMode="numeric" autoComplete="off" maxLength={22} value={amountPaidText} onChange={(event) => updateVndInput(event, setAmountPaidText)} /><span aria-hidden="true">₫</span></span> : <input type="number" required min="0" max={settlementAmount} step="any" value={amountPaidText} onChange={(event) => setAmountPaidText(event.target.value)} /> : <p className="workflow-text-value">{formatMoney(amountPaid, contract.currency)}</p>}</label></div>
-        <p>Còn phải thanh toán: <b>{formatMoney(Math.max(0, settlementAmount - amountPaid), contract.currency)}</b></p>
+  const wordUrl = (view === "contracts" ? "/api/contracts/" + contract._id + "/file" : "/api/acceptance-records/" + record!._id + "/file")
+    + (wordTemplateId ? "?templateId=" + encodeURIComponent(wordTemplateId) : "");
+  const templateSelector = wordTemplates.length > 0 && <label className="workflow-word-template">Mẫu xuất
+    <select aria-label="Mẫu chứng từ khi tải" value={wordTemplateId} onChange={(event) => setWordTemplateOverride(event.target.value)} disabled={downloading}>
+      {wordTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+    </select>
+  </label>;
+  const downloadLabel = downloading
+    ? selectedTemplateMode === "pdf-ai" || selectedTemplateMode === "docx-ai" ? "AI đang đọc và điền mẫu…" : "Đang tải…"
+    : view === "contracts" && selectedTemplateMode === "pdf-ai" ? "Tải PDF đã điền" : "Tải Word đã điền";
+
+  if (view === "contracts") {
+    const editable = contract.status === "draft";
+    const contractStatus = contract.status === "signed" ? "Đã ký" : "Bản nháp";
+    return <div className="workflow-page workflow-detail-page workflow-contract-detail">
+      <header className="workflow-header workflow-contract-header">
+        <div className="workflow-header-copy">
+          <span className="workflow-header-badge">HỒ SƠ HỢP ĐỒNG</span>
+          <h1>{contract.contractNumber}</h1>
+          <p>{contract.customerName} · {projectName || "Chưa đặt tên công trình"} · Dự toán {contract.quoteNumber}</p>
+        </div>
+        <span className={"workflow-status " + (contract.status === "signed" ? "is-complete" : "is-draft")}>{contractStatus}</span>
+      </header>
+
+      <section className="workflow-detail-summary" aria-label="Tóm tắt hợp đồng">
+        <div className="workflow-detail-summary-card"><small>Giá trị hợp đồng</small><strong>{formatMoney(contract.total, contract.currency)}</strong><span>Đã gồm VAT và vận chuyển</span></div>
+        <div className="workflow-detail-summary-card"><small>Đặt cọc / tạm ứng</small><strong>{formatMoney(depositAmount, contract.currency)}</strong><span>{contract.status === "signed" ? "Theo hợp đồng đã ký" : "Giá trị dự kiến"}</span></div>
+        <div className="workflow-detail-summary-card"><small>Hạng mục hợp đồng</small><strong>{contract.lines.length}</strong><span>{projectName || "Chưa đặt tên công trình"}</span></div>
+      </section>
+
+      <div className="workflow-toolbar">
+        <button className="button button-soft" onClick={() => navigate("contracts")}>← Danh sách hợp đồng</button>
+        <div className="workflow-toolbar-actions">
+          {templateSelector}
+          <button className="button button-primary" type="button" disabled={downloading} onClick={() => void downloadDocument(wordUrl)}>{downloadLabel}</button>
+          <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>
+          {contract.status === "signed" && <button className="button button-soft" disabled={busy} onClick={() => void createAcceptance(contract)}>Tạo nghiệm thu</button>}
+        </div>
+      </div>
+
+      <article className="workflow-document workflow-contract-document">
+        <div className="workflow-document-top">
+          <div><strong>{contract.companyName || "BÊN CUNG CẤP"}</strong><p>{contract.companyAddress}</p><p>Mã số thuế: {contract.companyTaxId || "—"}</p></div>
+          <div><strong>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</strong><p>Độc lập - Tự do - Hạnh phúc</p></div>
+        </div>
+        <div className="workflow-title">
+          <h1>HỢP ĐỒNG</h1>
+          <strong>Số: {contract.contractNumber}</strong>
+          {editable && <p>BẢN NHÁP</p>}
+          <p>Căn cứ dự toán {contract.quoteNumber}</p>
+          <p>{editable ? "Ngày ký dự kiến" : "Ngày ký"}: {contract.signedDate ?? "Chưa ký"} · Địa điểm ký: {signingPlace || "—"}</p>
+        </div>
+        {contract.template && <p className="workflow-template-source">Mẫu hợp đồng: {contract.template.name}</p>}
+
+        <section className="workflow-detail-section">
+          <div className="workflow-detail-section-heading"><h2>Các bên tham gia</h2><span>Thông tin pháp lý và liên hệ trong hợp đồng</span></div>
+          <div className="workflow-parties">
+            <div><h2>Bên A · Khách hàng</h2><p><b>{contract.customerName}</b></p><p>Đại diện: {contract.customerRepresentative || "—"}</p><p>Địa chỉ: {contract.customerAddress || "—"} · MST: {contract.customerTaxId || "—"}</p><p>Email: {contract.customerEmail || "—"} · Điện thoại: {contract.customerPhone || "—"}</p></div>
+            <div><h2>Bên B · Đơn vị thực hiện</h2><p><b>{contract.companyName || "—"}</b></p><p>Đại diện: {contract.companyRepresentative || "—"}</p><p>Địa chỉ: {contract.companyAddress || "—"} · MST: {contract.companyTaxId || "—"}</p><p>Email: {contract.companyEmail || "—"} · Điện thoại: {contract.companyPhone || "—"}</p></div>
+          </div>
+        </section>
+
+        <section className="workflow-project workflow-contract-project">
+          <h2>Công trình / dự án</h2>
+          <p><b>{projectName || "—"}</b> · {projectAddress || "—"}</p>
+        </section>
+
+        <form className="workflow-form workflow-contract-form" onSubmit={(event) => void saveContract(event)}>
+          <h2>Phạm vi và điều khoản thực hiện</h2>
+          <div className="workflow-two-fields">
+            <label>Tên công trình / dự án{editable ? <input required maxLength={250} value={projectName} onChange={(event) => setProjectName(event.target.value)} /> : <p className="workflow-text-value">{projectName || "—"}</p>}</label>
+            <label>Địa điểm thực hiện{editable ? <input required maxLength={250} value={projectAddress} onChange={(event) => setProjectAddress(event.target.value)} /> : <p className="workflow-text-value">{projectAddress || "—"}</p>}</label>
+          </div>
+          <label>Địa điểm ký{editable ? <input required maxLength={250} value={signingPlace} onChange={(event) => setSigningPlace(event.target.value)} /> : <p className="workflow-text-value">{signingPlace || "—"}</p>}</label>
+          <label>Phạm vi công việc{editable ? <textarea required value={scope} onChange={(event) => setScope(event.target.value)} maxLength={4000} rows={3} placeholder="Mô tả phạm vi thực hiện" /> : <p className="workflow-text-value">{scope || "—"}</p>}</label>
+          <label>Hồ sơ / sản phẩm bàn giao{editable ? <textarea required value={deliverables} onChange={(event) => setDeliverables(event.target.value)} maxLength={4000} rows={3} /> : <p className="workflow-text-value">{deliverables || "—"}</p>}</label>
+          <div className="workflow-two-fields">
+            <label>Tiền đặt cọc / tạm ứng{editable ? <input type="number" min="0" max={contract.total} step="any" value={depositAmount} onChange={(event) => setDepositAmount(Number(event.target.value))} /> : <p className="workflow-text-value">{formatMoney(depositAmount, contract.currency)}</p>}</label>
+            <label>Thông tin tài khoản{editable ? <input maxLength={1000} value={bankDetails} onChange={(event) => setBankDetails(event.target.value)} /> : <p className="workflow-text-value">{bankDetails || "—"}</p>}</label>
+          </div>
+          <label>Điều khoản thanh toán{editable ? <textarea required value={paymentTerms} onChange={(event) => setPaymentTerms(event.target.value)} maxLength={4000} rows={3} placeholder="Các đợt và hình thức thanh toán" /> : <p className="workflow-text-value">{paymentTerms || "—"}</p>}</label>
+          <label>Tiến độ và bàn giao{editable ? <textarea required value={deliveryTerms} onChange={(event) => setDeliveryTerms(event.target.value)} maxLength={4000} rows={3} placeholder="Thời gian và điều kiện bàn giao" /> : <p className="workflow-text-value">{deliveryTerms || "—"}</p>}</label>
+          <label>Điều khoản bổ sung{editable ? <textarea value={otherTerms} onChange={(event) => setOtherTerms(event.target.value)} maxLength={10000} rows={4} /> : <p className="workflow-text-value">{otherTerms || "—"}</p>}</label>
+          {editable && <button className="button button-soft" type="submit" disabled={busy}>Lưu nội dung hợp đồng</button>}
+        </form>
+
+        <section className="workflow-detail-section">
+          <div className="workflow-detail-section-heading"><h2>Hạng mục trong hợp đồng</h2><span>{contract.lines.length} hạng mục</span></div>
+          <div className="workflow-table-wrap">
+            <table>
+              <thead><tr><th>STT</th><th>Hạng mục</th><th>ĐVT</th><th>Khối lượng</th><th>Đơn giá</th><th>Thành tiền</th></tr></thead>
+              <tbody>{contract.lines.map((line, index) => <tr key={index}>
+                <td>{index + 1}</td><td><strong>{line.name}</strong>{line.description && <small>{line.description}</small>}</td><td>{line.unit}</td><td>{line.quantity}</td><td>{formatMoney(line.unitPrice, contract.currency)}</td><td>{formatMoney(line.lineTotal, contract.currency)}</td>
+              </tr>)}</tbody>
+            </table>
+          </div>
+          <div className="workflow-totals">
+            <p>Tạm tính: <b>{formatMoney(contract.subtotal, contract.currency)}</b></p>
+            <p>VAT ({contract.taxRate * 100}%): <b>{formatMoney(contract.taxAmount, contract.currency)}</b></p>
+            <p>Vận chuyển: <b>{formatMoney(contract.shippingFee, contract.currency)}</b></p>
+            <strong>Tổng giá trị hợp đồng: {formatMoney(contract.total, contract.currency)}</strong>
+          </div>
+        </section>
+        <div className="workflow-signatures"><div><b>ĐẠI DIỆN BÊN A</b><span>Ký, ghi rõ họ tên</span></div><div><b>ĐẠI DIỆN BÊN B</b><span>Ký, ghi rõ họ tên</span></div></div>
+      </article>
+
+      <div className="workflow-footer">
+        <span>{contract.status === "signed" ? "Đã ký ngày " + contract.signedDate : "Hợp đồng đang ở bản nháp"}</span>
+        {editable && <div><input aria-label="Ngày ký hợp đồng" type="date" value={signedDate} onChange={(event) => setSignedDate(event.target.value)} /><button className="button button-primary" disabled={busy || !signedDate || !scope.trim() || !projectName.trim() || !projectAddress.trim() || !deliverables.trim() || !signingPlace.trim() || !paymentTerms.trim() || !deliveryTerms.trim()} onClick={() => void signContract()}>Xác nhận đã ký</button></div>}
+      </div>
+      <div className="workflow-origin"><button className="text-button" onClick={() => openQuote(contract.quoteId)}>Xem dự toán gốc {contract.quoteNumber} →</button></div>
+      {showAcceptanceDialog && <AcceptanceCreationDialog contract={contract} onClose={() => setShowAcceptanceDialog(false)} onCreated={(nextId) => { setShowAcceptanceDialog(false); navigate("acceptances", nextId); notify("Đã tạo biên bản nghiệm thu.", "success"); }} notify={notify} />}
+    </div>;
+  }
+
+  const acceptance = record!;
+  const editable = acceptance.status === "draft";
+  const acceptedValue = contract.lines.reduce((sum, line, index) => sum + Math.round((quantities[index] ?? 0) * line.unitPrice * 100) / 100, 0);
+  const selectedItemCount = quantities.filter((quantity) => quantity > 0).length;
+  const outstandingAmount = Math.max(0, settlementAmount - amountPaid);
+
+  return <div className="workflow-page workflow-detail-page workflow-acceptance-detail">
+    <header className="workflow-header workflow-acceptance-header">
+      <div className="workflow-header-copy">
+        <span className="workflow-header-badge">BIÊN BẢN NGHIỆM THU</span>
+        <h1>{acceptance.acceptanceNumber}</h1>
+        <p>{contract.customerName} · Hợp đồng {contract.contractNumber}</p>
+      </div>
+      <span className={"workflow-status " + (acceptance.status === "completed" ? "is-complete" : "is-draft")}>{acceptance.status === "completed" ? "Hoàn tất" : "Bản nháp"}</span>
+    </header>
+
+    <section className="workflow-detail-summary" aria-label="Tóm tắt nghiệm thu">
+      <div className="workflow-detail-summary-card acceptance-summary-value"><small>Giá trị hạng mục nghiệm thu</small><strong>{formatMoney(acceptedValue, contract.currency)}</strong><span>{selectedItemCount} hạng mục được chọn</span></div>
+      <div className="workflow-detail-summary-card"><small>Ngày nghiệm thu</small><strong>{formatDate(acceptance.acceptedDate)}</strong><span>{acceptance.startTime}–{acceptance.endTime}</span></div>
+      <div className="workflow-detail-summary-card"><small>Còn phải thanh toán</small><strong>{formatMoney(outstandingAmount, contract.currency)}</strong><span>Quyết toán {formatMoney(settlementAmount, contract.currency)}</span></div>
+    </section>
+
+    <div className="workflow-toolbar">
+      <button className="button button-soft" onClick={() => navigate("acceptances")}>← Danh sách nghiệm thu</button>
+      <div className="workflow-toolbar-actions">
+        {templateSelector}
+        <button className="button button-primary" type="button" disabled={downloading} onClick={() => void downloadDocument(wordUrl)}>{downloadLabel === "Tải PDF đã điền" ? "Tải Word đã điền" : downloadLabel}</button>
+        <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>
+        <button className="button button-soft" onClick={() => navigate("contracts", contract._id)}>Xem hợp đồng</button>
+      </div>
+    </div>
+
+    <article className="workflow-document workflow-acceptance-document">
+      <div className="workflow-document-top">
+        <div><strong>{contract.companyName || "BÊN CUNG CẤP"}</strong><p>{contract.companyAddress}</p><p>Mã số thuế: {contract.companyTaxId || "—"}</p></div>
+        <div><strong>CỘNG HÒA XÃ HỘI CHỦ NGHĨA VIỆT NAM</strong><p>Độc lập - Tự do - Hạnh phúc</p></div>
+      </div>
+      <div className="workflow-title">
+        <h1>BIÊN BẢN NGHIỆM THU</h1>
+        <strong>Số: {acceptance.acceptanceNumber}</strong>
+        {editable && <p>BẢN NHÁP</p>}
+        <p>Nghiệm thu theo hợp đồng {contract.contractNumber}</p>
+        <p>Ngày {formatDate(acceptance.acceptedDate)} · Địa điểm {acceptance.location || "—"}</p>
+      </div>
+      {acceptance.template && <p className="workflow-template-source">Mẫu nghiệm thu: {acceptance.template.name}</p>}
+
+      <section className="workflow-acceptance-reference">
+        <div className="workflow-detail-section-heading"><h2>Hợp đồng được nghiệm thu</h2><span>{contract.status === "signed" ? "Đã ký " + (contract.signedDate ?? "") : "Bản nháp"}</span></div>
+        <div className="workflow-reference-grid">
+          <div><small>Khách hàng</small><strong>{contract.customerName}</strong><span>{contract.customerEmail || "—"} · {contract.customerPhone || "—"}</span></div>
+          <div><small>Công trình / dự án</small><strong>{contract.projectName || "—"}</strong><span>{contract.projectAddress || "—"}</span></div>
+          <div><small>Giá trị hợp đồng</small><strong>{formatMoney(contract.total, contract.currency)}</strong><span>Dự toán {contract.quoteNumber}</span></div>
+        </div>
+      </section>
+
+      <section className="workflow-detail-section">
+        <div className="workflow-detail-section-heading"><h2>Khối lượng nghiệm thu</h2><span>{selectedItemCount} / {contract.lines.length} hạng mục</span></div>
+        <div className="workflow-table-wrap workflow-acceptance-table-wrap">
+          <table>
+            <thead><tr><th>STT</th><th>Sản phẩm / hạng mục</th><th>ĐVT</th><th>Số lượng theo hợp đồng</th><th>Chọn</th><th>Số lượng nghiệm thu</th><th>Đơn giá</th><th>Giá trị NT</th></tr></thead>
+            <tbody>{contract.lines.length ? contract.lines.map((line, index) => {
+              const acceptedQuantity = quantities[index] ?? 0;
+              const lineTotal = Math.round(acceptedQuantity * line.unitPrice * 100) / 100;
+              return <tr key={index}>
+                <td>{index + 1}</td><td><strong>{line.name}</strong>{line.description && <small>{line.description}</small>}</td><td>{line.unit}</td><td>{line.quantity}</td>
+                <td><input type="checkbox" aria-label={"Chọn hạng mục " + line.name + " để nghiệm thu"} checked={acceptedQuantity > 0} disabled={!editable} onChange={(event) => { const checked = event.currentTarget.checked; setQuantities((current) => current.map((value, i) => i === index ? checked ? line.quantity : 0 : value)); }} /></td>
+                <td><input aria-label={"Khối lượng nghiệm thu " + line.name} type="number" min="0" max={line.quantity} step="any" disabled={!editable || acceptedQuantity <= 0} value={acceptedQuantity} onChange={(event) => setQuantities((current) => current.map((value, i) => i === index ? Number(event.target.value) : value))} /></td>
+                <td>{formatMoney(line.unitPrice, contract.currency)}</td><td>{formatMoney(lineTotal, contract.currency)}</td>
+              </tr>;
+            }) : <tr><td colSpan={8}>Hợp đồng chưa có sản phẩm hoặc hạng mục để đối soát.</td></tr>}</tbody>
+          </table>
+        </div>
+        <div className="workflow-totals"><strong>Giá trị các hạng mục đã nghiệm thu: {formatMoney(acceptedValue, contract.currency)}</strong></div>
+      </section>
+
+      <div className="workflow-parties workflow-acceptance-parties">
+        <div><h2>Bên A · Khách hàng</h2><p><b>{contract.customerName}</b></p><p>Đại diện: {contract.customerRepresentative || "—"}</p><p>Địa chỉ: {contract.customerAddress || "—"} · MST: {contract.customerTaxId || "—"}</p></div>
+        <div><h2>Bên B · Đơn vị thực hiện</h2><p><b>{contract.companyName || "—"}</b></p><p>Đại diện: {contract.companyRepresentative || "—"}</p><p>Địa chỉ: {contract.companyAddress || "—"} · MST: {contract.companyTaxId || "—"}</p></div>
+      </div>
+
+      <form className="workflow-form workflow-acceptance-form" onSubmit={(event) => void saveAcceptance(event)}>
+        <h2>Biên bản nghiệm thu</h2>
+        <div className="workflow-two-fields">
+          <label>Ngày nghiệm thu{editable ? <input type="date" required min={contract.signedDate ?? undefined} value={acceptedDate} onChange={(event) => setAcceptedDate(event.target.value)} /> : <p className="workflow-text-value">{formatDate(acceptance.acceptedDate)}</p>}</label>
+          <label>Địa điểm nghiệm thu{editable ? <input required maxLength={250} value={location} onChange={(event) => setLocation(event.target.value)} /> : <p className="workflow-text-value">{location || "—"}</p>}</label>
+        </div>
+        <div className="workflow-two-fields">
+          <label>Giờ bắt đầu{editable ? <input type="time" required value={startTime} onChange={(event) => setStartTime(event.target.value)} /> : <p className="workflow-text-value">{startTime || "—"}</p>}</label>
+          <label>Giờ kết thúc{editable ? <input type="time" required min={startTime} value={endTime} onChange={(event) => setEndTime(event.target.value)} /> : <p className="workflow-text-value">{endTime || "—"}</p>}</label>
+        </div>
+        <label>Hồ sơ / sản phẩm đã bàn giao{editable ? <textarea required maxLength={4000} rows={3} value={handoverDetails} onChange={(event) => setHandoverDetails(event.target.value)} /> : <p className="workflow-text-value">{handoverDetails || "—"}</p>}</label>
+        <div className="workflow-two-fields">
+          <label>Đánh giá chất lượng{editable ? <textarea required maxLength={2000} rows={3} value={qualityAssessment} onChange={(event) => setQualityAssessment(event.target.value)} /> : <p className="workflow-text-value">{qualityAssessment || "—"}</p>}</label>
+          <label>Kết quả nghiệm thu{editable ? <textarea required value={result} onChange={(event) => setResult(event.target.value)} maxLength={2000} rows={3} /> : <p className="workflow-text-value">{result || "—"}</p>}</label>
+        </div>
+        <h2>Quyết toán và thanh toán</h2>
+        <div className="workflow-two-fields">
+          <label>Giá trị quyết toán{editable ? isVnd ? <span className="workflow-money-field"><input type="text" required inputMode="numeric" autoComplete="off" maxLength={22} value={settlementAmountText} onChange={(event) => updateVndInput(event, setSettlementAmountText)} /> <span aria-hidden="true">₫</span></span> : <input type="number" required min="0" max={contract.total} step="any" value={settlementAmountText} onChange={(event) => setSettlementAmountText(event.target.value)} /> : <p className="workflow-text-value">{formatMoney(settlementAmount, contract.currency)}</p>}</label>
+          <label>Đã thanh toán{editable ? isVnd ? <span className="workflow-money-field"><input type="text" required inputMode="numeric" autoComplete="off" maxLength={22} value={amountPaidText} onChange={(event) => updateVndInput(event, setAmountPaidText)} /> <span aria-hidden="true">₫</span></span> : <input type="number" required min="0" max={settlementAmount} step="any" value={amountPaidText} onChange={(event) => setAmountPaidText(event.target.value)} /> : <p className="workflow-text-value">{formatMoney(amountPaid, contract.currency)}</p>}</label>
+        </div>
+        <div className="workflow-payment-balance"><span>Còn phải thanh toán</span><strong>{formatMoney(outstandingAmount, contract.currency)}</strong></div>
         <label>Thời hạn thanh toán còn lại (ngày){editable ? <input type="number" min="0" max="3650" step="1" value={paymentDueDaysText} onChange={(event) => setPaymentDueDaysText(event.target.value)} /> : <p className="workflow-text-value">{paymentDueDaysText || "—"}</p>}</label>
-        <label>Ghi chú / tồn tại{editable ? <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={4000} rows={4} placeholder="Ghi nhận tồn tại và hướng xử lý" /> : <p className="workflow-text-value">{notes || "—"}</p>}</label>
+        <label>Ghi chú / tồn tại{editable ? <textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={4000} rows={3} placeholder="Ghi nhận tồn tại và hướng xử lý" /> : <p className="workflow-text-value">{notes || "—"}</p>}</label>
         {editable && <button className="button button-soft" type="submit" disabled={busy}>Lưu biên bản</button>}
-      </form>}
+      </form>
+
       <div className="workflow-signatures"><div><b>ĐẠI DIỆN BÊN A</b><span>Ký, ghi rõ họ tên</span></div><div><b>ĐẠI DIỆN BÊN B</b><span>Ký, ghi rõ họ tên</span></div></div>
     </article>
-    <div className="workflow-footer"><span>{isContract ? contract.status === "signed" ? `Đã ký ngày ${contract.signedDate}` : "Hợp đồng đang ở bản nháp" : record?.status === "completed" ? "Nghiệm thu đã hoàn tất" : "Biên bản đang ở bản nháp"}</span>{isContract && editable && <div><input aria-label="Ngày ký hợp đồng" type="date" value={signedDate} onChange={(event) => setSignedDate(event.target.value)} /><button className="button button-primary" disabled={busy || !signedDate || !scope.trim() || !projectName.trim() || !projectAddress.trim() || !deliverables.trim() || !signingPlace.trim() || !paymentTerms.trim() || !deliveryTerms.trim()} onClick={() => void signContract()}>Xác nhận đã ký</button></div>}{!isContract && editable && <button className="button button-primary" disabled={busy || !quantities.some((quantity) => quantity > 0)} onClick={() => void completeAcceptance()}>Hoàn tất nghiệm thu</button>}</div>
-    <div className="workflow-origin"><button className="text-button" onClick={() => openQuote(contract.quoteId)}>Xem dự toán gốc {contract.quoteNumber} →</button></div>
-    {showAcceptanceDialog && <AcceptanceCreationDialog contract={contract} onClose={() => setShowAcceptanceDialog(false)} onCreated={(nextId) => { setShowAcceptanceDialog(false); navigate("acceptances", nextId); notify("Đã tạo biên bản nghiệm thu.", "success"); }} notify={notify} />}
+
+    <div className="workflow-footer">
+      <span>{acceptance.status === "completed" ? "Biên bản đã hoàn tất ngày " + formatDate(acceptance.updatedAt) : "Biên bản nghiệm thu đang ở bản nháp"}</span>
+      {editable && <button className="button button-primary" disabled={busy || !quantities.some((quantity) => quantity > 0)} onClick={() => void completeAcceptance()}>Hoàn tất nghiệm thu</button>}
+    </div>
+    <div className="workflow-origin"><button className="text-button" onClick={() => navigate("contracts", contract._id)}>Xem hợp đồng {contract.contractNumber} →</button><button className="text-button" onClick={() => openQuote(contract.quoteId)}>Xem dự toán gốc {contract.quoteNumber} →</button></div>
   </div>;
 }

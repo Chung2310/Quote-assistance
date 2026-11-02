@@ -160,8 +160,33 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
   const amountPaid = isVnd ? parseVndInputValue(amountPaidText) : Number(amountPaidText) || 0;
   const [paymentDueDays, setPaymentDueDays] = useState("");
   const [notes, setNotes] = useState("");
-  const [quantities, setQuantities] = useState(contract.lines.map((line) => line.quantity));
+  const [contractLines, setContractLines] = useState<Contract["lines"]>(() => Array.isArray(contract.lines) ? contract.lines : []);
+  const [contractLinesLoading, setContractLinesLoading] = useState(() => !Array.isArray(contract.lines) || contract.lines.length === 0);
+  const [contractLinesError, setContractLinesError] = useState("");
+  const [quantities, setQuantities] = useState<number[]>(() => (Array.isArray(contract.lines) ? contract.lines : []).map(() => 0));
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (contractLines.length > 0) {
+      setContractLinesLoading(false);
+      return;
+    }
+    let live = true;
+    setContractLinesLoading(true);
+    setContractLinesError("");
+    api<{ quote: Quote }>(`/api/quotes/${contract.quoteId}`)
+      .then(({ quote }) => {
+        if (!live) return;
+        if (!Array.isArray(quote.lines) || quote.lines.length === 0) {
+          setContractLinesError("Không tìm thấy sản phẩm trong hợp đồng hoặc dự toán gốc.");
+          return;
+        }
+        setContractLines(quote.lines);
+        setQuantities(quote.lines.map(() => 0));
+      })
+      .catch((error) => { if (live) setContractLinesError(error instanceof Error ? error.message : "Không tải được sản phẩm từ dự toán gốc."); })
+      .finally(() => { if (live) setContractLinesLoading(false); });
+    return () => { live = false; };
+  }, [contract._id, contract.quoteId, contractLines.length]);
   useEffect(() => {
     let live = true;
     api<{ templates: ContractTemplateOption[] }>("/api/acceptance-templates")
@@ -176,7 +201,7 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
   }, []);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (busy || templatesLoading || templateError || !quantities.some((quantity) => quantity > 0)) return;
+    if (busy || templatesLoading || templateError || contractLinesLoading || contractLinesError || !contractLines.length || !quantities.some((quantity) => quantity > 0)) return;
     setBusy(true);
     try {
       const { record } = await api<{ record: AcceptanceRecord }>("/api/acceptance-records", {
@@ -198,18 +223,23 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
         <h3>Mẫu nghiệm thu</h3>
         {templatesLoading ? <p className="document-dialog-note">Đang tải mẫu nghiệm thu…</p> : templateError ? <p className="document-dialog-note" role="alert">{templateError}</p> : <label>Chọn mẫu dùng khi xuất<select value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={busy || templates.length === 0}>{templates.length ? templates.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.mode === "pdf-ai" ? "AI đọc PDF → Word" : item.mode === "docx-ai" ? "AI điền Word" : item.mode === "docx" ? "Word có trường dữ liệu" : "Word dựng theo PDF"})</option>) : <option value="">Mẫu Word mặc định</option>}</select></label>}
         {!!templates.length && <p className="document-dialog-note">AI sẽ tìm vị trí ngày nghiệm thu, kết quả, khối lượng và quyết toán trong mẫu. Mẫu PDF được điền rồi chuyển sang file Word.</p>}
+        <h3>Sản phẩm / hạng mục trong hợp đồng {!contractLinesLoading && `(${contractLines.length})`}</h3>
+        <p className="document-dialog-note">Tích riêng từng sản phẩm đã nghiệm thu. Số lượng hợp đồng được giữ để đối chiếu; nhập số lượng nghiệm thu bên cạnh.</p>
+        {contractLinesLoading ? <p className="document-dialog-note">Đang tải sản phẩm và số lượng từ hợp đồng…</p> : contractLinesError ? <p className="document-dialog-note" role="alert">{contractLinesError}</p> : contractLines.length ? <div className="document-dialog-acceptance-line-list">{contractLines.map((line, index) => <div className="document-dialog-acceptance-line" key={index}>
+          <label className="document-dialog-acceptance-product"><input type="checkbox" aria-label={`Chọn ${line.name} để nghiệm thu`} checked={quantities[index] > 0} disabled={busy} onChange={(event) => { const checked = event.currentTarget.checked; setQuantities((current) => current.map((value, i) => i === index ? checked ? line.quantity : 0 : value)); }} /><span><strong>{line.name}</strong>{line.description && <small>{line.description}</small>}{line.sku && <small>Mã: {line.sku}</small>}</span></label>
+          <div className="document-dialog-acceptance-contract-quantity"><small>Số lượng theo hợp đồng</small><strong>{line.quantity} {line.unit}</strong></div>
+          <label className="document-dialog-acceptance-quantity"><span>Số lượng nghiệm thu</span><span className="document-dialog-acceptance-quantity-input"><input aria-label={`Số lượng nghiệm thu ${line.name}`} type="number" min="0" max={line.quantity} step="any" disabled={busy || quantities[index] <= 0} value={quantities[index]} onChange={(event) => setQuantities((current) => current.map((value, i) => i === index ? Number(event.target.value) : value))} /><small>{line.unit}</small></span></label>
+        </div>)}</div> : <p className="document-dialog-note">Hợp đồng chưa có sản phẩm hoặc hạng mục để nghiệm thu.</p>}
         <div className="document-dialog-grid"><label>Ngày nghiệm thu *<input type="date" required min={contract.signedDate ?? undefined} value={acceptedDate} onChange={(event) => setAcceptedDate(event.target.value)} /></label><label>Địa điểm nghiệm thu *<input required maxLength={250} value={location} onChange={(event) => setLocation(event.target.value)} /></label></div>
         <div className="document-dialog-grid"><label>Giờ bắt đầu *<input type="time" required value={startTime} onChange={(event) => setStartTime(event.target.value)} /></label><label>Giờ kết thúc *<input type="time" required min={startTime} value={endTime} onChange={(event) => setEndTime(event.target.value)} /></label></div>
         <label>Hồ sơ / sản phẩm đã bàn giao *<textarea required maxLength={4000} rows={3} value={handoverDetails} onChange={(event) => setHandoverDetails(event.target.value)} placeholder={contract.deliverables || "Danh mục hồ sơ, định dạng và số lượng"} /></label>
         <label>Đánh giá chất lượng *<textarea required maxLength={2000} rows={3} value={qualityAssessment} onChange={(event) => setQualityAssessment(event.target.value)} /></label>
         <label>Kết quả nghiệm thu *<textarea required maxLength={2000} rows={3} value={result} onChange={(event) => setResult(event.target.value)} placeholder="Đạt yêu cầu, cần bổ sung, hoặc kết luận khác" /></label>
-        <h3>Khối lượng nghiệm thu</h3>
-        <div className="document-dialog-lines">{contract.lines.map((line, index) => <label key={index}><span>{line.name}<small>Hợp đồng: {line.quantity} {line.unit}</small></span><input type="number" required min="0" max={line.quantity} step="any" value={quantities[index]} onChange={(event) => setQuantities((current) => current.map((value, i) => i === index ? Number(event.target.value) : value))} /></label>)}</div>
         <h3>Giá trị quyết toán</h3>
         <div className="document-dialog-grid"><label>Giá trị quyết toán *{isVnd ? <span className="document-dialog-money-field"><input type="text" required inputMode="numeric" autoComplete="off" maxLength={22} value={settlementAmountText} onChange={(event) => updateVndInput(event, setSettlementAmountText)} placeholder={`Tối đa ${formatMoney(contract.total, contract.currency)}`} /><span aria-hidden="true">₫</span></span> : <input type="number" required min="0" max={contract.total} step="any" value={settlementAmountText} onChange={(event) => setSettlementAmountText(event.target.value)} placeholder={`Tối đa ${formatMoney(contract.total, contract.currency)}`} />}</label><label>Đã thực nhận / đặt cọc *{isVnd ? <span className="document-dialog-money-field"><input type="text" required inputMode="numeric" autoComplete="off" maxLength={22} value={amountPaidText} onChange={(event) => updateVndInput(event, setAmountPaidText)} placeholder="Nhập số tiền đã nhận thực tế" /><span aria-hidden="true">₫</span></span> : <input type="number" required min="0" max={settlementAmount || undefined} step="any" value={amountPaidText} onChange={(event) => setAmountPaidText(event.target.value)} placeholder="Nhập số tiền đã nhận thực tế" />}</label><label>Thời hạn thanh toán còn lại (ngày)<input type="number" min="0" max="3650" step="1" value={paymentDueDays} onChange={(event) => setPaymentDueDays(event.target.value)} /></label><div className="document-dialog-balance">Còn phải thanh toán <strong>{settlementAmountText !== "" && amountPaidText !== "" ? formatMoney(Math.max(0, settlementAmount - amountPaid), contract.currency) : "—"}</strong></div></div>
         <label>Ghi chú / tồn tại<textarea maxLength={4000} rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         {!quantities.some((quantity) => quantity > 0) && <p className="document-dialog-note">Cần nghiệm thu ít nhất một hạng mục có khối lượng lớn hơn 0.</p>}
-      </div><div className="document-dialog-actions"><button type="button" className="button button-soft" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="button button-primary" disabled={busy || templatesLoading || Boolean(templateError) || !quantities.some((quantity) => quantity > 0)}>{busy ? "Đang tạo…" : "Tạo biên bản"}</button></div></form>
+      </div><div className="document-dialog-actions"><button type="button" className="button button-soft" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="button button-primary" disabled={busy || templatesLoading || Boolean(templateError) || contractLinesLoading || Boolean(contractLinesError) || !contractLines.length || !quantities.some((quantity) => quantity > 0)}>{busy ? "Đang tạo…" : "Tạo biên bản"}</button></div></form>
     </section>
   </div>;
 }
