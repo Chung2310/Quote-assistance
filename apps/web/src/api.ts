@@ -23,6 +23,55 @@ export async function api<T>(url: string, options: RequestInit = {}): Promise<T>
   return body as T;
 }
 
+export type GeneratedFileRef = { id: string; filename: string; mimeType?: string; createdAt?: string };
+export type GeneratedExportStatus = { id: string; status: "queued" | "running" | "completed" | "failed"; error?: string; filename?: string; createdAt?: string; updatedAt?: string };
+
+export async function createGeneratedExport(url: string, timeoutMs = 15 * 60_000): Promise<GeneratedFileRef> {
+  const response = await fetch(url, { credentials: "include" });
+  if (response.status !== 202) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error || "Máy chủ chưa tạo tác vụ lưu file.");
+  }
+  const queued = await response.json().catch(() => null) as { jobId?: string } | null;
+  if (!queued?.jobId) throw new Error("Máy chủ chưa trả mã tác vụ xuất file.");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+    const statusResponse = await fetch(`/api/export-jobs/${encodeURIComponent(queued.jobId)}`, { credentials: "include" });
+    const statusBody = await statusResponse.json().catch(() => null) as { error?: string; job?: { status?: string; fileId?: string; filename?: string; error?: string } } | null;
+    if (!statusResponse.ok || !statusBody?.job) throw new Error(statusBody?.error || "Không đọc được trạng thái tác vụ xuất file.");
+    if (statusBody.job.status === "failed") throw new Error(statusBody.job.error || "AI không tạo được file theo mẫu đã chọn.");
+    if (statusBody.job.status === "completed") {
+      if (!statusBody.job.fileId) throw new Error("Tác vụ đã xong nhưng thiếu mã file đã lưu.");
+      return { id: statusBody.job.fileId, filename: statusBody.job.filename || "file-da-tao" };
+    }
+  }
+  throw new Error("Tác vụ vẫn đang xử lý. Bạn có thể thử tải lại sau ít phút.");
+}
+
+export async function getLatestGeneratedFile(sourceId: string, kind: string) {
+  const params = new URLSearchParams({ sourceId, kind });
+  return api<{ file: GeneratedFileRef | null; job: GeneratedExportStatus | null }>(`/api/generated-export-files/latest?${params.toString()}`);
+}
+
+export async function downloadGeneratedFile(fileId: string) {
+  const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/download`, { credentials: "include" });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(body?.error || "Không tải được file đã lưu.");
+  }
+  const disposition = response.headers.get("Content-Disposition") ?? "";
+  const filenameMatch = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  const quotedFilename = /filename="([^"]+)"/i.exec(disposition);
+  const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : quotedFilename?.[1] ?? "file-da-luu";
+  const objectUrl = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
+
 export function apiUploadWithProgress<T>(
   url: string,
   file: Blob,

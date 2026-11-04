@@ -23,6 +23,22 @@ export interface CompanyFile {
   createdAt: Date;
 }
 
+export type GeneratedExportJobStatus = "queued" | "running" | "completed" | "failed";
+
+export interface GeneratedExportJob {
+  _id?: ObjectId;
+  companyId: string;
+  createdBy: string;
+  kind: string;
+  sourceId?: string;
+  status: GeneratedExportJobStatus;
+  filename?: string;
+  fileId?: string;
+  error?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface CompanyProfileDetails {
   taxId: string;
   address: string;
@@ -210,6 +226,25 @@ export interface Quote {
   currency: string;
   informationNeeded: string[];
   additionalInformation?: Record<string, string>;
+  settlement?: {
+    contractNumber: string;
+    projectName: string;
+    projectAddress: string;
+    acceptanceNumber: string;
+    acceptedDate: string;
+    startTime: string;
+    endTime: string;
+    location: string;
+    result: string;
+    handoverDetails: string;
+    qualityAssessment: string;
+    contractValue: number;
+    settlementAmount: number;
+    amountPaid: number;
+    balance: number;
+    paymentDueDays: number | null;
+    notes: string;
+  };
   suggestedProducts?: SuggestedProduct[];
   informationConfirmed: boolean;
   status: QuoteStatus;

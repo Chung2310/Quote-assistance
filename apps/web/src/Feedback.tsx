@@ -32,8 +32,8 @@ export function useNotification() {
   const dismiss = useCallback(() => setNotification(null), []);
 
   useEffect(() => {
-    if (!notification) return;
-    const timer = window.setTimeout(() => setNotification(null), notification.type === "error" ? 6000 : 3800);
+    if (!notification || notification.type === "error") return;
+    const timer = window.setTimeout(() => setNotification(null), 3800);
     return () => window.clearTimeout(timer);
   }, [notification]);
 
