@@ -27,7 +27,7 @@ import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole,
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { budgetPlanAsQuote, makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
-import { createTemplateFillPlan, currentTemplate, inspectTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
+import { assertXlsxWorksheetsPreserved, createTemplateFillPlan, currentTemplate, inspectTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { AcceptanceRecord, CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, Contract, GeneratedExportJob, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
@@ -1662,6 +1662,37 @@ app.get("/api/generated-export-files/latest", requireRole("user"), async (reques
         companyId: user.companyId,
         originalFilename: { $in: filenameCandidates },
       }).sort({ createdAt: -1 }).limit(1).next();
+    }
+  }
+  if (file && kind === "estimate" && file.mimeType === templateFormats.xlsx) {
+    const quote = await db.collection<Quote>("quotes").findOne({ _id: sourceId, companyId: user.companyId });
+    const templateId = quote?.template?.id ? asId(quote.template.id) : null;
+    const template = templateId
+      ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: user.companyId, extension: "xlsx" })
+      : null;
+    if (template) {
+      const matchesTemplate = async (candidate: CompanyFile) => {
+        try {
+          assertXlsxWorksheetsPreserved(template, await downloadCompanyFile(candidate.assetId, config.cloudinary));
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      if (!(await matchesTemplate(file))) {
+        const savedFiles = await db.collection<CompanyFile>("companyFiles").find({
+          companyId: user.companyId,
+          originalFilename: file.originalFilename,
+          mimeType: templateFormats.xlsx,
+        }).sort({ createdAt: -1 }).toArray();
+        file = null;
+        for (const candidate of savedFiles) {
+          if (await matchesTemplate(candidate)) {
+            file = candidate;
+            break;
+          }
+        }
+      }
     }
   }
   response.json({ file: file ? {

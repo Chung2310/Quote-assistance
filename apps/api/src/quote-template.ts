@@ -443,6 +443,16 @@ function workbookInfo(template: QuoteTemplate): XlsxWorkbookInfo {
   return { zip, sheets };
 }
 
+export function assertXlsxWorksheetsPreserved(template: QuoteTemplate, editedBytes: Buffer) {
+  const originalSheets = [...workbookInfo(template).sheets.keys()];
+  const editedTemplate = { ...template, bytes: editedBytes.length, data: new Binary(editedBytes) };
+  const editedSheets = [...workbookInfo(editedTemplate).sheets.keys()];
+  if (originalSheets.length === editedSheets.length && originalSheets.every((name, index) => name === editedSheets[index])) return;
+  const missing = originalSheets.filter((name) => !editedSheets.includes(name));
+  const added = editedSheets.filter((name) => !originalSheets.includes(name));
+  throw new Error(`AI đã thay đổi danh sách trang tính của file Excel. Mẫu có ${originalSheets.length} tab, file kết quả có ${editedSheets.length}. Tab bị thiếu: ${missing.join(", ") || "không có"}. Tab bị thêm hoặc đổi tên: ${added.join(", ") || "không có"}. File này chưa được lưu; mẫu gốc vẫn nguyên vẹn.`);
+}
+
 function xlsxWorkbookSummary(template: QuoteTemplate, info = workbookInfo(template), quote?: Quote, inputContext = "") {
   const candidateSheets = [...info.sheets.values()].filter((sheet) => quote && xlsxSheetHasCandidateTable(sheet, quote));
   let relevantSheets = candidateSheets;
@@ -2012,6 +2022,7 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
     ...quote.missingProducts.map((name) => ({ catalogItemId: "", sku: "", name: `Chưa có trong danh mục: ${name}`, description: "", quantity: 1, unit: "", unitPrice: 0, priceUnavailable: true, currency: quote.currency, attributes: {}, lineTotal: 0 })),
   ] };
   if (directDocumentEditorEnabled()) {
+    const originalSheets = [...workbookInfo(template).sheets.keys()];
     const functionName = quote.settlement ? "Settlement dossier"
       : quote.kind === "budget" ? "Budget plan"
         : quote.kind === "customer" ? "Customer product request"
@@ -2019,7 +2030,7 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
             : "Quotation";
     const bytes = await editDocumentFileDirectly({
       bytes: Buffer.from(template.data.buffer), filename: template.originalFilename, extension: "xlsx", functionName,
-      userInstructions: inputContext,
+      userInstructions: [inputContext, `The original workbook contains these worksheets in this exact order: ${JSON.stringify(originalSheets)}. The final workbook MUST retain every worksheet exactly once, with the exact same names and order. Do not delete, rename, add, or recreate any worksheet. Edit the matching sheet inside the original workbook only.`].filter(Boolean).join("\n\n"),
       data: {
         documentKind: functionName,
         businessFields: xlsxQuoteValues(quote),
@@ -2035,6 +2046,7 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
     });
     if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
     await inspectTemplate(bytes, "xlsx");
+    assertXlsxWorksheetsPreserved(template, bytes);
     return bytes;
   }
   if (!quote.lines.length) {
@@ -2258,6 +2270,7 @@ export async function renderTemplate(template: QuoteTemplate, quote: Quote, inpu
     });
     if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
     await inspectTemplate(bytes, template.extension);
+    if (template.extension === "xlsx") assertXlsxWorksheetsPreserved(template, bytes);
     return bytes;
   }
   if (template.extension === "xlsx") {
