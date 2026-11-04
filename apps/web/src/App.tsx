@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ApiError, api, apiUploadWithProgress, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
+import { ApiError, api, apiUploadWithProgress, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import MoneyInput from "./MoneyInput";
 import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
@@ -445,9 +445,9 @@ function UserApp() {
                       <PriceListPanel key={refreshKey} onToast={notify} />
                       : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
-    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id) => { setCreatingQuote(false); refresh(); notify("Bản nháp dự toán đã được tạo."); openQuote(id); }} />}
+    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? "Đã tạo dự toán nhưng chưa lưu được file AI: " + fileError : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); openQuote(id); }} />}
     {creatingContractFromQuote && <ContractCreationDialog quote={creatingContractFromQuote} onClose={() => setCreatingContractFromQuote(null)} onCreated={(id) => { setCreatingContractFromQuote(null); openWorkflow("contracts", id); notify("Đã tạo hợp đồng.", "success"); }} notify={notify} />}
-    {creatingEstimateFromQuote && <CreateEstimateFromQuoteDialog sourceQuote={creatingEstimateFromQuote} onQuotaExceeded={() => void loadUsage()} onClose={() => setCreatingEstimateFromQuote(null)} onCreated={(id) => { setCreatingEstimateFromQuote(null); refresh(); openQuote(id); notify("Đã tạo dự toán từ báo giá khách.", "success"); }} />}
+    {creatingEstimateFromQuote && <CreateEstimateFromQuoteDialog sourceQuote={creatingEstimateFromQuote} onQuotaExceeded={() => void loadUsage()} onClose={() => setCreatingEstimateFromQuote(null)} onCreated={(id, fileError) => { setCreatingEstimateFromQuote(null); refresh(); openQuote(id); notify(fileError ? "Đã tạo dự toán nhưng chưa lưu được file AI: " + fileError : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
     {confirmationDialog}
   </div></NotificationProvider>;
@@ -948,7 +948,7 @@ function QuoteWorkspace({
           </button>
         </div>
       </section>
-      {creatingFromQuote && <CreateEstimateFromQuoteDialog onClose={() => setCreatingFromQuote(false)} onCreated={(id) => { setCreatingFromQuote(false); onRefreshUsage(); onOpen(id); }} />}
+      {creatingFromQuote && <CreateEstimateFromQuoteDialog onClose={() => setCreatingFromQuote(false)} onAiUsed={onRefreshUsage} onCreated={(id, fileError) => { setCreatingFromQuote(false); onRefreshUsage(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); onOpen(id); }} />}
       <QuoteUsageWidget usage={usage} quoteUsageLabel={quoteUsageLabel} canCreate={canCreate} createBlockedMessage={createBlockedMessage} onRefreshUsage={onRefreshUsage} showUsageError={showUsageError} onNavigate={onNavigate} variant="workspace" />
 
       {/* QUICK KPI MINI STRIP */}
@@ -1111,7 +1111,7 @@ function QuoteWorkspace({
   );
 }
 
-function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuotaExceeded }: { sourceQuote?: Quote; onClose: () => void; onCreated: (id: string) => void; onQuotaExceeded?: () => void }) {
+function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuotaExceeded, onAiUsed }: { sourceQuote?: Quote; onClose: () => void; onCreated: (id: string, fileError?: string | null) => void; onQuotaExceeded?: () => void; onAiUsed?: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [templates, setTemplates] = useState<TemplateDetails[]>([]);
   const [templateId, setTemplateId] = useState("");
@@ -1125,6 +1125,7 @@ function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuot
   const [totalPages, setTotalPages] = useState(1);
   const [sourcesLoading, setSourcesLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
   const [error, setError] = useState("");
   const [idempotencyKey] = useState(() => crypto.randomUUID());
 
@@ -1177,12 +1178,15 @@ function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuot
         method: "POST",
         body: JSON.stringify({ sourceQuoteId: currentSource._id, templateId, sourceRequirements, idempotencyKey }),
       });
-      onCreated(quote._id);
+      const fileError = await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      onAiUsed?.();
+      onCreated(quote._id, fileError);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded?.();
       setError(cause instanceof Error ? cause.message : "Không thể tạo dự toán từ báo giá khách.");
     } finally {
       setBusy(false);
+      setTaskProgress(null);
     }
   };
 
@@ -1217,7 +1221,7 @@ function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuot
       </label>
       {!templatesLoading && templates.length === 0 && <p className="field-hint">Chưa có mẫu dự toán đã lưu.</p>}
       {error && <p className="estimate-from-quote-error" role="alert">{error}</p>}
-      {busy && <TaskProgress label="Đang tạo dự toán" detail={sourceRequirements.trim() ? "AI đang đọc yêu cầu và điều chỉnh các dòng sản phẩm…" : "Sao chép sản phẩm và đơn giá từ báo giá khách…"} />}
+      {busy && <TaskProgress {...(taskProgress ?? { label: "Đang tạo dự toán", detail: sourceRequirements.trim() ? "AI đang đọc yêu cầu và điều chỉnh các dòng sản phẩm…" : "Sao chép sản phẩm và đơn giá từ báo giá khách…" })} />}
       <div className="estimate-from-quote-actions"><button type="button" className="button button-soft" disabled={busy} onClick={onClose}>Hủy</button><button type="submit" className="button button-primary" disabled={!(sourceQuote || selectedSource) || !templateId || busy}>{busy ? "Đang tạo…" : "Tạo dự toán"}</button></div>
     </form>
   </dialog>;
@@ -1277,7 +1281,17 @@ async function loadQuoteOptions(): Promise<QuoteOptions> {
   return { ...templates, productsAvailable };
 }
 
-function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplate, onQuotaExceeded, onAiUsed }: { onClose: () => void; onCreated: (id: string) => void; canManageTemplate: boolean; onManageTemplate: () => void; onQuotaExceeded: () => void; onAiUsed: () => void }) {
+async function createSavedDraftEstimateFile(quoteId: string, onProgress: () => void): Promise<string | null> {
+  onProgress();
+  try {
+    await createGeneratedExport(`/api/quotes/${encodeURIComponent(quoteId)}/export?draft=1&background=1`);
+    return null;
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : "Không tạo hoặc lưu được file dự toán bằng AI.";
+  }
+}
+
+function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplate, onQuotaExceeded, onAiUsed }: { onClose: () => void; onCreated: (id: string, fileError?: string | null) => void; canManageTemplate: boolean; onManageTemplate: () => void; onQuotaExceeded: () => void; onAiUsed: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const filePickerOpen = useRef(false);
   const ignoreDialogCancelUntil = useRef(0);
@@ -1332,7 +1346,7 @@ function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplat
   </dialog>;
 }
 
-function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onBusyChange, onQuotaExceeded, onAiUsed, onFilePickerOpen, onFilePickerDismissed, onFileSelected }: { onBusyChange: (busy: boolean) => void; onManageTemplate: () => void; onQuotaExceeded: () => void; onAiUsed: () => void; onFilePickerOpen: () => void; onFilePickerDismissed: () => void; onFileSelected: () => void; canManageTemplate: boolean; options: QuoteOptions; onCreated: (id: string) => void }) {
+function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onBusyChange, onQuotaExceeded, onAiUsed, onFilePickerOpen, onFilePickerDismissed, onFileSelected }: { onBusyChange: (busy: boolean) => void; onManageTemplate: () => void; onQuotaExceeded: () => void; onAiUsed: () => void; onFilePickerOpen: () => void; onFilePickerDismissed: () => void; onFileSelected: () => void; canManageTemplate: boolean; options: QuoteOptions; onCreated: (id: string, fileError?: string | null) => void }) {
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [templateId, setTemplateId] = useState(options.templates.find((entry) => entry.id === options.defaultTemplateId)?.id ?? options.templates[0]?.id ?? "");
   const [requestFile, setRequestFile] = useState<File | null>(null);
@@ -1419,7 +1433,9 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           items: result.items.map(({ catalogItemId, quantity, unit, attributes }) => ({ catalogItemId, quantity, unit, attributes })),
         }),
       });
-      onCreated(quote._id);
+      const fileError = await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu dự toán vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      onAiUsed();
+      onCreated(quote._id, fileError);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded();
       setError(cause instanceof Error ? cause.message : analysisCompleted ? "Không thể tạo bản nháp." : "Không thể phân tích yêu cầu.");
@@ -1451,7 +1467,9 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           items: selected.map(({ catalogItemId, quantity, unit, attributes }) => ({ catalogItemId, quantity, unit, attributes })),
         }),
       });
-      onCreated(quote._id);
+      const fileError = await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu dự toán vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      onAiUsed();
+      onCreated(quote._id, fileError);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded();
       setError(cause instanceof Error ? cause.message : "Không thể tạo báo giá.");
