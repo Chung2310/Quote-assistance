@@ -38,6 +38,35 @@ function structuredXlsxTemplateFixture() {
   return template(zip.generate({ type: "nodebuffer" }), "xlsx");
 }
 
+function multiPurposeXlsxTemplateFixture() {
+  const zip = new PizZip();
+  const worksheet = (title: string) => `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>`
+    + `<row r="1"><c r="A1" t="inlineStr"><is><t>${title}</t></is></c></row>`
+    + '<row r="2"><c r="A2" t="inlineStr"><is><t>Khách hàng:</t></is></c><c r="B2" t="inlineStr"><is><t>Khách cũ</t></is></c></row>'
+    + '<row r="3"><c r="A3" t="inlineStr"><is><t>STT</t></is></c><c r="B3" t="inlineStr"><is><t>Tên sản phẩm</t></is></c><c r="C3" t="inlineStr"><is><t>Số lượng</t></is></c><c r="D3" t="inlineStr"><is><t>Đơn giá</t></is></c><c r="E3" t="inlineStr"><is><t>Thành tiền</t></is></c></row>'
+    + `<row r="4"><c r="A4"><v>1</v></c><c r="B4" t="inlineStr"><is><t>${quote.lines[0]!.name}</t></is></c><c r="C4"><v>1</v></c><c r="D4"><v>100</v></c><c r="E4"><v>100</v></c></row>`
+    + `<row r="5"><c r="A5"><v>2</v></c><c r="B5" t="inlineStr"><is><t>${quote.lines[0]!.name}</t></is></c><c r="C5"><v>1</v></c><c r="D5"><v>200</v></c><c r="E5"><v>200</v></c></row>`
+    + '<row r="7"><c r="C7" t="inlineStr"><is><t>Tổng cộng</t></is></c><c r="E7"><v>300</v></c></row>'
+    + '</sheetData></worksheet>';
+  zip.file("xl/workbook.xml", '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Báo giá khách" sheetId="1" r:id="rId1"/><sheet name="Dự toán" sheetId="2" r:id="rId2"/></sheets></workbook>');
+  zip.file("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/></Relationships>');
+  zip.file("xl/worksheets/sheet1.xml", worksheet("Báo giá khách"));
+  zip.file("xl/worksheets/sheet2.xml", worksheet("Dự toán nội bộ"));
+  return template(zip.generate({ type: "nodebuffer" }), "xlsx");
+}
+
+function multiPurposeSemanticMap(sheet: string, customer = false) {
+  return {
+    sheet, headerRow: 3, firstProductRow: 4, summaryRow: 7, productRows: [4, 5],
+    columns: [
+      { key: "index", column: "A" }, { key: "name", column: "B" },
+      ...(!customer ? [{ key: "quantity", column: "C" }] : []),
+      { key: "unitPrice", column: "D" }, { key: "lineTotal", column: "E" },
+    ],
+    cells: [{ key: "customerName", cell: "B2" }],
+  };
+}
+
 test("phương án theo mẫu để trống số lượng và tổng tiền chưa xác định", async () => {
   const source = xlsxTemplateFixture();
   const draft: Quote = {
@@ -162,6 +191,44 @@ test("AI đọc cột báo giá khách ở mỗi lần xuất theo mẫu", async
   assert.doesNotMatch(xml, /Sản phẩm cũ|<f>/);
   assert.match(xml, /<row r="5" hidden="1"/);
   assert.equal(calls, 1);
+});
+
+test("customer quote and budget exports select their matching tab in a multi-tab workbook", async (t) => {
+  const source = multiPurposeXlsxTemplateFixture();
+  const customerQuote: Quote = { ...quote, kind: "customer", lines: [{ ...quote.lines[0]!, quantity: 1, lineTotal: 0 }], subtotal: 0, taxAmount: 0, total: 0 };
+  const budgetQuote: Quote = { ...quote, kind: "budget", lines: [{ ...quote.lines[0]!, quantity: 3, unitPrice: 20_000, lineTotal: 60_000 }], subtotal: 60_000, taxRate: 0, taxAmount: 0, total: 60_000 };
+  const responses = [
+    multiPurposeSemanticMap("Dự toán", true), multiPurposeSemanticMap("Báo giá khách", true),
+    multiPurposeSemanticMap("Báo giá khách"), multiPurposeSemanticMap("Dự toán"),
+  ];
+  const purposes: string[] = [];
+  const previousKey = config.openRouterApiKey;
+  config.openRouterApiKey = "test-key";
+  t.after(() => { config.openRouterApiKey = previousKey; });
+  t.mock.method(globalThis, "fetch", async (_url: string | URL | Request, init?: RequestInit) => {
+    const request = JSON.parse(String(init?.body));
+    const userContent = request.messages.find((message: { role: string }) => message.role === "user").content;
+    purposes.push(JSON.parse(userContent[0].text).targetWorksheetPurpose);
+    const map = responses.shift();
+    assert.ok(map);
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(map) } }] }), { status: 200 });
+  });
+
+  const customerOutput = new PizZip(await renderAiMappedXlsxTemplate(source, customerQuote));
+  const customerQuoteSheet = customerOutput.file("xl/worksheets/sheet1.xml")!.asText();
+  const untouchedBudgetSheet = customerOutput.file("xl/worksheets/sheet2.xml")!.asText();
+  assert.match(customerQuoteSheet, /<c r="D4"[^>]*><v>10000<\/v><\/c>/);
+  assert.match(untouchedBudgetSheet, /<c r="D4"><v>100<\/v><\/c>/);
+
+  const budgetOutput = new PizZip(await renderAiMappedXlsxTemplate(source, budgetQuote));
+  const untouchedCustomerSheet = budgetOutput.file("xl/worksheets/sheet1.xml")!.asText();
+  const budgetSheet = budgetOutput.file("xl/worksheets/sheet2.xml")!.asText();
+  assert.match(untouchedCustomerSheet, /<c r="D4"><v>100<\/v><\/c>/);
+  assert.match(budgetSheet, /<c r="D4"[^>]*><v>20000<\/v><\/c>/);
+  assert.deepEqual(purposes.filter(Boolean), [
+    "customer quotation and customer-facing product prices", "customer quotation and customer-facing product prices",
+    "budget estimate and cost plan", "budget estimate and cost plan",
+  ]);
 });
 
 test("AI đọc mẫu Excel thử mô hình dự phòng khi lần đầu quá thời gian", async (t) => {
@@ -331,6 +398,67 @@ test("mẫu Excel báo giá khách ghi rõ sản phẩm chưa có và để tr�
   assert.match(xml, /<c r="G5" s="5"\/>/);
   assert.doesNotMatch(xml, /<c r="G5"[^>]*><v>0<\/v>/);
 });
+function contractSettlementXlsxFixture() {
+  const zip = new PizZip();
+  zip.file("xl/workbook.xml", '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Estimate" sheetId="1" r:id="rId1"/></sheets></workbook>');
+  zip.file("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>');
+  zip.file("xl/worksheets/sheet1.xml", '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'
+    + '<row r="3"><c r="A3" t="inlineStr"><is><t>STT</t></is></c><c r="B3" t="inlineStr"><is><t>T&#202;N S&#7842;N PH&#7848;M</t></is></c><c r="C3" t="inlineStr"><is><t>&#272;VT</t></is></c><c r="D3" t="inlineStr"><is><t>Kh&#7889;i l&#432;&#7907;ng</t></is></c><c r="F3" t="inlineStr"><is><t>&#272;&#416;N GI&#193;</t></is></c><c r="G3" t="inlineStr"><is><t>TH&#192;NH TI&#7872;N</t></is></c></row>'
+    + '<row r="4"><c r="D4" t="inlineStr"><is><t>Theo h&#7907;p &#273;&#7891;ng</t></is></c><c r="E4" t="inlineStr"><is><t>Quy&#7871;t to&#225;n</t></is></c><c r="G4" t="inlineStr"><is><t>Theo h&#7907;p &#273;&#7891;ng</t></is></c><c r="H4" t="inlineStr"><is><t>Quy&#7871;t to&#225;n</t></is></c></row>'
+    + '<row r="5"><c r="A5"><v>1</v></c><c r="B5" t="inlineStr"><is><t>Old camera</t></is></c><c r="C5" t="inlineStr"><is><t>Chi&#7871;c</t></is></c><c r="D5"><v>90</v></c><c r="E5"><v>80</v></c><c r="F5"><v>100</v></c><c r="G5"><v>900</v></c><c r="H5"><v>800</v></c></row>'
+    + '<row r="6"><c r="A6"><v>2</v></c><c r="B6" t="inlineStr"><is><t>Old switch</t></is></c><c r="C6" t="inlineStr"><is><t>Chi&#7871;c</t></is></c><c r="D6"><v>70</v></c><c r="E6"><v>60</v></c><c r="F6"><v>200</v></c><c r="G6"><v>14000</v></c><c r="H6"><v>12000</v></c></row>'
+    + '<row r="7"><c r="B7" t="inlineStr"><is><t>T&#7893;ng c&#7897;ng</t></is></c><c r="G7"><v>14900</v></c><c r="H7"><v>12800</v></c></row>'
+    + '<row r="8"><c r="B8" t="inlineStr"><is><t>Thu&#7871; VAT</t></is></c><c r="G8"><v>1490</v></c><c r="H8"><v>1280</v></c></row>'
+    + '<row r="9"><c r="B9" t="inlineStr"><is><t>T&#7893;ng ti&#7873;n thanh to&#225;n</t></is></c><c r="G9"><v>16390</v></c><c r="H9"><v>14080</v></c></row>'
+    + '</sheetData><mergeCells count="2"><mergeCell ref="D3:E3"/><mergeCell ref="G3:H3"/></mergeCells></worksheet>');
+  return template(zip.generate({ type: "nodebuffer" }), "xlsx");
+}
+
+test("paired contract and settlement columns are mapped without stale example values", async (t) => {
+  const source = contractSettlementXlsxFixture();
+  const estimate: Quote = { ...quote, lines: [{ ...quote.lines[0]!, quantity: 2, unitPrice: 10_000, lineTotal: 20_000 }], subtotal: 20_000, taxRate: 0.1, taxAmount: 2_000, total: 22_000 };
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; throw new Error("Unexpected AI request"); });
+  const output = new PizZip(await renderAiMappedXlsxTemplate(source, estimate));
+  const xml = output.file("xl/worksheets/sheet1.xml")!.asText();
+  assert.match(xml, /<c r="D5"[^>]*><v>2<\/v><\/c>/);
+  assert.match(xml, /<c r="G5"[^>]*><v>20000<\/v><\/c>/);
+  assert.match(xml, /<c r="G7"[^>]*><v>20000<\/v><\/c>/);
+  assert.match(xml, /<c r="G8"[^>]*><v>2000<\/v><\/c>/);
+  assert.match(xml, /<c r="G9"[^>]*><v>22000<\/v><\/c>/);
+  for (const cell of ["E5", "H5", "E6", "H6", "H7", "H8", "H9"]) {
+    assert.doesNotMatch(xml, new RegExp(`<c r="${cell}"[^>]*>(?:<v>|<is>|<f>)`));
+  }
+  assert.doesNotMatch(xml, /Old camera|Old switch/);
+  assert.match(xml, /<row r="6" hidden="1"/);
+  assert.equal(calls, 0);
+});
+
+test("estimate rows clear stale data from columns outside the mapped product fields", async (t) => {
+  const base = structuredXlsxTemplateFixture();
+  const zip = new PizZip(Buffer.from(base.data.buffer));
+  const sheetXml = zip.file("xl/worksheets/sheet1.xml")!.asText().replace(
+    '</row><row r="5">',
+    '<c r="I4" t="inlineStr"><is><t>Old origin</t></is></c></row><row r="5">',
+  );
+  zip.file("xl/worksheets/sheet1.xml", sheetXml);
+  const source = template(zip.generate({ type: "nodebuffer" }), "xlsx");
+  const semanticMap = {
+    sheet: "Estimate", headerRow: 3, firstProductRow: 4, summaryRow: 7, productRows: [4, 5],
+    columns: [{ key: "index", column: "A" }, { key: "name", column: "C" }, { key: "details", column: "D" }, { key: "unit", column: "E" }, { key: "quantity", column: "F" }, { key: "unitPrice", column: "G" }, { key: "lineTotal", column: "H" }],
+    cells: [{ key: "total", cell: "H7" }],
+  };
+  const previousKey = config.openRouterApiKey;
+  config.openRouterApiKey = "test-key";
+  t.after(() => { config.openRouterApiKey = previousKey; });
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(semanticMap) } }] }), { status: 200 }));
+  const output = new PizZip(await renderAiMappedXlsxTemplate(source, quote));
+  const xml = output.file("xl/worksheets/sheet1.xml")!.asText();
+  assert.match(xml, /<c r="F4"[^>]*><v>2<\/v><\/c>/);
+  assert.doesNotMatch(xml, /Old origin/);
+  assert.match(xml, /<c r="I4"[^>]*\/>/);
+});
+
 function xlsxPlan() {
   return {
     cells: [{ key: "customerName", sheet: "Estimate", cell: "B1" }, { key: "total", sheet: "Estimate", cell: "D7" }],

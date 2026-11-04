@@ -40,6 +40,12 @@
   box-shadow: 0 2px 8px rgba(15, 23, 42, .04);
 }
 
+.workflow-contract-list-header > .button {
+  position: relative;
+  z-index: 1;
+  flex: none;
+}
+
 .workflow-header::before {
   content: "";
   position: absolute;
@@ -959,6 +965,10 @@
   .workflow-header {
     align-items: flex-start;
     padding: 20px;
+  }
+
+  .workflow-contract-list-header {
+    flex-wrap: wrap;
   }
 
   .workflow-detail-summary {

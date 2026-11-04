@@ -51,7 +51,7 @@ Yêu cầu Node.js 20.19+ và một MongoDB có thể truy cập từ máy chạ
 
 Trang giới thiệu dùng `/`; đăng nhập dùng `/dang-nhap`, đăng ký dùng `/dang-ky`, Tổng quan dùng `/tong-quan` và quản trị dùng `/quan-tri`. Trong không gian doanh nghiệp, Dự toán dùng `/du-toan` (các đường dẫn cũ `/baogia` và `/bao-gia` được chuyển hướng), Báo giá khách hàng dùng `/bao-gia-khach` và chi tiết dùng `/bao-gia-khach/:id`, Mẫu báo giá dùng `/mau-bao-gia`, Bảng giá dùng `/bang-gia` và Trang cá nhân dùng `/tai-khoan`. Các đường dẫn cũ `/login`, `/app`, `/admin` và `/ung-dung` cùng các trang con được chuyển hướng sang URL mới. Chỉ trang giới thiệu được đưa vào sitemap; các trang tài khoản và URL không tồn tại được đánh dấu không lập chỉ mục. Khi triển khai, đặt `PUBLIC_SITE_URL` thành origin HTTPS chính thức để canonical và sitemap luôn dùng đúng tên miền.
 
-Báo giá khách hàng là danh sách sản phẩm, dịch vụ kèm đơn vị và đơn giá. Trang chi tiết và file Excel xuất cho khách không có số lượng, thành tiền, thuế hay tổng cộng. Dự toán giữ quy trình tính số lượng và tổng tiền riêng.
+Báo giá khách hàng là danh sách sản phẩm, dịch vụ kèm đơn vị và đơn giá. Khi tạo, người dùng chọn mẫu báo giá Word, Excel hoặc PDF; thông tin khách hàng, sản phẩm và mô tả yêu cầu được lưu cùng mẫu. Khi tải file, AI dùng các thông tin đó để điền mẫu qua cùng luồng xuất của dự toán; file mới được lưu rồi tải xuống. Nếu báo giá thay đổi hoặc được duyệt, lần tải tiếp theo tự tạo lại file phù hợp. Danh sách và file báo giá khách không có số lượng, thành tiền, thuế hay tổng cộng; dự toán giữ quy trình tính giá riêng.
 
 ## Nhập bảng giá
 
