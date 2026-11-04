@@ -700,7 +700,7 @@ async function queueGeneratedExport(
         $unset: { error: "" },
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message.slice(0, 700) : "Không thể tạo tệp xuất.";
+      const message = error instanceof Error ? error.message.slice(0, 3_000) : "Không thể tạo tệp xuất.";
       await jobs.updateOne({ _id: insertedId, companyId: user.companyId }, {
         $set: { status: "failed", error: message, updatedAt: new Date() },
       }).catch(() => undefined);
