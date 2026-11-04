@@ -244,6 +244,7 @@ export async function connectDatabase() {
         db.collection("companyFiles").createIndex({ companyId: 1, createdAt: -1 }),
         db.collection<GeneratedExportJob>("generatedExportJobs").createIndex({ companyId: 1, createdAt: -1 }),
         db.collection<GeneratedExportJob>("generatedExportJobs").createIndex({ status: 1, createdAt: 1 }),
+        db.collection<GeneratedExportJob>("generatedExportJobs").createIndex({ companyId: 1, sourceId: 1, kind: 1, status: 1, updatedAt: -1 }),
         db.collection("subscriptionPayments").createIndex({ code: 1 }, { unique: true }),
         db.collection("subscriptionPayments").createIndex({ sepayTransactionId: 1 }, { unique: true, sparse: true }),
         db.collection("subscriptionPayments").createIndex({ companyId: 1, status: 1, createdAt: -1 }),

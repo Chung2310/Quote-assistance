@@ -30,6 +30,7 @@ export interface GeneratedExportJob {
   companyId: string;
   createdBy: string;
   kind: string;
+  sourceId?: string;
   status: GeneratedExportJobStatus;
   filename?: string;
   fileId?: string;

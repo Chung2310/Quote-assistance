@@ -676,6 +676,7 @@ async function queueGeneratedExport(
   db: Db,
   user: SessionUser,
   kind: string,
+  sourceId: string,
   work: () => Promise<{ filename: string; mimeType: string; bytes: Buffer }>,
 ) {
   const jobs = db.collection<GeneratedExportJob>("generatedExportJobs");
@@ -684,6 +685,7 @@ async function queueGeneratedExport(
     companyId: user.companyId,
     createdBy: user.id,
     kind,
+    sourceId,
     status: "queued",
     createdAt: now,
     updatedAt: now,
@@ -1617,6 +1619,32 @@ app.get("/api/export-jobs/:id", requireRole("user"), async (request, response) =
   } });
 });
 
+app.get("/api/generated-export-files/latest", requireRole("user"), async (request, response) => {
+  const sourceId = asId(String(request.query.sourceId ?? ""));
+  const kind = String(request.query.kind ?? "");
+  const allowedKinds = new Set(["budget", "contract", "acceptance", "settlement", "customer_quote", "estimate", "estimate_draft"]);
+  if (!sourceId || !allowedKinds.has(kind)) return fail(response, "Loại hoặc mã hồ sơ xuất file không hợp lệ.");
+  const user = userOf(request);
+  const db = await connectDatabase();
+  const job = await db.collection<GeneratedExportJob>("generatedExportJobs").findOne({
+    companyId: user.companyId,
+    sourceId: sourceId.toHexString(),
+    kind,
+    status: "completed",
+    fileId: { $exists: true },
+  }, { sort: { updatedAt: -1 } });
+  const fileId = job?.fileId ? asId(job.fileId) : null;
+  const file = fileId
+    ? await db.collection<CompanyFile>("companyFiles").findOne({ _id: fileId, companyId: user.companyId })
+    : null;
+  response.json({ file: file ? {
+    id: file._id?.toHexString(),
+    filename: file.originalFilename,
+    mimeType: file.mimeType,
+    createdAt: file.createdAt,
+  } : null });
+});
+
 app.get("/api/files/:id/download", requireRole("user"), async (request, response) => {
   const id = asId(request.params.id);
   if (!id) return fail(response, "Mã tệp không hợp lệ.");
@@ -2322,7 +2350,7 @@ app.get("/api/budget-plans/:id/export", requireRole("user"), async (request, res
   });
   if (request.query.background === "1") {
     try {
-      const job = await queueGeneratedExport(db, user, "budget", render);
+      const job = await queueGeneratedExport(db, user, "budget", id.toHexString(), render);
       return response.status(202).json(job);
     } catch (error) { return fail(response, error instanceof Error ? error.message : "Không tạo được tác vụ xuất phương án.", 500); }
   }
@@ -3102,7 +3130,7 @@ app.get(["/api/contracts/:id/docx", "/api/contracts/:id/file"], requireRole("use
       return { ...file, filename: `${contract.contractNumber}.${file.extension}`, mimeType: templateFormats[file.extension] };
     };
     if (request.query.background === "1") {
-      const job = await queueGeneratedExport(db, user, "contract", render);
+      const job = await queueGeneratedExport(db, user, "contract", id.toHexString(), render);
       return response.status(202).json(job);
     }
     const file = await render();
@@ -3296,7 +3324,7 @@ app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"]
       return { ...file, filename: `${record.acceptanceNumber}.${file.extension}`, mimeType: templateFormats[file.extension] };
     };
     if (request.query.background === "1") {
-      const job = await queueGeneratedExport(db, user, "acceptance", render);
+      const job = await queueGeneratedExport(db, user, "acceptance", id.toHexString(), render);
       return response.status(202).json(job);
     }
     const file = await render();
@@ -3360,7 +3388,7 @@ app.get("/api/acceptance-records/:id/settlement.xlsx", requireRole("user"), asyn
   });
   try {
     if (request.query.background === "1") {
-      const job = await queueGeneratedExport(db, user, "settlement", render);
+      const job = await queueGeneratedExport(db, user, "settlement", id.toHexString(), render);
       return response.status(202).json(job);
     }
     const { bytes } = await render();
@@ -3465,7 +3493,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       const filename = `${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx`;
       const render = async () => ({ filename, mimeType: templateFormats.xlsx, bytes: await withAiUsage(db, userOf(request), "customer_quote_export_template", () => renderAiMappedXlsxTemplate(exportTemplate, quote)) });
       if (request.query.background === "1") {
-        const job = await queueGeneratedExport(db, userOf(request), "customer_quote", render);
+        const job = await queueGeneratedExport(db, userOf(request), "customer_quote", id.toHexString(), render);
         return response.status(202).json(job);
       }
       const { bytes } = await render();
@@ -3502,7 +3530,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       const filename = `${quote.quoteNumber}.xlsx`;
       const render = async () => ({ filename, mimeType: templateFormats.xlsx, bytes: await withAiUsage(db, userOf(request), "quote_export_template", async () => renderAiMappedXlsxTemplate(exportTemplate, quote, await quoteInputContext(db, quote))) });
       if (request.query.background === "1") {
-        const job = await queueGeneratedExport(db, userOf(request), "estimate", render);
+        const job = await queueGeneratedExport(db, userOf(request), "estimate", id.toHexString(), render);
         return response.status(202).json(job);
       }
       const { bytes } = await render();
@@ -3526,7 +3554,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
         generatedExportTemplate(userOf(request), filename, "xlsx", makeQuoteExcel(quote)), quote, await quoteInputContext(db, quote),
       )) });
       if (request.query.background === "1") {
-        const job = await queueGeneratedExport(db, userOf(request), "estimate_draft", render);
+        const job = await queueGeneratedExport(db, userOf(request), "estimate_draft", id.toHexString(), render);
         return response.status(202).json(job);
       }
       const { bytes } = await render();
@@ -3567,7 +3595,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       return { filename, mimeType, bytes, extension };
     };
     if (request.query.background === "1") {
-      const job = await queueGeneratedExport(db, userOf(request), "estimate", render);
+      const job = await queueGeneratedExport(db, userOf(request), "estimate", id.toHexString(), render);
       return response.status(202).json(job);
     }
     const { bytes, extension, filename, mimeType } = await render();

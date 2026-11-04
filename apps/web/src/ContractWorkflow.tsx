@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, fetchGeneratedExport, formatDate, formatMoney } from "./api";
+import { api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import { formatVndInputValue, parseVndInputValue, updateVndInput } from "./money-input";
 import type { AcceptanceRecord, Contract } from "./types";
 import { AcceptanceCreationDialog } from "./DocumentDialogs";
@@ -58,6 +58,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const [settlementTemplateOverride, setSettlementTemplateOverride] = useState("");
   const [downloading, setDownloading] = useState(false);
   const [settlementDownloading, setSettlementDownloading] = useState(false);
+  const [savedWordFile, setSavedWordFile] = useState<GeneratedFileRef | null>(null);
+  const [savedSettlementFile, setSavedSettlementFile] = useState<GeneratedFileRef | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,6 +108,24 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     } finally { setLoading(false); }
   }, [view, id, notify]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!id) { setSavedWordFile(null); setSavedSettlementFile(null); return; }
+    let active = true;
+    const wordKind = view === "contracts" ? "contract" : "acceptance";
+    void Promise.all([
+      getLatestGeneratedFile(id, wordKind),
+      view === "acceptances" ? getLatestGeneratedFile(id, "settlement") : Promise.resolve({ file: null }),
+    ]).then(([word, settlement]) => {
+      if (!active) return;
+      setSavedWordFile(word.file);
+      setSavedSettlementFile(settlement.file);
+    }).catch(() => {
+      if (!active) return;
+      setSavedWordFile(null);
+      setSavedSettlementFile(null);
+    });
+    return () => { active = false; };
+  }, [view, id]);
   useEffect(() => {
     if (!id) return;
     let active = true;
@@ -207,35 +227,29 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     finally { setBusy(false); }
   };
 
-  const downloadDocument = async (url: string) => {
+  const createDocument = async (url: string, kind: "contract" | "acceptance" | "settlement") => {
     if (downloading) return;
-    const isSettlementDownload = url.includes("/settlement.xlsx");
+    const isSettlementExport = kind === "settlement";
     setDownloading(true);
-    if (isSettlementDownload) setSettlementDownloading(true);
+    if (isSettlementExport) setSettlementDownloading(true);
     try {
-      const response = await fetchGeneratedExport(url);
-      if (!response.ok) {
-        const body = await response.json().catch(() => null) as { error?: string } | null;
-        throw new Error(body?.error || "Không tải được tài liệu đã điền.");
-      }
-      const usedDefaultTemplate = ["fallback-ai-error", "fallback-ai-402"].includes(response.headers.get("X-Acceptance-Template-Status") ?? "");
-      const usedDefaultContract = response.headers.get("X-Contract-Template-Status") === "fallback-ai-error";
-      const disposition = response.headers.get("Content-Disposition") ?? "";
-      const filenameMatch = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
-      const quotedFilename = /filename="([^"]+)"/i.exec(disposition);
-      const filename = filenameMatch ? decodeURIComponent(filenameMatch[1]) : quotedFilename?.[1] ?? "hop-dong.docx";
-      const objectUrl = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a");
-      link.href = objectUrl;
-      link.download = filename;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
-      if (usedDefaultContract) notify("Đã tải hợp đồng Word theo mẫu mặc định vì AI không điền được mẫu đã chọn. File dùng dữ liệu hợp đồng đã lưu; mẫu bạn chọn chưa được áp dụng.", "success");
-      if (usedDefaultTemplate) notify("Đã tải biên bản nghiệm thu Word theo mẫu mặc định vì AI không điền được mẫu đã chọn. File dùng dữ liệu nghiệm thu đã lưu; mẫu bạn chọn chưa được áp dụng.", "success");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không tải được tài liệu đã điền.", "error"); }
+      const file = await createGeneratedExport(url);
+      if (isSettlementExport) setSavedSettlementFile(file);
+      else setSavedWordFile(file);
+      notify(`Đã tạo và lưu ${file.filename} lên Cloudinary.`, "success");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được file.", "error"); }
     finally { setDownloading(false); setSettlementDownloading(false); }
+  };
+
+  const downloadSavedDocument = async (file: GeneratedFileRef | null) => {
+    if (downloading) return;
+    if (!file) { notify("Chưa có file đã lưu để tải. Hãy tạo file trước.", "error"); return; }
+    setDownloading(true);
+    try {
+      await downloadGeneratedFile(file.id);
+      notify("Đã tải file đã lưu từ Cloudinary.", "success");
+    } catch (error) { notify(error instanceof Error ? error.message : "Không tải được file đã lưu.", "error"); }
+    finally { setDownloading(false); }
   };
 
   if (loading) return <div className="workflow-page"><div className="workflow-loading"><span className="spinner spinner-dark" />Đang tải dữ liệu…</div></div>;
@@ -272,14 +286,14 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const settlementTemplateId = settlementTemplateOverride || settlementTemplates[0]?.id || "";
   const settlementUrl = "/api/acceptance-records/" + record!._id + "/settlement.xlsx?background=1"
     + (settlementTemplateId ? "&templateId=" + encodeURIComponent(settlementTemplateId) : "");
-  const templateSelector = wordTemplates.length > 0 && <label className="workflow-word-template">Mẫu xuất
-    <select aria-label="Mẫu chứng từ khi tải" value={wordTemplateId} onChange={(event) => setWordTemplateOverride(event.target.value)} disabled={downloading}>
+  const templateSelector = wordTemplates.length > 0 && <label className="workflow-word-template">Mẫu tạo file
+    <select aria-label="Mẫu chứng từ khi tạo file" value={wordTemplateId} onChange={(event) => setWordTemplateOverride(event.target.value)} disabled={downloading}>
       {wordTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
     </select>
   </label>;
   const downloadLabel = downloading
-    ? selectedTemplateMode === "pdf-ai" || selectedTemplateMode === "docx-ai" ? "AI đang đọc và điền mẫu…" : "Đang tải…"
-    : view === "contracts" && selectedTemplateMode === "pdf-ai" ? "Tải PDF đã điền" : "Tải Word đã điền";
+    ? selectedTemplateMode === "pdf-ai" || selectedTemplateMode === "docx-ai" ? "AI đang sửa mẫu…" : "Đang tạo file…"
+    : "Tạo file bằng AI";
 
   if (view === "contracts") {
     const editable = contract.status === "draft";
@@ -304,7 +318,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
         <button className="button button-soft" onClick={() => navigate("contracts")}>← Danh sách hợp đồng</button>
         <div className="workflow-toolbar-actions">
           {templateSelector}
-          <button className="button button-primary" type="button" disabled={downloading} onClick={() => void downloadDocument(wordUrl)}>{downloadLabel}</button>
+          <button className="button button-primary" type="button" disabled={downloading} onClick={() => void createDocument(wordUrl, "contract")}>{downloadLabel}</button>
+          <button className="button button-soft" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>{savedWordFile ? `Tải file đã lưu (${savedWordFile.filename})` : "Chưa có file hợp đồng đã lưu"}</button>
           <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>
           {contract.status === "signed" && <button className="button button-soft" disabled={busy} onClick={() => void createAcceptance(contract)}>Tạo nghiệm thu</button>}
         </div>
@@ -411,14 +426,16 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       <button className="button button-soft" onClick={() => navigate("acceptances")}>← Danh sách nghiệm thu</button>
       <div className="workflow-toolbar-actions">
         {templateSelector}
-        <button className="button button-primary" type="button" disabled={downloading} onClick={() => void downloadDocument(wordUrl)}>{downloadLabel === "Tải PDF đã điền" ? "Tải Word đã điền" : downloadLabel}</button>
+        <button className="button button-primary" type="button" disabled={downloading} onClick={() => void createDocument(wordUrl, "acceptance")}>{downloadLabel}</button>
+        <button className="button button-soft" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>{savedWordFile ? `Tải file đã lưu (${savedWordFile.filename})` : "Chưa có file nghiệm thu đã lưu"}</button>
         {view === "acceptances" && acceptance.status === "completed" && <>
           {settlementTemplates.length > 0 && <label className="workflow-word-template">Mẫu hồ sơ quyết toán
             <select aria-label="Mẫu quyết toán Excel" value={settlementTemplateId} onChange={(event) => setSettlementTemplateOverride(event.target.value)} disabled={downloading}>
               {settlementTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
             </select>
           </label>}
-          <button className="button button-soft" type="button" disabled={downloading || !settlementTemplates.length} onClick={() => void downloadDocument(settlementUrl)}>{settlementDownloading ? "Đang tạo hồ sơ quyết toán…" : "Tải hồ sơ quyết toán Excel"}</button>
+          <button className="button button-soft" type="button" disabled={downloading || !settlementTemplates.length} onClick={() => void createDocument(settlementUrl, "settlement")}>{settlementDownloading ? "Đang tạo hồ sơ quyết toán…" : "Tạo file quyết toán bằng AI"}</button>
+          <button className="button button-soft" type="button" disabled={downloading || !savedSettlementFile} onClick={() => void downloadSavedDocument(savedSettlementFile)}>{savedSettlementFile ? `Tải file đã lưu (${savedSettlementFile.filename})` : "Chưa có hồ sơ quyết toán đã lưu"}</button>
           {!settlementTemplates.length && <small className="workflow-template-source">Chưa có mẫu quyết toán Excel. Tải mẫu lên mục Quản lý mẫu → Quyết toán.</small>}
         </>}
         <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>

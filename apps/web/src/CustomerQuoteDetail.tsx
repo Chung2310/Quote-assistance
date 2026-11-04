@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, fetchGeneratedExport, formatDate, formatMoney, responseBlobWithProgress } from "./api";
+import { api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import { TaskProgress, type ConfirmOptions, type Notify, type TaskProgressState } from "./Feedback";
 import type { Quote, QuoteStatus } from "./types";
 import VietnameseDatePicker from "./VietnameseDatePicker";
@@ -61,6 +61,7 @@ export default function CustomerQuoteDetail({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<TaskProgressState | null>(null);
+  const [savedExport, setSavedExport] = useState<GeneratedFileRef | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
 
@@ -89,6 +90,14 @@ export default function CustomerQuoteDetail({
       live = false;
     };
   }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    getLatestGeneratedFile(id, "customer_quote")
+      .then(({ file }) => { if (active) setSavedExport(file); })
+      .catch(() => { if (active) setSavedExport(null); });
+    return () => { active = false; };
+  }, [id]);
 
   const editable = Boolean(quote && quote.status !== "approved");
 
@@ -241,30 +250,23 @@ export default function CustomerQuoteDetail({
       onToast("Đã chuyển báo giá về trạng thái cần chỉnh sửa.", "success");
     });
 
-  const download = () =>
-    void run("Đang xuất file báo giá", async () => {
+  const generateExport = () =>
+    void run("Đang tạo file báo giá", async () => {
       if (!quote) return;
       const current = dirty && editable ? await save() : quote;
       const isDraft = current.status !== "approved";
       const exportParams = new URLSearchParams({ background: "1" });
       if (isDraft) exportParams.set("draft", "1");
-      const response = await fetchGeneratedExport(`/api/quotes/${current._id}/export?${exportParams.toString()}`);
-      if (!response.ok) {
-        const result = (await response.json().catch(() => ({}))) as { error?: string };
-        throw new Error(result.error ?? "Không xuất được báo giá.");
-      }
-      const blob = await responseBlobWithProgress(response, (percent) =>
-        setProgress({ label: "Đang tải file Excel báo giá", progress: percent })
-      );
-      const extension = "xlsx";
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${current.quoteNumber}${isDraft ? "-nhap" : ""}.${extension}`;
-      anchor.click();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      onToast("Đã tải file Excel báo giá thành công.", "success");
+      const file = await createGeneratedExport(`/api/quotes/${current._id}/export?${exportParams.toString()}`);
+      setSavedExport(file);
+      onToast(`Đã tạo và lưu ${file.filename} lên Cloudinary.`, "success");
     });
+
+  const downloadSavedExport = () => void run("Đang tải file đã lưu", async () => {
+    if (!savedExport) throw new Error("Báo giá chưa có file đã lưu. Hãy tạo file trước.");
+    await downloadGeneratedFile(savedExport.id);
+    onToast("Đã tải file đã lưu từ Cloudinary.", "success");
+  });
 
   if (loading) {
     return (
@@ -397,14 +399,14 @@ export default function CustomerQuoteDetail({
               type="button"
               className="button button-primary"
               disabled={busy || !quote.lines.length}
-              onClick={download}
+              onClick={generateExport}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <span>{quote.status === "approved" ? "Xuất Excel báo giá" : "Xuất Excel nháp"}</span>
+              <span>{quote.status === "approved" ? "Tạo file báo giá" : "Tạo file báo giá nháp"}</span>
             </button>
 
             {["draft", "rejected"].includes(quote.status) && (
@@ -919,15 +921,15 @@ export default function CustomerQuoteDetail({
               <button
                 type="button"
                 className="button button-soft"
-                disabled={busy || !quote.lines.length}
-                onClick={download}
+                disabled={busy || !savedExport}
+                onClick={downloadSavedExport}
               >
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                <span>{quote.status === "approved" ? "Tải file Excel" : "Tải Excel nháp"}</span>
+                <span>{savedExport ? `Tải file đã lưu (${savedExport.filename})` : "Chưa có file lưu để tải"}</span>
               </button>
             </div>
           </div>

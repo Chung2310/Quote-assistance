@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, fetchGeneratedExport, formatDate, formatMoney } from "./api";
+import { api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
 import { TaskProgress, type ConfirmOptions, type Notify } from "./Feedback";
 import type { Quote } from "./types";
@@ -29,6 +29,7 @@ export default function CustomerProductListDetail({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [exportingWithAi, setExportingWithAi] = useState(false);
+  const [savedExport, setSavedExport] = useState<GeneratedFileRef | null>(null);
   const [error, setError] = useState("");
   const initialTemplateSelected = useRef(false);
 
@@ -55,6 +56,14 @@ export default function CustomerProductListDetail({
     return () => {
       active = false;
     };
+  }, [id]);
+
+  useEffect(() => {
+    let active = true;
+    getLatestGeneratedFile(id, "customer_quote")
+      .then(({ file }) => { if (active) setSavedExport(file); })
+      .catch(() => { if (active) setSavedExport(null); });
+    return () => { active = false; };
   }, [id]);
 
   useEffect(() => {
@@ -124,7 +133,7 @@ export default function CustomerProductListDetail({
       onToast("Đã duyệt danh sách sản phẩm thành công.", "success");
     });
 
-  const download = () =>
+  const generateExport = () =>
     void run(async () => {
       if (!quote) return;
       if (templateId) setExportingWithAi(true);
@@ -132,22 +141,19 @@ export default function CustomerProductListDetail({
         const params = new URLSearchParams({ templateId: templateId || "none" });
         params.set("background", "1");
         if (quote.status !== "approved") params.set("draft", "1");
-        const response = await fetchGeneratedExport("/api/quotes/" + id + "/export?" + params);
-        if (!response.ok) {
-          const body = (await response.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(body?.error || "Không tải được danh sách sản phẩm.");
-        }
-        const url = URL.createObjectURL(await response.blob());
-        const anchor = document.createElement("a");
-        anchor.href = url;
-        anchor.download = `${quote.quoteNumber}-san-pham.xlsx`;
-        anchor.click();
-        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-        onToast("Đã xuất file Excel danh sách sản phẩm.", "success");
+        const file = await createGeneratedExport("/api/quotes/" + id + "/export?" + params);
+        setSavedExport(file);
+        onToast(`Đã tạo và lưu ${file.filename} lên Cloudinary.`, "success");
       } finally {
         setExportingWithAi(false);
       }
     });
+
+  const downloadSavedExport = () => void run(async () => {
+    if (!savedExport) throw new Error("Chưa có file đã lưu để tải.");
+    await downloadGeneratedFile(savedExport.id);
+    onToast("Đã tải file đã lưu từ Cloudinary.", "success");
+  });
 
   // Selected template name
   const selectedTemplateName = useMemo(() => {
@@ -204,7 +210,7 @@ export default function CustomerProductListDetail({
         </div>
       )}
 
-      {exportingWithAi && <TaskProgress label="AI đang đọc mẫu Excel và ghép dữ liệu" detail="Đang xác định các cột và chuẩn bị file xuất…" />}
+      {exportingWithAi && <TaskProgress label="AI đang sửa file mẫu" detail="Đang tạo và lưu file kết quả lên Cloudinary…" />}
 
       {/* Header Banner Card */}
       <section className="cqd-header-card">
@@ -315,19 +321,23 @@ export default function CustomerProductListDetail({
               ]}
               className="customer-product-template-select"
             />
-            {/* Download Button */}
+            {/* Generate Button */}
             <button
               type="button"
               className="button button-primary"
               disabled={busy}
-              onClick={download}
+              onClick={generateExport}
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <span>{quote.status === "approved" ? "Xuất Excel" : "Xuất Excel nháp"}</span>
+              <span>{exportingWithAi ? "Đang tạo file…" : "Tạo file bằng AI"}</span>
+            </button>
+
+            <button type="button" className="button button-soft" disabled={busy || !savedExport} onClick={downloadSavedExport}>
+              <span>{savedExport ? `Tải file đã lưu (${savedExport.filename})` : "Chưa có file lưu để tải"}</span>
             </button>
 
             {/* Delete Quote */}

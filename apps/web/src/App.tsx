@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ApiError, api, apiUploadWithProgress, fetchGeneratedExport, formatDate, formatMoney, responseBlobWithProgress } from "./api";
+import { ApiError, api, apiUploadWithProgress, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import MoneyInput from "./MoneyInput";
 import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
@@ -1567,6 +1567,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const [downloadTemplatesError, setDownloadTemplatesError] = useState("");
   const [downloadExcelOnly, setDownloadExcelOnly] = useState(false);
   const [activeQuoteDownload, setActiveQuoteDownload] = useState<"word" | "excel" | "document" | null>(null);
+  const [savedEstimateFile, setSavedEstimateFile] = useState<GeneratedFileRef | null>(null);
 
   const canEdit = user.role === "user";
   const canApprove = user.role === "user";
@@ -1629,6 +1630,15 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   }, [id]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!quote?._id) { setSavedEstimateFile(null); return; }
+    let active = true;
+    const kind = quote.status === "approved" ? "estimate" : "estimate_draft";
+    getLatestGeneratedFile(quote._id, kind)
+      .then(({ file }) => { if (active) setSavedEstimateFile(file); })
+      .catch(() => { if (active) setSavedEstimateFile(null); });
+    return () => { active = false; };
+  }, [quote?._id, quote?.status]);
   useEffect(() => {
     const dialog = downloadTemplateDialog.current;
     if (!dialog) return;
@@ -1832,13 +1842,13 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const canDownloadQuote = quote.status === "approved" || canExportDraftXlsx;
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
-  const downloadQuote = async (excelOnly: boolean, templateId: string) => {
+  const createQuoteExport = async (excelOnly: boolean, templateId: string) => {
     setBusy(true); setError("");
     const selectedTemplate = downloadTemplateChoices.find((entry) => entry.id === templateId);
     const downloadKind = canExportDraftXlsx || excelOnly ? "excel" : selectedTemplate?.extension === "docx" ? "word" : selectedTemplate?.extension === "xlsx" ? "excel" : "document";
     setActiveQuoteDownload(downloadKind);
-    const fileLabel = downloadKind === "excel" ? "Đang xuất Excel" : downloadKind === "word" ? "Đang chuẩn bị file Word" : "Đang chuẩn bị file dự toán";
-    setTaskProgress({ label: fileLabel, detail: "Đang tạo file từ mẫu dự toán…" });
+    const fileLabel = downloadKind === "excel" ? "Đang tạo file Excel" : downloadKind === "word" ? "Đang tạo file Word" : "Đang tạo file dự toán";
+    setTaskProgress({ label: fileLabel, detail: "AI đang sửa mẫu và lưu file lên Cloudinary…" });
     try {
       if (editable && hasUnsavedChanges && !hasIncompleteSupplementalProduct) {
         await api(`/api/quotes/${quote._id}`, { method: "PATCH", body: JSON.stringify(editPayload()) });
@@ -1851,21 +1861,21 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       exportParams.set("templateId", templateId || "none");
       exportParams.set("background", "1");
       const exportQuery = `?${exportParams.toString()}`;
-      const response = await fetchGeneratedExport(`/api/quotes/${quote._id}/export${exportQuery}`);
-      if (!response.ok) { const result = await response.json(); throw new Error(result.error || "Không tải được dự toán."); }
-      const blob = await responseBlobWithProgress(response, (progress) => setTaskProgress({
-        label: downloadKind === "excel" ? "Đang tải file Excel" : downloadKind === "word" ? "Đang tải file Word" : "Đang tải file dự toán",
-        progress,
-        detail: progress === null ? "Máy chủ đã tạo file. Đang tải xuống…" : "Tiến độ tải file",
-      }));
-      const url = URL.createObjectURL(blob);
-      const extension = canExportDraftXlsx || excelOnly ? "xlsx" : selectedTemplate?.extension ?? "pdf";
-      const link = document.createElement("a");
-      link.href = url; link.download = `${quote.quoteNumber}${canExportDraftXlsx ? "-nhap" : ""}.${extension}`;
-      link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-      onToast("Đã tải file dự toán.", "success");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tải được dự toán."); }
+      const file = await createGeneratedExport(`/api/quotes/${quote._id}/export${exportQuery}`);
+      setSavedEstimateFile(file);
+      onToast(`Đã tạo và lưu ${file.filename} lên Cloudinary.`, "success");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tạo được file dự toán."); }
     finally { setBusy(false); setTaskProgress(null); setActiveQuoteDownload(null); }
+  };
+
+  const downloadSavedEstimate = async () => {
+    if (!savedEstimateFile || busy) return;
+    setBusy(true);
+    try {
+      await downloadGeneratedFile(savedEstimateFile.id);
+      onToast("Đã tải file đã lưu từ Cloudinary.", "success");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tải được file đã lưu."); }
+    finally { setBusy(false); }
   };
 
   const openDownloadTemplateDialog = async (excelOnly = false) => {
@@ -1893,9 +1903,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     }
   };
 
-  const confirmTemplateDownload = () => {
+  const confirmTemplateGeneration = () => {
     setDownloadTemplateDialogOpen(false);
-    void downloadQuote(downloadExcelOnly, selectedDownloadTemplateId);
+    void createQuoteExport(downloadExcelOnly, selectedDownloadTemplateId);
   };
 
   return (
@@ -1975,18 +1985,22 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             type="button"
             className="button button-primary"
             disabled={busy || !canDownloadQuote}
-            title={canExportDraftXlsx ? "Xuất Excel nháp trước khi duyệt" : "Tải file dự toán chính thức"}
+            title={canExportDraftXlsx ? "Tạo file Excel nháp bằng AI" : "Tạo file dự toán bằng AI"}
             onClick={() => void openDownloadTemplateDialog()}
           >
             {activeQuoteDownload === "word" ? <span className="spinner" aria-hidden="true" /> : <Icon name="download" size={16} />}
-            <span>{activeQuoteDownload === "word" ? "Đang tải Word…" : quote.status === "approved" ? "Tải file dự toán" : canExportDraftXlsx ? "Xuất Excel nháp" : "Xuất sau khi duyệt"}</span>
+            <span>{activeQuoteDownload === "word" ? "Đang tạo Word…" : quote.status === "approved" ? "Tạo file dự toán" : canExportDraftXlsx ? "Tạo Excel nháp bằng AI" : "Tạo file dự toán"}</span>
           </button>
           {quote.status === "approved" && (
             <button type="button" className="button button-soft" disabled={busy} onClick={() => void openDownloadTemplateDialog(true)}>
               {activeQuoteDownload === "excel" ? <span className="spinner-dark" aria-hidden="true" /> : <Icon name="download" size={16} />}
-              <span>{activeQuoteDownload === "excel" ? "Đang tải Excel…" : "Xuất Excel"}</span>
+              <span>{activeQuoteDownload === "excel" ? "Đang tạo Excel…" : "Tạo Excel bằng AI"}</span>
             </button>
           )}
+          <button type="button" className="button button-soft" disabled={busy || !savedEstimateFile} onClick={() => void downloadSavedEstimate()}>
+            <Icon name="download" size={16} />
+            <span>{savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : "Chưa có file dự toán đã lưu"}</span>
+          </button>
 
           {canApprove && (["draft", "needs_info", "pending_review"].includes(quote.status)) && (
             <>
@@ -2496,15 +2510,15 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       >
         <div className="settings-card-heading">
           <div>
-            <h2 id="estimate-download-title">{downloadExcelOnly ? "Xuất Excel dự toán" : "Tải file dự toán"}</h2>
-            <p className="settings-hint">Chọn mẫu cho lần tải này. Mẫu đã gắn với dự toán sẽ không bị thay đổi.</p>
+            <h2 id="estimate-download-title">{downloadExcelOnly ? "Tạo file Excel dự toán" : "Tạo file dự toán"}</h2>
+            <p className="settings-hint">Chọn mẫu để AI sửa và lưu file kết quả. Tải file đã lưu bằng nút riêng trên hồ sơ.</p>
           </div>
           <button type="button" className="icon-button" aria-label="Đóng hộp thoại chọn mẫu" onClick={() => setDownloadTemplateDialogOpen(false)}>
             <Icon name="close" />
           </button>
         </div>
         <div className="estimate-from-quote-body">
-          <label className="estimate-from-quote-field" htmlFor="estimate-download-template">Mẫu dự toán
+          <label className="estimate-from-quote-field" htmlFor="estimate-download-template">Mẫu dùng để tạo file
             <select
               id="estimate-download-template"
               value={selectedDownloadTemplateId}
@@ -2524,8 +2538,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
           {!downloadTemplatesLoading && !downloadTemplatesError && !downloadTemplateChoices.length && <p>Chưa có mẫu phù hợp; file sẽ dùng mẫu mặc định.</p>}
           <div className="estimate-from-quote-actions">
             <button type="button" className="button button-soft" disabled={busy} onClick={() => setDownloadTemplateDialogOpen(false)}>Hủy</button>
-            <button type="button" className="button button-primary" disabled={busy || downloadTemplatesLoading} onClick={confirmTemplateDownload}>
-              {downloadExcelOnly ? "Xuất Excel" : canExportDraftXlsx ? "Xuất Excel nháp" : "Tải file dự toán"}
+            <button type="button" className="button button-primary" disabled={busy || downloadTemplatesLoading} onClick={confirmTemplateGeneration}>
+              {downloadExcelOnly ? "Tạo file Excel" : canExportDraftXlsx ? "Tạo file Excel nháp" : "Tạo file dự toán"}
             </button>
           </div>
         </div>
