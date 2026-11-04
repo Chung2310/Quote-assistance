@@ -19,7 +19,7 @@ export interface QuoteTemplate {
   _id?: ObjectId;
   name?: string;
   companyId: string;
-  category?: "quote" | "estimate" | "contract" | "acceptance" | null;
+  category?: "quote" | "estimate" | "contract" | "acceptance" | "settlement" | null;
   originalFilename: string;
   extension: string;
   bytes: number;
@@ -50,7 +50,7 @@ function quoteAdditionalInformation(quote: Quote) {
     .map(([field, value]) => `${field}: ${value.trim()}`).join("\n");
 }
 
-const xlsxScalarKeys = ["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt", "subtotal", "shippingFee", "taxRate", "taxAmount", "total", "currency", "validityDays", "completionDate", "additionalInformation"] as const;
+const xlsxScalarKeys = ["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt", "subtotal", "shippingFee", "taxRate", "taxAmount", "total", "currency", "validityDays", "completionDate", "additionalInformation", "contractNumber", "projectName", "projectAddress", "acceptanceNumber", "acceptedDate", "startTime", "endTime", "location", "result", "handoverDetails", "qualityAssessment", "contractValue", "settlementAmount", "amountPaid", "settlementBalance", "paymentDueDays", "acceptanceNotes"] as const;
 const xlsxLineKeys = ["index", "sku", "name", "details", "width", "height", "length", "quantity", "unit", "unitPrice", "lineTotal", "lineTaxRate", "lineTaxAmount", "lineTotalAfterTax"] as const;
 const dimensionKeys = ["width", "height", "length"] as const;
 type DimensionKey = typeof dimensionKeys[number];
@@ -531,6 +531,7 @@ function xlsxWorksheetPurposeScore(sheet: XlsxSheetInfo, quote: Quote, inputCont
     - (has(/\b(bao gia khach|customer quote|hop dong|contract|nghiem thu|acceptance|quyet toan|settlement)\b/) ? 100 : 0);
   if (/\b(quyet toan|settlement|current period|ky nay)\b/.test(normalizeSheetLabel(inputContext))) {
     return (has(/\b(quyet toan|settlement|nghiem thu|thanh toan)\b/) ? 100 : 0)
+      + (has(/\b(gia tri|bang gia|amount|value)\b/) ? 30 : 0)
       - (has(/\b(du toan|budget|estimate|bao gia khach|customer quote|hop dong|contract)\b/) ? 100 : 0);
   }
   if (quote.kind === "estimate") return (has(/\b(du toan|budget|estimate|phuong an|chi phi|cost plan)\b/) ? 100 : 0)
@@ -545,7 +546,7 @@ function xlsxSheetHasCandidateTable(sheet: XlsxSheetInfo, quote: Quote) {
       .flatMap((cell) => xlsxLineKeys.filter((key) => headerMatch(key, cell.value))));
     return roles.has("name") && (quote.kind === "customer"
       ? roles.has("unitPrice")
-      : roles.has("quantity") && (roles.has("unitPrice") || roles.has("lineTotal")));
+      : quote.settlement ? roles.has("quantity") : roles.has("quantity") && (roles.has("unitPrice") || roles.has("lineTotal")));
   });
 }
 
@@ -618,6 +619,52 @@ function summaryScalarKey(value: string): typeof xlsxScalarKeys[number] | undefi
   if (/^(tam tinh|cong tien hang|tong tien hang|tien hang|subtotal|amount before tax)( |$)/.test(label)) return "subtotal";
   if (/^(tien thue|thue gia tri gia tang|tien thue gtgt|thue gtgt(?: \d+)?|thue vat|vat(?: \d+)?|tax|tax amount|vat amount)( |$)/.test(label)) return "taxAmount";
   return undefined;
+}
+
+function settlementScalarKey(value: string): typeof xlsxScalarKeys[number] | undefined {
+  const colon = value.indexOf(":");
+  const label = normalizeSheetLabel(colon >= 0 ? value.slice(0, colon) : value);
+  if (/^(so hop dong|ma hop dong|contract number|contract no)( |$)/.test(label)) return "contractNumber";
+  if (/^(du an|ten du an|project name)( |$)/.test(label)) return "projectName";
+  if (/^(dia diem cong trinh|dia chi cong trinh|project address)( |$)/.test(label)) return "projectAddress";
+  if (/^(so bien ban nghiem thu|so bbnt|ma bien ban nghiem thu|acceptance number|acceptance no)( |$)/.test(label)) return "acceptanceNumber";
+  if (/^(ngay nghiem thu|ngay lap bien ban|accepted date)( |$)/.test(label)) return "acceptedDate";
+  if (/^(gio bat dau|thoi gian bat dau|start time)( |$)/.test(label)) return "startTime";
+  if (/^(gio ket thuc|thoi gian ket thuc|end time)( |$)/.test(label)) return "endTime";
+  if (/^(dia diem nghiem thu|location)( |$)/.test(label)) return "location";
+  if (/^(ket qua nghiem thu|ket qua|result)( |$)/.test(label)) return "result";
+  if (/^(ho so ban giao|san pham ban giao|handover details)( |$)/.test(label)) return "handoverDetails";
+  if (/^(danh gia chat luong|chat luong|quality assessment)( |$)/.test(label)) return "qualityAssessment";
+  if (/^(gia tri hop dong|contract value|contract amount)( |$)/.test(label)) return "contractValue";
+  if (/^(gia tri khoi luong quyet toan)( |$)/.test(label)) return "settlementAmount";
+  if (/^(gia tri quyet toan|gia tri de nghi thanh toan|tong gia tri de nghi thanh toan|gia tri thanh toan|settlement amount|settlement value)( |$)/.test(label)) return "settlementAmount";
+  if (/^(so tien da thanh toan|gia tri da thanh toan|da thanh toan|amount paid)$/.test(label)) return "amountPaid";
+  if (/^(so tien con lai|con phai thanh toan|gia tri con lai|settlement balance|balance due)( |$)/.test(label)) return "settlementBalance";
+  if (/^(thoi han thanh toan con lai|so ngay con lai|payment due days)( |$)/.test(label)) return "paymentDueDays";
+  if (/^(ghi chu|ton tai|ghi chu ton tai|acceptance notes)( |$)/.test(label)) return "acceptanceNotes";
+  return undefined;
+}
+
+function settlementValueTarget(sheet: XlsxSheetInfo, label: XlsxCellInfo) {
+  if (label.formula) return undefined;
+  const colon = label.value.indexOf(":");
+  if (colon >= 0 && label.value.slice(colon + 1).trim()) return label.ref;
+  const point = parseCellRef(label.ref);
+  if (!point) return undefined;
+  let lastLabelColumn = columnNumber(point.column);
+  for (const range of sheet.merged) {
+    const [start, end = start] = range.split(":");
+    const first = parseCellRef(start ?? "");
+    const last = parseCellRef(end);
+    if (start === label.ref && first && last) lastLabelColumn = columnNumber(last.column);
+  }
+  const ref = `${columnLetters(lastLabelColumn + 1)}${point.row}`;
+  return sheet.cells.get(ref)?.formula ? undefined : ref;
+}
+
+function settlementLabelPrefix(value: string, key: string) {
+  const colon = value.indexOf(":");
+  return colon > 0 && settlementScalarKey(value.slice(0, colon)) === key ? `${value.slice(0, colon + 1)} ` : "";
 }
 
 function isSummaryRowLabel(value: string) {
@@ -834,12 +881,12 @@ export function validateXlsxTemplateFillPlan(raw: unknown, template: QuoteTempla
   if (!Array.isArray(plan.cells) || !Array.isArray(plan.lineRows) || plan.lineRows.length !== quote.lines.length || plan.cells.length + plan.lineRows.reduce((sum, row) => sum + (Array.isArray(row?.fields) ? row.fields.length : 0), 0) > 2000) throw new Error("AI trả về ánh xạ Excel không hợp lệ.");
   const info = workbookInfo(template);
   const targets = new Set<string>();
-  const numericKeys = new Set(["subtotal", "shippingFee", "taxRate", "taxAmount", "total", "index", "quantity", "unitPrice", "lineTotal", "lineTaxRate", "lineTaxAmount", "lineTotalAfterTax"]);
+  const numericKeys = new Set(["subtotal", "shippingFee", "taxRate", "taxAmount", "total", "index", "quantity", "unitPrice", "lineTotal", "lineTaxRate", "lineTaxAmount", "lineTotalAfterTax", "contractValue", "settlementAmount", "amountPaid", "settlementBalance", "paymentDueDays"]);
   const checkTarget = (sheetName: unknown, refValue: unknown, key: string, expectedRow?: number) => {
     const sheet = typeof sheetName === "string" ? info.sheets.get(sheetName) : undefined;
     const ref = typeof refValue === "string" ? refValue.replace(/\$/g, "").toUpperCase() : "";
     const point = parseCellRef(ref);
-    if (!sheet || !point || expectedRow !== undefined && point.row !== expectedRow || !sheet.rows.has(point.row) || !sheet.cells.has(ref) || !isMergeAnchor(ref, sheet.merged)) throw new Error("AI đã chọn ô không hợp lệ trong mẫu Excel.");
+    if (!sheet || !point || expectedRow !== undefined && point.row !== expectedRow || !sheet.rows.has(point.row) || !sheet.cells.has(ref) || !isMergeAnchor(ref, sheet.merged)) throw new Error(`Vị trí ô Excel ${String(sheetName)}!${ref} không hợp lệ cho trường ${key}.`);
     if (sheet.cells.get(ref)!.formula && !numericKeys.has(key)) throw new Error("AI đã chọn ô công thức cho dữ liệu văn bản.");
     const target = `${sheetName}!${ref}`;
     if (targets.has(target)) throw new Error("AI đã ánh xạ nhiều giá trị vào cùng một ô.");
@@ -848,11 +895,11 @@ export function validateXlsxTemplateFillPlan(raw: unknown, template: QuoteTempla
   };
   const scalarKeys = new Set<string>();
   for (const entry of plan.cells) {
-    if (!entry || typeof entry.key !== "string" || !xlsxScalarKeys.includes(entry.key as typeof xlsxScalarKeys[number]) || scalarKeys.has(entry.key)) throw new Error("AI trả về trường thông tin Excel không hợp lệ.");
+    const scopedKey = entry ? `${entry.sheet}!${entry.key}` : "";
+    if (!entry || typeof entry.key !== "string" || !xlsxScalarKeys.includes(entry.key as typeof xlsxScalarKeys[number]) || scalarKeys.has(scopedKey)) throw new Error("Invalid Excel scalar mapping.");
     entry.cell = checkTarget(entry.sheet, entry.cell, entry.key);
-    scalarKeys.add(entry.key);
-  }
-  if (quote.kind === "customer" && plan.cells.some((entry) => !["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt"].includes(entry.key))) throw new Error("Mẫu báo giá khách không được ánh xạ trường tính tiền.");
+    scalarKeys.add(scopedKey);
+  }  if (quote.kind === "customer" && plan.cells.some((entry) => !["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt"].includes(entry.key))) throw new Error("Mẫu báo giá khách không được ánh xạ trường tính tiền.");
   const usedRows = new Set<string>();
   for (const row of plan.lineRows) {
     if (!row || typeof row.sheet !== "string" || !Number.isInteger(row.row) || row.row < 1 || !Array.isArray(row.fields)) throw new Error("AI trả về dòng sản phẩm Excel không hợp lệ.");
@@ -868,7 +915,7 @@ export function validateXlsxTemplateFillPlan(raw: unknown, template: QuoteTempla
     }
     if (!fieldKeys.has("name") || quote.kind !== "customer" && quote.kind !== "budget" && !fieldKeys.has("quantity")
       || quote.kind === "customer" && !fieldKeys.has("unitPrice")
-      || quote.kind !== "customer" && !["unitPrice", "lineTotal"].some((key) => fieldKeys.has(key))) throw new Error("AI chưa ánh xạ đủ cột sản phẩm, số lượng và giá vào mẫu Excel.");
+      || quote.kind !== "customer" && !quote.settlement && !["unitPrice", "lineTotal"].some((key) => fieldKeys.has(key))) throw new Error("AI chưa ánh xạ đủ cột sản phẩm, số lượng và giá vào mẫu Excel.");
   }
   return plan;
 }
@@ -883,6 +930,25 @@ function xlsxQuoteValues(quote: Quote): Record<string, string | number> {
     completionDate: quote.completionDate ? new Date(`${quote.completionDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }) : "",
     ...(additionalInformation ? { additionalInformation } : {}),
   };
+  if (quote.settlement) Object.assign(values, {
+    contractNumber: quote.settlement.contractNumber,
+    projectName: quote.settlement.projectName,
+    projectAddress: quote.settlement.projectAddress,
+    acceptanceNumber: quote.settlement.acceptanceNumber,
+    acceptedDate: new Date(`${quote.settlement.acceptedDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }),
+    startTime: quote.settlement.startTime,
+    endTime: quote.settlement.endTime,
+    location: quote.settlement.location,
+    result: quote.settlement.result,
+    handoverDetails: quote.settlement.handoverDetails,
+    qualityAssessment: quote.settlement.qualityAssessment,
+    contractValue: quote.settlement.contractValue,
+    settlementAmount: quote.settlement.settlementAmount,
+    amountPaid: quote.settlement.amountPaid,
+    settlementBalance: quote.settlement.balance,
+    paymentDueDays: quote.settlement.paymentDueDays ?? "",
+    acceptanceNotes: quote.settlement.notes,
+  });
   quote.lines.forEach((line, index) => {
     const lineValues: Record<string, string | number> = {
       index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", details: quoteLineDetails(line),
@@ -1277,7 +1343,8 @@ function renderXlsxTemplate(template: QuoteTemplate, quote: Quote, raw: XlsxTemp
       const current = info.sheets.get(entry.sheet)?.cells.get(entry.cell)?.value ?? "";
       const value = taxRateStringTargets.has(`${entry.sheet}!${entry.cell}`) && entry.key === "taxRate"
         ? `${(quote.taxRate * 100).toLocaleString("vi-VN", { maximumFractionDigits: 2 })}%`
-        : entry.key === "customerName" && isCustomerLabel(current) ? `${current}${current.endsWith(" ") ? "" : " "}${values[entry.key]}` : values[entry.key];
+        : entry.key === "customerName" && isCustomerLabel(current) ? `${current}${current.endsWith(" ") ? "" : " "}${values[entry.key]}`
+        : settlementLabelPrefix(current, entry.key) ? `${settlementLabelPrefix(current, entry.key)}${values[entry.key]}` : values[entry.key];
       return { ...entry, value };
     }),
     ...plan.lineRows.flatMap((row, index) => row.fields.map((field) => ({ sheet: row.sheet, cell: field.cell, key: `line_${index + 1}_${field.key}`, value: values[`line_${index + 1}_${field.key}`] }))),
@@ -1305,7 +1372,8 @@ function renderXlsxTemplate(template: QuoteTemplate, quote: Quote, raw: XlsxTemp
         const referencePattern = new RegExp(`(?:^|[^A-Z0-9_.])\\$?${shippingPoint.column}\\$?${shippingPoint.row}(?:$|[^A-Z0-9_])`, "i");
         if (formula && !referencePattern.test(formulaText)) formula.textContent = `${formulaText}+${reference}`;
       }
-      const formulaMode = entry.key.endsWith("_quantity") || entry.key.endsWith("_unitPrice") || entry.key.endsWith("_index") || entry.key.endsWith("_lineTaxRate") ? "replace" : ["subtotal", "shippingFee", "taxRate", "taxAmount", "total"].includes(entry.key) || entry.key.endsWith("_lineTotal") || entry.key.endsWith("_lineTotalAfterTax") ? "preserve" : "reject";
+      const settlementValue = quote.settlement && ["contractValue", "settlementAmount", "amountPaid", "settlementBalance"].includes(entry.key);
+      const formulaMode = settlementValue || entry.key.endsWith("_quantity") || entry.key.endsWith("_unitPrice") || entry.key.endsWith("_index") || entry.key.endsWith("_lineTaxRate") || entry.key === "paymentDueDays" ? "replace" : ["subtotal", "shippingFee", "taxRate", "taxAmount", "total", "settlementAmount", "amountPaid", "settlementBalance"].includes(entry.key) || entry.key.endsWith("_lineTotal") || entry.key.endsWith("_lineTotalAfterTax") ? "preserve" : "reject";
       if (entry.value === "" && (entry.key === "subtotal" || entry.key === "total" || entry.key.endsWith("_quantity") || entry.key.endsWith("_lineTotal") || entry.key.endsWith("_lineTotalAfterTax"))) clearSpreadsheetCell(cell);
       else setSpreadsheetCell(cell, entry.value!, formulaMode);
     }
@@ -1313,7 +1381,30 @@ function renderXlsxTemplate(template: QuoteTemplate, quote: Quote, raw: XlsxTemp
   }
   const targetWorksheet = plan.lineRows[0]?.sheet ?? plan.cells[0]?.sheet;
   if (targetWorksheet) activateXlsxWorksheet(info, targetWorksheet);
+  if (quote.settlement) requestXlsxRecalculation(info);
   return info.zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+function requestXlsxRecalculation(info: XlsxWorkbookInfo) {
+  const workbookPart = info.zip.file("xl/workbook.xml");
+  if (!workbookPart) return;
+  const workbook = validateXml(workbookPart.asText());
+  const root = workbook.documentElement;
+  if (!root) return;
+  let calcPr = directChild(root, "calcPr");
+  if (!calcPr) {
+    const created = workbook.createElementNS(spreadsheetNamespace, "calcPr");
+    if (!created) return;
+    calcPr = created;
+    const extensionList = directChild(root, "extLst");
+    if (extensionList) root.insertBefore(calcPr, extensionList);
+    else root.appendChild(calcPr);
+  }
+  calcPr.setAttribute("calcMode", "auto");
+  calcPr.setAttribute("fullCalcOnLoad", "1");
+  calcPr.setAttribute("forceFullCalc", "1");
+  calcPr.setAttribute("calcCompleted", "0");
+  info.zip.file("xl/workbook.xml", new XMLSerializer().serializeToString(workbook));
 }
 
 function activateXlsxWorksheet(info: XlsxWorkbookInfo, sheetName: string) {
@@ -1526,7 +1617,7 @@ interface XlsxSemanticMap {
   summaryRow: number;
   productRows: number[];
   columns: Array<{ key: typeof xlsxLineKeys[number]; column: string }>;
-  cells: Array<{ key: typeof xlsxScalarKeys[number]; cell: string }>;
+  cells: Array<{ key: typeof xlsxScalarKeys[number]; cell: string; sheet?: string }>;
 }
 
 const xlsxSemanticMapSchema = {
@@ -1635,17 +1726,20 @@ function validateXlsxSemanticMap(raw: unknown, info: XlsxWorkbookInfo, quote: Qu
   if (quote.kind !== "customer" && quote.kind !== "budget" && !columnKeys.has("quantity")) {
     throw new Error("Mẫu Excel chưa xác định được cột số lượng để điền theo dự toán.");
   }
-  if (quote.kind === "customer" ? !columnKeys.has("unitPrice") : !columnKeys.has("unitPrice") && !columnKeys.has("lineTotal")) throw new Error("AI chưa xác định được cột giá sản phẩm.");
+  if (quote.kind === "customer" ? !columnKeys.has("unitPrice") : !quote.settlement && !columnKeys.has("unitPrice") && !columnKeys.has("lineTotal")) throw new Error("AI chưa xác định được cột giá sản phẩm.");
   const nameColumn = map.columns.find((entry) => entry.key === "name")!.column;
   if (map.productRows.some((row) => !sheet.cells.has(`${nameColumn}${row}`) || !isMergeAnchor(`${nameColumn}${row}`, sheet.merged))) throw new Error("AI chọn dòng không có ô tên sản phẩm hợp lệ.");
   const scalarKeys = new Set<string>();
   for (const entry of map.cells) {
+    const targetSheetName = entry?.sheet ?? map.sheet;
+    const targetSheet = info.sheets.get(targetSheetName);
     const point = entry && typeof entry.cell === "string" ? parseCellRef(entry.cell) : null;
-    if (entry && point && (point.row >= map.headerRow && point.row < map.firstProductRow || map.productRows.includes(point.row)
-      || /^\[\d+\]$/.test(sheet.cells.get(entry.cell)?.value.trim() ?? ""))) throw new Error("AI selected an Excel information cell inside a table header or product row.");
-    if (!entry || !xlsxScalarKeys.includes(entry.key) || !point || !sheet.rows.has(point.row) || !isMergeAnchor(entry.cell, sheet.merged)
-      || scalarKeys.has(entry.key) || quote.kind === "customer" && !["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt"].includes(entry.key)) throw new Error(`AI chọn ô thông tin Excel không hợp lệ (${String(entry?.key ?? "?").slice(0, 40)}).`);
-    scalarKeys.add(entry.key);
+    const scopedKey = `${targetSheetName}!${entry?.key}`;
+    if (entry && point && targetSheetName === map.sheet && (point.row >= map.headerRow && point.row < map.firstProductRow || map.productRows.includes(point.row)
+      || /^\[\d+\]$/.test(targetSheet?.cells.get(entry.cell)?.value.trim() ?? ""))) throw new Error("Invalid Excel information-cell mapping.");
+    if (!entry || !xlsxScalarKeys.includes(entry.key) || !targetSheet || !point || !targetSheet.rows.has(point.row) || !isMergeAnchor(entry.cell, targetSheet.merged)
+      || scalarKeys.has(scopedKey) || quote.kind === "customer" && !["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt"].includes(entry.key)) throw new Error("Invalid Excel information-cell mapping.");
+    scalarKeys.add(scopedKey);
   }
   return map;
 }
@@ -1664,7 +1758,7 @@ function prepareAiXlsxPlan(template: QuoteTemplate, quote: Quote, map: XlsxSeman
     const oldSummaryRow = map.summaryRow;
     map = { ...map, summaryRow: oldSummaryRow + delta, cells: map.cells.map((entry) => {
       const point = parseCellRef(entry.cell)!;
-      return { ...entry, cell: point.row >= oldSummaryRow ? `${point.column}${point.row + delta}` : entry.cell };
+      return { ...entry, cell: (entry.sheet ?? map.sheet) === map.sheet && point.row >= oldSummaryRow ? `${point.column}${point.row + delta}` : entry.cell };
     }) };
     info = workbookInfo(template);
     sheet = info.sheets.get(map.sheet)!;
@@ -1674,7 +1768,7 @@ function prepareAiXlsxPlan(template: QuoteTemplate, quote: Quote, map: XlsxSeman
   const selectedRows = productRows.slice(0, quote.lines.length);
   const refs = [
     ...productRows.flatMap((row) => [...columns.values()].map((column) => `${column}${row}`)),
-    ...map.cells.map((entry) => entry.cell),
+    ...map.cells.filter((entry) => (entry.sheet ?? map.sheet) === map.sheet).map((entry) => entry.cell),
   ].filter((ref) => !sheet.cells.has(ref) && isMergeAnchor(ref, sheet.merged));
   const document = validateXml(info.zip.file(sheet.path)!.asText());
   const rowNodes = new Map(descendants(document, "row").map((row) => [Number(row.getAttribute("r")), row]));
@@ -1698,7 +1792,7 @@ function prepareAiXlsxPlan(template: QuoteTemplate, quote: Quote, map: XlsxSeman
     tableHeaderRow: map.headerRow,
     ...(map.summaryRow ? { tableEndRow: map.summaryRow } : {}),
     tableProductRows: productRows,
-    cells: map.cells.map((entry) => ({ ...entry, sheet: map.sheet })),
+    cells: map.cells.map((entry) => ({ ...entry, sheet: entry.sheet ?? map.sheet })),
     lineRows: selectedRows.map((row) => ({ sheet: map.sheet, row, fields: [...columns.entries()]
       .filter(([key]) => !allowedFields || allowedFields.has(key))
       .map(([key, column]) => ({ key, cell: `${column}${row}` })) })),
@@ -1787,7 +1881,7 @@ function inferSemanticXlsxMap(template: QuoteTemplate, quote: Quote, inputContex
           }
         }
       }
-      if (!columns.has("name") || !columns.has("quantity") || !columns.has("unitPrice") && !columns.has("lineTotal")) continue;
+      if (!columns.has("name") || !columns.has("quantity") || !quote.settlement && !columns.has("unitPrice") && !columns.has("lineTotal")) continue;
       const hasContractSettlementVariants = [...columns.entries()].some(([key, column]) => {
         if (!["quantity", "unitPrice", "lineTotal"].includes(key)) return false;
         const header = headerCells.find((cell) => headerMatch(key as typeof xlsxLineKeys[number], cell.value)
@@ -1812,7 +1906,7 @@ function inferSemanticXlsxMap(template: QuoteTemplate, quote: Quote, inputContex
       const productRows = [...sheet.rows].filter((row) => row > headerRow).sort((left, right) => left - right).filter((row) => {
         const name = sheet.cells.get(`${nameColumn}${row}`)?.value.trim();
         return Boolean(name && hasNumericValue(sheet.cells.get(`${quantityColumn}${row}`))
-          && amountColumns.some((column) => hasNumericValue(sheet.cells.get(`${column}${row}`))));
+          && (quote.settlement || amountColumns.some((column) => hasNumericValue(sheet.cells.get(`${column}${row}`)))));
       });
       if (!productRows.length || productRows.length > 500) continue;
       const lastProductRow = productRows[productRows.length - 1]!;
@@ -1842,6 +1936,17 @@ function inferSemanticXlsxMap(template: QuoteTemplate, quote: Quote, inputContex
         summaryCells.push({ key, cell: target.ref });
         seenScalarKeys.add(key);
       }
+      if (quote.settlement) {
+        for (const cell of sheet.cells.values()) {
+          const key = settlementScalarKey(cell.value);
+          if (!key || seenScalarKeys.has(key)) continue;
+          const numericKey = ["settlementAmount", "amountPaid", "settlementBalance", "paymentDueDays"].includes(key);
+          const target = numericKey ? summaryTarget(sheet, cell, headerRow)?.ref ?? settlementValueTarget(sheet, cell) : settlementValueTarget(sheet, cell);
+          if (!target || summaryCells.some((entry) => entry.cell === target)) continue;
+          summaryCells.push({ key, cell: target });
+          seenScalarKeys.add(key);
+        }
+      }
       candidates.push({ map: {
         sheet: sheet.name, headerRow, firstProductRow: productRows[0]!, summaryRow, productRows,
         columns: [...columns.entries()].map(([key, column]) => ({ key: key as typeof xlsxLineKeys[number], column })),
@@ -1860,7 +1965,43 @@ function inferSemanticXlsxMap(template: QuoteTemplate, quote: Quote, inputContex
     || purposeCandidates[0]!.score === purposeCandidates[1]!.score && purposeCandidates[0]!.purposeScore === purposeCandidates[1]!.purposeScore)) return undefined;
   if (purposeCandidates.length === 1 && bestPurposeScore <= 0 && purposeCandidates[0]!.score === 0
     && !purposeCandidates[0]!.paired && !purposeCandidates[0]!.large && !purposeCandidates[0]!.financialVariants) return undefined;
-  return purposeCandidates[0]!.map;
+  const selected = purposeCandidates[0]!.map;
+  if (quote.settlement) {
+    const seenTargets = new Set(selected.cells.map((entry) => `${selected.sheet}!${entry.cell}`));
+    const seenKeys = new Set(selected.cells.map((entry) => `${selected.sheet}!${entry.key}`));
+    for (const sheet of info.sheets.values()) {
+      const cellsByRow = new Map<number, XlsxCellInfo[]>();
+      for (const item of sheet.cells.values()) {
+        const row = parseCellRef(item.ref)?.row;
+        if (row === undefined) continue;
+        const rowCells = cellsByRow.get(row) ?? [];
+        rowCells.push(item);
+        cellsByRow.set(row, rowCells);
+      }
+      const tableHeaderRows = new Set([...cellsByRow].filter(([, rowCells]) => {
+        const recognizedHeaders = new Set(rowCells.flatMap((item) => xlsxLineKeys.filter((lineKey) => headerMatch(lineKey, item.value))));
+        return recognizedHeaders.size >= 2;
+      }).map(([row]) => row));
+      for (const cell of sheet.cells.values()) {
+        const row = parseCellRef(cell.ref)?.row;
+        if (row !== undefined && tableHeaderRows.has(row)) continue;
+        const key = settlementScalarKey(cell.value);
+        if (!key) continue;
+        const scopedKey = `${sheet.name}!${key}`;
+        if (seenKeys.has(scopedKey)) continue;
+        const numericKey = ["contractValue", "settlementAmount", "amountPaid", "settlementBalance", "paymentDueDays"].includes(key);
+        const target = numericKey ? summaryTarget(sheet, cell, selected.headerRow)?.ref ?? settlementValueTarget(sheet, cell) : settlementValueTarget(sheet, cell);
+        if (!target || seenTargets.has(`${sheet.name}!${target}`)) continue;
+        const targetSheet = info.sheets.get(sheet.name);
+        const targetPoint = parseCellRef(target);
+        if (!targetSheet || !targetPoint || !targetSheet.rows.has(targetPoint.row)) continue;
+        selected.cells.push({ key, cell: target, ...(sheet.name === selected.sheet ? {} : { sheet: sheet.name }) });
+        seenTargets.add(`${sheet.name}!${target}`);
+        seenKeys.add(scopedKey);
+      }
+    }
+  }
+  return selected;
 }
 
 export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote: Quote, inputContext = ""): Promise<Buffer> {
@@ -1876,9 +2017,16 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
   }
   const info = workbookInfo(template);
   const inferred = inferSemanticXlsxMap(template, quote, inputContext);
-  return requestTemplatePlan<Buffer>([{ type: "text", text: JSON.stringify({
-    instruction: "Read this actual Excel workbook on every export. Identify the product table by meaning, not fixed Vietnamese column names or layout. Return one worksheet, the header row, the first existing product row, the summary/total row (0 if absent), and `productRows`: all existing product/example rows in ascending order, skipping category headings and summary rows. Return only the column roles present; each role must point to a different existing header column. For an estimate, quantity is required: map the quantity column, including headers such as Số lượng, SL, Khối lượng, or Quantity. Every `cells[].cell` MUST be an Excel cell address like B3 or H30, NEVER the value in that cell, a formula, or a row number. The workbook cells are arrays [address, value, formula, style]; use the FIRST element as the address. `cells` maps customer/date/total fields to value cell addresses, including currently missing cells on existing rows. For a total row whose label spans merged columns, select the amount column outside that merged label. Choose a matching price variant if clear from product descriptions; otherwise choose the first consistent variant. For a customer product list map name and unitPrice, but omit quantity, lineTotal and summary amounts. Never treat old example values as field labels. Do not return product values or change the workbook. Omit fields absent from the template.",
-    documentKind: quote.kind ?? "estimate",
+  if (quote.settlement && inferred) {
+    const fallbackMap = validateXlsxSemanticMap(inferred, info, quote);
+    assertXlsxMapMatchesPurpose(fallbackMap, info, quote, inputContext);
+    const prepared = prepareAiXlsxPlan(template, quote, fallbackMap);
+    return renderXlsxTemplate(prepared.template, quote, prepared.plan, inputContext);
+  }
+  try {
+    return await requestTemplatePlan<Buffer>([{ type: "text", text: JSON.stringify({
+    instruction: "Read this actual Excel workbook on every export. Identify the product table by meaning, not fixed Vietnamese column names or layout. Return one worksheet, the header row, the first existing product row, the summary/total row (0 if absent), and `productRows`: all existing product/example rows in ascending order, skipping category headings and summary rows. Return only the column roles present; each role must point to a different existing header column. For an estimate or settlement dossier, quantity is required: map the quantity column, including headers such as Số lượng, SL, Khối lượng, or Quantity. For a settlement dossier, select a settlement or acceptance worksheet, use accepted quantities from the provided record, and map settlement amount, amount paid, balance, acceptance number/date, location, result and handover details only when matching cells exist. Never select an estimate or customer quotation worksheet for a settlement export. Every `cells[].cell` MUST be an Excel cell address like B3 or H30, NEVER the value in that cell, a formula, or a row number. The workbook cells are arrays [address, value, formula, style]; use the FIRST element as the address. `cells` maps customer/date/total fields to value cell addresses, including currently missing cells on existing rows. For a total row whose label spans merged columns, select the amount column outside that merged label. Choose a matching price variant if clear from product descriptions; otherwise choose the first consistent variant. For a customer product list map name and unitPrice, but omit quantity, lineTotal and summary amounts. Never treat old example values as field labels. Do not return product values or change the workbook. Omit fields absent from the template.",
+    documentKind: quote.settlement ? "settlement dossier" : quote.kind ?? "estimate",
     targetWorksheetPurpose: xlsxTargetWorksheetPurpose(quote, inputContext),
     worksheetSelectionRule: "Select the single tab whose name, title and headers match targetWorksheetPurpose and this export function. Do not map into a different function's quote, budget, contract, acceptance or settlement sheet; leave all other tabs unchanged.",
     lineCount: quote.lines.length,
@@ -1886,7 +2034,7 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
     inputContext,
     sourceMayContainCurrentValues: true,
     availableLineFields: xlsxLineKeys,
-    availableScalarFields: quote.kind === "customer" ? ["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt"] : xlsxScalarKeys,
+    availableScalarFields: quote.kind === "customer" ? ["quoteNumber", "customerName", "customerEmail", "customerPhone", "createdAt"] : quote.settlement ? [...xlsxScalarKeys] : xlsxScalarKeys.slice(0, 14),
     productExamples: quote.lines.slice(0, 5).map((line) => ({ name: line.name, description: line.description ?? "", attributes: line.attributes })),
     machineSuggestedMap: inferred ?? null,
     workbook: JSON.parse(xlsxWorkbookSummary(template, info, quote, inputContext)),
@@ -1923,7 +2071,14 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
     return quote.kind === "customer"
       ? renderCustomerXlsxTemplate(prepared.template, quote, prepared.plan)
       : renderXlsxTemplate(prepared.template, quote, prepared.plan, inputContext);
-  }, { xlsxSemanticMap: true });
+    }, { xlsxSemanticMap: true });
+  } catch (error) {
+    if (!quote.settlement || !inferred) throw error;
+    const fallbackMap = validateXlsxSemanticMap(inferred, info, quote);
+    assertXlsxMapMatchesPurpose(fallbackMap, info, quote, inputContext);
+    const prepared = prepareAiXlsxPlan(template, quote, fallbackMap);
+    return renderXlsxTemplate(prepared.template, quote, prepared.plan, inputContext);
+  }
 }
 
 export async function renderCustomerXlsxTemplate(template: QuoteTemplate, quote: Quote, mappedPlan?: XlsxTemplateFillPlan): Promise<Buffer> {
@@ -2015,7 +2170,7 @@ export async function renderCustomerXlsxTemplate(template: QuoteTemplate, quote:
     }
     info.zip.file(sheet.path, serializer.serializeToString(document));
   }
-  const targetWorksheet = mappedRows[0]?.sheet ?? mappedCells[0]?.sheet;
+  const targetWorksheet = plan.lineRows[0]?.sheet ?? plan.cells[0]?.sheet;
   if (targetWorksheet) activateXlsxWorksheet(info, targetWorksheet);
   return info.zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
 }

@@ -210,6 +210,25 @@ export interface Quote {
   currency: string;
   informationNeeded: string[];
   additionalInformation?: Record<string, string>;
+  settlement?: {
+    contractNumber: string;
+    projectName: string;
+    projectAddress: string;
+    acceptanceNumber: string;
+    acceptedDate: string;
+    startTime: string;
+    endTime: string;
+    location: string;
+    result: string;
+    handoverDetails: string;
+    qualityAssessment: string;
+    contractValue: number;
+    settlementAmount: number;
+    amountPaid: number;
+    balance: number;
+    paymentDueDays: number | null;
+    notes: string;
+  };
   suggestedProducts?: SuggestedProduct[];
   informationConfirmed: boolean;
   status: QuoteStatus;

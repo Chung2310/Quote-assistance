@@ -53,7 +53,9 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [wordTemplates, setWordTemplates] = useState<ContractTemplateOption[]>([]);
+  const [settlementTemplates, setSettlementTemplates] = useState<Array<{ id: string; name: string }>>([]);
   const [wordTemplateOverride, setWordTemplateOverride] = useState("");
+  const [settlementTemplateOverride, setSettlementTemplateOverride] = useState("");
   const [downloading, setDownloading] = useState(false);
 
   const load = useCallback(async () => {
@@ -107,9 +109,18 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     if (!id) return;
     let active = true;
     setWordTemplateOverride("");
+    setSettlementTemplateOverride("");
     void api<{ templates: ContractTemplateOption[] }>(view === "contracts" ? "/api/contract-templates" : "/api/acceptance-templates")
       .then(({ templates }) => { if (active) setWordTemplates(templates); })
       .catch(() => { if (active) setWordTemplates([]); });
+    return () => { active = false; };
+  }, [view, id]);
+  useEffect(() => {
+    if (!id || view !== "acceptances") { setSettlementTemplates([]); return; }
+    let active = true;
+    void api<{ templates: Array<{ id: string; name: string }> }>("/api/settlement-templates")
+      .then(({ templates }) => { if (active) setSettlementTemplates(templates); })
+      .catch(() => { if (active) setSettlementTemplates([]); });
     return () => { active = false; };
   }, [view, id]);
 
@@ -253,6 +264,9 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const selectedTemplateMode = wordTemplates.find((template) => template.id === wordTemplateId)?.mode;
   const wordUrl = (view === "contracts" ? "/api/contracts/" + contract._id + "/file" : "/api/acceptance-records/" + record!._id + "/file")
     + (wordTemplateId ? "?templateId=" + encodeURIComponent(wordTemplateId) : "");
+  const settlementTemplateId = settlementTemplateOverride || settlementTemplates[0]?.id || "";
+  const settlementUrl = "/api/acceptance-records/" + record!._id + "/settlement.xlsx"
+    + (settlementTemplateId ? "?templateId=" + encodeURIComponent(settlementTemplateId) : "");
   const templateSelector = wordTemplates.length > 0 && <label className="workflow-word-template">Mẫu xuất
     <select aria-label="Mẫu chứng từ khi tải" value={wordTemplateId} onChange={(event) => setWordTemplateOverride(event.target.value)} disabled={downloading}>
       {wordTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
@@ -393,6 +407,15 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       <div className="workflow-toolbar-actions">
         {templateSelector}
         <button className="button button-primary" type="button" disabled={downloading} onClick={() => void downloadDocument(wordUrl)}>{downloadLabel === "Tải PDF đã điền" ? "Tải Word đã điền" : downloadLabel}</button>
+        {view === "acceptances" && acceptance.status === "completed" && <>
+          {settlementTemplates.length > 0 && <label className="workflow-word-template">Mẫu hồ sơ quyết toán
+            <select aria-label="Mẫu quyết toán Excel" value={settlementTemplateId} onChange={(event) => setSettlementTemplateOverride(event.target.value)} disabled={downloading}>
+              {settlementTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
+            </select>
+          </label>}
+          <button className="button button-soft" type="button" disabled={downloading || !settlementTemplates.length} onClick={() => void downloadDocument(settlementUrl)}>Tải hồ sơ quyết toán Excel</button>
+          {!settlementTemplates.length && <small className="workflow-template-source">Chưa có mẫu quyết toán Excel. Tải mẫu lên mục Quản lý mẫu → Quyết toán.</small>}
+        </>}
         <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>
         <button className="button button-soft" onClick={() => navigate("contracts", contract._id)}>Xem hợp đồng</button>
       </div>
