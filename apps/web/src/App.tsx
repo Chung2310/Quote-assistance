@@ -1984,12 +1984,22 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
           <button
             type="button"
             className="button button-primary"
+            disabled={busy || !savedEstimateFile}
+            title={savedEstimateFile ? "Tải file đã lưu trên Cloudinary" : "Chưa có file dự toán đã lưu"}
+            onClick={() => void downloadSavedEstimate()}
+          >
+            <Icon name="download" size={16} />
+            <span>{savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : "Chưa có file dự toán đã lưu"}</span>
+          </button>
+          <button
+            type="button"
+            className="button button-soft"
             disabled={busy || !canDownloadQuote}
             title={canExportDraftXlsx ? "Tạo file Excel nháp bằng AI" : "Tạo file dự toán bằng AI"}
             onClick={() => void openDownloadTemplateDialog()}
           >
-            {activeQuoteDownload === "word" ? <span className="spinner" aria-hidden="true" /> : <Icon name="download" size={16} />}
-            <span>{activeQuoteDownload === "word" ? "Đang tạo Word…" : quote.status === "approved" ? "Tạo file dự toán" : canExportDraftXlsx ? "Tạo Excel nháp bằng AI" : "Tạo file dự toán"}</span>
+            <Icon name="download" size={16} />
+            <span>{quote.status === "approved" ? "Tạo file mới bằng AI" : canExportDraftXlsx ? "Tạo Excel nháp bằng AI" : "Tạo file bằng AI"}</span>
           </button>
           {quote.status === "approved" && (
             <button type="button" className="button button-soft" disabled={busy} onClick={() => void openDownloadTemplateDialog(true)}>
@@ -1997,11 +2007,6 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
               <span>{activeQuoteDownload === "excel" ? "Đang tạo Excel…" : "Tạo Excel bằng AI"}</span>
             </button>
           )}
-          <button type="button" className="button button-soft" disabled={busy || !savedEstimateFile} onClick={() => void downloadSavedEstimate()}>
-            <Icon name="download" size={16} />
-            <span>{savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : "Chưa có file dự toán đã lưu"}</span>
-          </button>
-
           {canApprove && (["draft", "needs_info", "pending_review"].includes(quote.status)) && (
             <>
               {quote.status === "pending_review" && (

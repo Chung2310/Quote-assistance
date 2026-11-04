@@ -278,7 +278,6 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const wordTemplateId = wordTemplateOverride
     || (savedWordTemplateId && wordTemplates.some((template) => template.id === savedWordTemplateId) ? savedWordTemplateId : "")
     || wordTemplates[0]?.id || "";
-  const selectedTemplateMode = wordTemplates.find((template) => template.id === wordTemplateId)?.mode;
   const wordParams = new URLSearchParams({ background: "1" });
   if (wordTemplateId) wordParams.set("templateId", wordTemplateId);
   const wordUrl = (view === "contracts" ? "/api/contracts/" + contract._id + "/file" : "/api/acceptance-records/" + record!._id + "/file")
@@ -291,9 +290,9 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       {wordTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
     </select>
   </label>;
-  const downloadLabel = downloading
-    ? selectedTemplateMode === "pdf-ai" || selectedTemplateMode === "docx-ai" ? "AI đang sửa mẫu…" : "Đang tạo file…"
-    : "Tạo file bằng AI";
+  const createWordLabel = downloading
+    ? "AI đang tạo file…"
+    : view === "contracts" ? "Tạo file hợp đồng bằng AI" : "Tạo file nghiệm thu bằng AI";
 
   if (view === "contracts") {
     const editable = contract.status === "draft";
@@ -318,8 +317,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
         <button className="button button-soft" onClick={() => navigate("contracts")}>← Danh sách hợp đồng</button>
         <div className="workflow-toolbar-actions">
           {templateSelector}
-          <button className="button button-primary" type="button" disabled={downloading} onClick={() => void createDocument(wordUrl, "contract")}>{downloadLabel}</button>
-          <button className="button button-soft" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>{savedWordFile ? `Tải file đã lưu (${savedWordFile.filename})` : "Chưa có file hợp đồng đã lưu"}</button>
+          <button className="button button-soft" type="button" disabled={downloading} onClick={() => void createDocument(wordUrl, "contract")}>{createWordLabel}</button>
+          <button className="button button-primary" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>{savedWordFile ? `Tải file đã lưu (${savedWordFile.filename})` : "Chưa có file hợp đồng đã lưu"}</button>
           <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>
           {contract.status === "signed" && <button className="button button-soft" disabled={busy} onClick={() => void createAcceptance(contract)}>Tạo nghiệm thu</button>}
         </div>
@@ -426,8 +425,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       <button className="button button-soft" onClick={() => navigate("acceptances")}>← Danh sách nghiệm thu</button>
       <div className="workflow-toolbar-actions">
         {templateSelector}
-        <button className="button button-primary" type="button" disabled={downloading} onClick={() => void createDocument(wordUrl, "acceptance")}>{downloadLabel}</button>
-        <button className="button button-soft" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>{savedWordFile ? `Tải file đã lưu (${savedWordFile.filename})` : "Chưa có file nghiệm thu đã lưu"}</button>
+        <button className="button button-soft" type="button" disabled={downloading} onClick={() => void createDocument(wordUrl, "acceptance")}>{createWordLabel}</button>
+        <button className="button button-primary" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>{savedWordFile ? `Tải file đã lưu (${savedWordFile.filename})` : "Chưa có file nghiệm thu đã lưu"}</button>
         {view === "acceptances" && acceptance.status === "completed" && <>
           {settlementTemplates.length > 0 && <label className="workflow-word-template">Mẫu hồ sơ quyết toán
             <select aria-label="Mẫu quyết toán Excel" value={settlementTemplateId} onChange={(event) => setSettlementTemplateOverride(event.target.value)} disabled={downloading}>
@@ -435,7 +434,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
             </select>
           </label>}
           <button className="button button-soft" type="button" disabled={downloading || !settlementTemplates.length} onClick={() => void createDocument(settlementUrl, "settlement")}>{settlementDownloading ? "Đang tạo hồ sơ quyết toán…" : "Tạo file quyết toán bằng AI"}</button>
-          <button className="button button-soft" type="button" disabled={downloading || !savedSettlementFile} onClick={() => void downloadSavedDocument(savedSettlementFile)}>{savedSettlementFile ? `Tải file đã lưu (${savedSettlementFile.filename})` : "Chưa có hồ sơ quyết toán đã lưu"}</button>
+          <button className="button button-primary" type="button" disabled={downloading || !savedSettlementFile} onClick={() => void downloadSavedDocument(savedSettlementFile)}>{savedSettlementFile ? `Tải file đã lưu (${savedSettlementFile.filename})` : "Chưa có hồ sơ quyết toán đã lưu"}</button>
           {!settlementTemplates.length && <small className="workflow-template-source">Chưa có mẫu quyết toán Excel. Tải mẫu lên mục Quản lý mẫu → Quyết toán.</small>}
         </>}
         <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>

@@ -1634,9 +1634,36 @@ app.get("/api/generated-export-files/latest", requireRole("user"), async (reques
     fileId: { $exists: true },
   }, { sort: { updatedAt: -1 } });
   const fileId = job?.fileId ? asId(job.fileId) : null;
-  const file = fileId
+  let file = fileId
     ? await db.collection<CompanyFile>("companyFiles").findOne({ _id: fileId, companyId: user.companyId })
     : null;
+  if (!file) {
+    const filenameCandidates: string[] = [];
+    if (kind === "budget") {
+      filenameCandidates.push(`phuong-an-${sourceId.toHexString()}.xlsx`);
+    } else if (kind === "contract") {
+      const contract = await db.collection<Contract>("contracts").findOne({ _id: sourceId, companyId: user.companyId });
+      if (contract) filenameCandidates.push(`${contract.contractNumber}.docx`, `${contract.contractNumber}.pdf`);
+    } else if (kind === "acceptance" || kind === "settlement") {
+      const record = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: sourceId, companyId: user.companyId });
+      if (record) filenameCandidates.push(kind === "settlement"
+        ? `Ho-so-quyet-toan-${record.acceptanceNumber}.xlsx`
+        : `${record.acceptanceNumber}.docx`);
+    } else {
+      const quote = await db.collection<Quote>("quotes").findOne({ _id: sourceId, companyId: user.companyId });
+      if (quote) {
+        if (kind === "customer_quote") filenameCandidates.push(`${quote.quoteNumber}.xlsx`, `${quote.quoteNumber}-nhap.xlsx`);
+        else if (kind === "estimate_draft") filenameCandidates.push(`${quote.quoteNumber}-nhap.xlsx`);
+        else filenameCandidates.push(`${quote.quoteNumber}.xlsx`, `${quote.quoteNumber}.docx`, `${quote.quoteNumber}.pdf`);
+      }
+    }
+    if (filenameCandidates.length) {
+      file = await db.collection<CompanyFile>("companyFiles").find({
+        companyId: user.companyId,
+        originalFilename: { $in: filenameCandidates },
+      }).sort({ createdAt: -1 }).limit(1).next();
+    }
+  }
   response.json({ file: file ? {
     id: file._id?.toHexString(),
     filename: file.originalFilename,

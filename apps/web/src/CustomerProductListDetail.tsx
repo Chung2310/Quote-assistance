@@ -324,7 +324,7 @@ export default function CustomerProductListDetail({
             {/* Generate Button */}
             <button
               type="button"
-              className="button button-primary"
+              className="button button-soft"
               disabled={busy}
               onClick={generateExport}
             >
@@ -333,10 +333,10 @@ export default function CustomerProductListDetail({
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <span>{exportingWithAi ? "Đang tạo file…" : "Tạo file bằng AI"}</span>
+              <span>{exportingWithAi ? "Đang tạo file…" : "Tạo file mới bằng AI"}</span>
             </button>
 
-            <button type="button" className="button button-soft" disabled={busy || !savedExport} onClick={downloadSavedExport}>
+            <button type="button" className="button button-primary" disabled={busy || !savedExport} onClick={downloadSavedExport}>
               <span>{savedExport ? `Tải file đã lưu (${savedExport.filename})` : "Chưa có file lưu để tải"}</span>
             </button>
 

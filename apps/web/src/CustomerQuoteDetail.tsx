@@ -397,7 +397,7 @@ export default function CustomerQuoteDetail({
 
             <button
               type="button"
-              className="button button-primary"
+              className="button button-soft"
               disabled={busy || !quote.lines.length}
               onClick={generateExport}
             >
@@ -406,7 +406,7 @@ export default function CustomerQuoteDetail({
                 <polyline points="7 10 12 15 17 10" />
                 <line x1="12" y1="15" x2="12" y2="3" />
               </svg>
-              <span>{quote.status === "approved" ? "Tạo file báo giá" : "Tạo file báo giá nháp"}</span>
+              <span>{quote.status === "approved" ? "Tạo file mới bằng AI" : "Tạo file nháp bằng AI"}</span>
             </button>
 
             {["draft", "rejected"].includes(quote.status) && (
@@ -920,7 +920,7 @@ export default function CustomerQuoteDetail({
 
               <button
                 type="button"
-                className="button button-soft"
+                className="button button-primary"
                 disabled={busy || !savedExport}
                 onClick={downloadSavedExport}
               >

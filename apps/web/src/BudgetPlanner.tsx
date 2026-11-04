@@ -751,10 +751,12 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                         {excelTemplates.map((template) => <option key={template.id} value={template.id}>{template.name || template.originalFilename}</option>)}
                       </select>
                     </label>
-                    <button type="button" className="button button-primary button-compact" disabled={!selectedId || !excelTemplateId || exporting || Boolean(saving)} onClick={() => void exportExcel(excelTemplateId)}>
-                      {exporting ? "Đang tạo file…" : "Tạo file bằng AI"}
+                    <button type="button" className="button button-soft button-compact" disabled={!selectedId || !excelTemplateId || exporting || Boolean(saving)} onClick={() => void exportExcel(excelTemplateId)}>
+                      {exporting ? "Đang tạo file…" : "Tạo file mới bằng AI"}
                     </button>
-                    {savedExport && <button type="button" className="button button-soft button-compact" disabled={exporting} onClick={() => void downloadGeneratedFile(savedExport.id).catch((cause) => setError(cause instanceof Error ? cause.message : "Không tải được file đã lưu."))}>Tải file đã lưu</button>}
+                    <button type="button" className="button button-primary button-compact" disabled={exporting || !savedExport} onClick={() => void (savedExport && downloadGeneratedFile(savedExport.id).catch((cause) => setError(cause instanceof Error ? cause.message : "Không tải được file đã lưu.")))}>
+                      {savedExport ? `Tải file đã lưu (${savedExport.filename})` : "Chưa có file đã lưu"}
+                    </button>
                   </div>
                   {excelTemplatesError && <p className="bp-export-status" role="alert">{excelTemplatesError}</p>}
                   {!excelTemplatesLoading && !excelTemplatesError && excelTemplates.length === 0 && <p className="bp-export-status">Chưa có mẫu Excel đã lưu để xuất phương án.</p>}
