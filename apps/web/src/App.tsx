@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ApiError, api, apiUploadWithProgress, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
+import { ApiError, api, apiUploadWithProgress, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import MoneyInput from "./MoneyInput";
 import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
@@ -1560,6 +1560,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const [customerPhone, setCustomerPhone] = useState("");
   const [editingCustomer, setEditingCustomer] = useState(false);
   const [savedEstimateFile, setSavedEstimateFile] = useState<GeneratedFileRef | null>(null);
+  const [loadingSavedEstimateFile, setLoadingSavedEstimateFile] = useState(true);
 
   const canEdit = user.role === "user";
   const canApprove = user.role === "user";
@@ -1623,8 +1624,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!quote?._id) { setSavedEstimateFile(null); return; }
+    if (!quote?._id) { setSavedEstimateFile(null); setLoadingSavedEstimateFile(false); return; }
     let active = true;
+    setLoadingSavedEstimateFile(true);
     const loadSavedFile = quote.status === "approved"
       ? getLatestGeneratedFile(quote._id, "estimate").then(({ file }) => file)
       : Promise.all([
@@ -1634,7 +1636,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
         ?? (estimate.file?.filename.match(/-nhap\.[^.]+$/i) ? estimate.file : null));
     loadSavedFile
       .then((file) => { if (active) setSavedEstimateFile(file); })
-      .catch(() => { if (active) setSavedEstimateFile(null); });
+      .catch(() => { if (active) setSavedEstimateFile(null); })
+      .finally(() => { if (active) setLoadingSavedEstimateFile(false); });
     return () => { active = false; };
   }, [quote?._id, quote?.status]);
   const hasIncompleteSupplementalProduct = supplementalProducts.some((product) => {
@@ -1831,13 +1834,35 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
   const downloadSavedEstimate = async () => {
-    if (!savedEstimateFile || busy) return;
+    if (busy || loadingSavedEstimateFile) return;
     setBusy(true);
     try {
-      await downloadGeneratedFile(savedEstimateFile.id);
-      onToast("Đã tải file đã lưu từ Cloudinary.", "success");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tải được file đã lưu."); }
-    finally { setBusy(false); }
+      let file = savedEstimateFile;
+      if (editable && hasUnsavedChanges) {
+        if (hasIncompleteSupplementalProduct) throw new Error("Hãy hoàn thiện thông tin sản phẩm bổ sung trước khi tải file.");
+        await api(`/api/quotes/${quote._id}`, { method: "PATCH", body: JSON.stringify(editPayload()) });
+        await load();
+        onChanged();
+        file = null;
+        setSavedEstimateFile(null);
+      }
+      const quoteUpdatedAt = new Date(quote.updatedAt || quote.createdAt).getTime();
+      const fileCreatedAt = file?.createdAt ? new Date(file.createdAt).getTime() : Number.NaN;
+      if (Number.isFinite(fileCreatedAt) && Number.isFinite(quoteUpdatedAt) && fileCreatedAt < quoteUpdatedAt) file = null;
+      if (!file) {
+        const params = new URLSearchParams({ background: "1" });
+        if (quote.status !== "approved") params.set("draft", "1");
+        setTaskProgress({
+          label: quote.status === "approved" ? "Đang tạo file dự toán" : "Đang tạo file dự toán nháp",
+          detail: "AI đang điền file và lưu lên Cloudinary trước khi tải xuống…",
+        });
+        file = await createGeneratedExport(`/api/quotes/${quote._id}/export?${params.toString()}`);
+        setSavedEstimateFile(file);
+      }
+      await downloadGeneratedFile(file.id);
+      onToast("Đã tải file dự toán đã lưu trên Cloudinary.", "success");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tải được file dự toán."); }
+    finally { setBusy(false); setTaskProgress(null); }
   };
 
   return (
@@ -1916,12 +1941,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
           <button
             type="button"
             className="button button-primary"
-            disabled={busy || !savedEstimateFile}
-            title={savedEstimateFile ? "Tải file đã lưu trên Cloudinary" : "Chưa có file dự toán đã lưu"}
+            disabled={busy || loadingSavedEstimateFile}
+            title={savedEstimateFile ? "Tải file đã lưu trên Cloudinary" : loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu" : "Tạo, lưu lên Cloudinary và tải file dự toán"}
             onClick={() => void downloadSavedEstimate()}
           >
             <Icon name="download" size={16} />
-            <span>{savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : "Chưa có file dự toán đã lưu"}</span>
+            <span>{loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu…" : savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : quote.status === "approved" ? "Tải file dự toán" : "Tải bản nháp"}</span>
           </button>
           {canApprove && (["draft", "needs_info", "pending_review"].includes(quote.status)) && (
             <>
