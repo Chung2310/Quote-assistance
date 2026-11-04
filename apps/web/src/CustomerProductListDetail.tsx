@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
-import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
 import { TaskProgress, type ConfirmOptions, type Notify } from "./Feedback";
 import type { Quote } from "./types";
-import ThemedSelect from "./ThemedSelect";
 import "./customer-quote-detail.css";
 
 export default function CustomerProductListDetail({
@@ -24,14 +22,11 @@ export default function CustomerProductListDetail({
   onCreateEstimate: (quote: Quote) => void;
 }) {
   const [quote, setQuote] = useState<Quote | null>(null);
-  const [templates, setTemplates] = useState<CustomerExcelTemplate[]>([]);
-  const [templateId, setTemplateId] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [exportingWithAi, setExportingWithAi] = useState(false);
   const [savedExport, setSavedExport] = useState<GeneratedFileRef | null>(null);
   const [error, setError] = useState("");
-  const initialTemplateSelected = useRef(false);
 
   const reload = async () => {
     const result = await api<{ quote: Quote }>("/api/quotes/" + id);
@@ -65,32 +60,6 @@ export default function CustomerProductListDetail({
       .catch(() => { if (active) setSavedExport(null); });
     return () => { active = false; };
   }, [id]);
-
-  useEffect(() => {
-    let active = true;
-    listCustomerExcelTemplates()
-      .then(({ templates: options, defaultTemplateId }) => {
-        if (!active) return;
-        setTemplates(options);
-        setTemplateId(
-          (current) =>
-            current || (options.some((entry) => entry.id === defaultTemplateId) ? defaultTemplateId! : "")
-        );
-      })
-      .catch(() => {
-        /* Excel thường vẫn tải được khi không có mẫu. */
-      });
-    return () => {
-      active = false;
-    };
-  }, [id]);
-
-  useEffect(() => {
-    if (!initialTemplateSelected.current && quote?.template && templates.some((entry) => entry.id === quote.template?.id)) {
-      initialTemplateSelected.current = true;
-      setTemplateId(quote.template.id);
-    }
-  }, [quote?.template?.id, templates]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -136,9 +105,9 @@ export default function CustomerProductListDetail({
   const generateExport = () =>
     void run(async () => {
       if (!quote) return;
-      if (templateId) setExportingWithAi(true);
+      setExportingWithAi(true);
       try {
-        const params = new URLSearchParams({ templateId: templateId || "none" });
+        const params = new URLSearchParams();
         params.set("background", "1");
         if (quote.status !== "approved") params.set("draft", "1");
         const file = await createGeneratedExport("/api/quotes/" + id + "/export?" + params);
@@ -156,11 +125,7 @@ export default function CustomerProductListDetail({
   });
 
   // Selected template name
-  const selectedTemplateName = useMemo(() => {
-    if (!templateId) return "Excel mặc định";
-    const found = templates.find((t) => t.id === templateId);
-    return found ? found.name || found.originalFilename : "Excel mặc định";
-  }, [templateId, templates]);
+  const selectedTemplateName = quote?.template?.name || quote?.template?.originalFilename || "Excel mặc định";
 
   if (loading) {
     return (
@@ -306,21 +271,6 @@ export default function CustomerProductListDetail({
               </button>
             )}
 
-            {/* Template Selector */}
-            <ThemedSelect
-              label="Mẫu Excel xuất báo giá"
-              value={templateId}
-              disabled={busy}
-              onChange={setTemplateId}
-              options={[
-                { value: "", label: "Excel mặc định" },
-                ...templates.map((entry) => ({
-                  value: entry.id,
-                  label: entry.name || entry.originalFilename,
-                })),
-              ]}
-              className="customer-product-template-select"
-            />
             {/* Generate Button */}
             <button
               type="button"
@@ -398,7 +348,7 @@ export default function CustomerProductListDetail({
           >
             {selectedTemplateName}
           </span>
-          <span className="cqd-kpi-box-sub">Có thể chọn mẫu khác ở thanh trên</span>
+          <span className="cqd-kpi-box-sub">Mẫu đã gắn với danh sách này</span>
         </div>
       </section>
 

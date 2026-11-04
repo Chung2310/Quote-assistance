@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatMoney, type GeneratedFileRef } from "./api";
-import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
 import MoneyInput from "./MoneyInput";
 import { TaskProgress } from "./Feedback";
 import type { CatalogItem } from "./types";
@@ -92,10 +91,6 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [savedExport, setSavedExport] = useState<GeneratedFileRef | null>(null);
-  const [excelTemplates, setExcelTemplates] = useState<CustomerExcelTemplate[]>([]);
-  const [excelTemplateId, setExcelTemplateId] = useState("");
-  const [excelTemplatesLoading, setExcelTemplatesLoading] = useState(true);
-  const [excelTemplatesError, setExcelTemplatesError] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<PlanResult | null>(null);
   const [history, setHistory] = useState<SavedPlan[]>([]);
@@ -195,15 +190,6 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
   }, []);
 
   useEffect(() => {
-    let live = true;
-    listCustomerExcelTemplates()
-      .then(({ templates }) => { if (live) setExcelTemplates(templates); })
-      .catch((cause) => { if (live) setExcelTemplatesError(cause instanceof Error ? cause.message : "Không tải được danh sách mẫu Excel."); })
-      .finally(() => { if (live) setExcelTemplatesLoading(false); });
-    return () => { live = false; };
-  }, []);
-
-  useEffect(() => {
     if (dialogMode !== "view") return;
     let live = true;
     api<{ items: CatalogItem[] }>("/api/catalog")
@@ -251,12 +237,12 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
     }
   };
 
-  const exportExcel = async (templateId: string) => {
-    if (!selectedId || !templateId || exporting) return;
+  const exportExcel = async () => {
+    if (!selectedId || exporting) return;
     setExporting(true);
     setError("");
     try {
-      const file = await createGeneratedExport(`/api/budget-plans/${selectedId}/export?templateId=${encodeURIComponent(templateId)}&background=1`);
+      const file = await createGeneratedExport(`/api/budget-plans/${selectedId}/export?background=1`);
       setSavedExport(file);
       setUpdateNotice(`Đã tạo và lưu ${file.filename} lên Cloudinary.`);
     } catch (cause) {
@@ -741,27 +727,18 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                 <section className="bp-export-panel" aria-label="Xuất phương án Excel">
                   <div className="bp-export-panel-heading">
                     <strong>Tạo file phương án</strong>
-                    <span>AI sửa file mẫu đã chọn, lưu kết quả lên Cloudinary; tải xuống từ file đã lưu.</span>
+                    <span>AI điền dữ liệu phương án vào file Excel và lưu lên Cloudinary; nút tải lấy file đã lưu.</span>
                   </div>
                   <div className="bp-export-panel-controls">
-                    <label className="bp-export-template">
-                      <span>Mẫu Excel</span>
-                      <select value={excelTemplateId} onChange={(event) => setExcelTemplateId(event.target.value)} disabled={exporting || excelTemplatesLoading || Boolean(excelTemplatesError) || excelTemplates.length === 0}>
-                        <option value="">{excelTemplatesLoading ? "Đang tải mẫu…" : "Chọn mẫu Excel"}</option>
-                        {excelTemplates.map((template) => <option key={template.id} value={template.id}>{template.name || template.originalFilename}</option>)}
-                      </select>
-                    </label>
-                    <button type="button" className="button button-soft button-compact" disabled={!selectedId || !excelTemplateId || exporting || Boolean(saving)} onClick={() => void exportExcel(excelTemplateId)}>
+                    <button type="button" className="button button-soft button-compact" disabled={!selectedId || exporting || Boolean(saving)} onClick={() => void exportExcel()}>
                       {exporting ? "Đang tạo file…" : "Tạo file mới bằng AI"}
                     </button>
                     <button type="button" className="button button-primary button-compact" disabled={exporting || !savedExport} onClick={() => void (savedExport && downloadGeneratedFile(savedExport.id).catch((cause) => setError(cause instanceof Error ? cause.message : "Không tải được file đã lưu.")))}>
                       {savedExport ? `Tải file đã lưu (${savedExport.filename})` : "Chưa có file đã lưu"}
                     </button>
                   </div>
-                  {excelTemplatesError && <p className="bp-export-status" role="alert">{excelTemplatesError}</p>}
-                  {!excelTemplatesLoading && !excelTemplatesError && excelTemplates.length === 0 && <p className="bp-export-status">Chưa có mẫu Excel đã lưu để xuất phương án.</p>}
                   {savedExport && <p className="bp-export-status">File lưu gần nhất: {savedExport.filename}</p>}
-                  {exporting && <TaskProgress label="AI đang sửa file mẫu" detail="Đang tạo và lưu file kết quả lên Cloudinary…" />}
+                  {exporting && <TaskProgress label="AI đang tạo Excel phương án" detail="Đang điền dữ liệu và lưu file kết quả lên Cloudinary…" />}
                 </section>
 
                 {/* Financial KPI Strip */}
