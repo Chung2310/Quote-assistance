@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ApiError, api, apiUploadWithProgress, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
+import { ApiError, api, apiUploadWithProgress, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import MoneyInput from "./MoneyInput";
 import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
@@ -1834,35 +1834,13 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
   const downloadSavedEstimate = async () => {
-    if (busy || loadingSavedEstimateFile) return;
+    if (!savedEstimateFile || busy || loadingSavedEstimateFile) return;
     setBusy(true);
     try {
-      let file = savedEstimateFile;
-      if (editable && hasUnsavedChanges) {
-        if (hasIncompleteSupplementalProduct) throw new Error("Hãy hoàn thiện thông tin sản phẩm bổ sung trước khi tải file.");
-        await api(`/api/quotes/${quote._id}`, { method: "PATCH", body: JSON.stringify(editPayload()) });
-        await load();
-        onChanged();
-        file = null;
-        setSavedEstimateFile(null);
-      }
-      const quoteUpdatedAt = new Date(quote.updatedAt || quote.createdAt).getTime();
-      const fileCreatedAt = file?.createdAt ? new Date(file.createdAt).getTime() : Number.NaN;
-      if (Number.isFinite(fileCreatedAt) && Number.isFinite(quoteUpdatedAt) && fileCreatedAt < quoteUpdatedAt) file = null;
-      if (!file) {
-        const params = new URLSearchParams({ background: "1" });
-        if (quote.status !== "approved") params.set("draft", "1");
-        setTaskProgress({
-          label: quote.status === "approved" ? "Đang tạo file dự toán" : "Đang tạo file dự toán nháp",
-          detail: "AI đang điền file và lưu lên Cloudinary trước khi tải xuống…",
-        });
-        file = await createGeneratedExport(`/api/quotes/${quote._id}/export?${params.toString()}`);
-        setSavedEstimateFile(file);
-      }
-      await downloadGeneratedFile(file.id);
-      onToast("Đã tải file dự toán đã lưu trên Cloudinary.", "success");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tải được file dự toán."); }
-    finally { setBusy(false); setTaskProgress(null); }
+      await downloadGeneratedFile(savedEstimateFile.id);
+      onToast("Đã tải file đã lưu trên Cloudinary.", "success");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tải được file đã lưu."); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -1941,12 +1919,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
           <button
             type="button"
             className="button button-primary"
-            disabled={busy || loadingSavedEstimateFile}
-            title={savedEstimateFile ? "Tải file đã lưu trên Cloudinary" : loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu" : "Tạo, lưu lên Cloudinary và tải file dự toán"}
+            disabled={busy || loadingSavedEstimateFile || !savedEstimateFile}
+            title={savedEstimateFile ? "Tải file đã lưu trên Cloudinary" : loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu" : "Chưa có file dự toán đã lưu trên Cloudinary"}
             onClick={() => void downloadSavedEstimate()}
           >
             <Icon name="download" size={16} />
-            <span>{loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu…" : savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : quote.status === "approved" ? "Tải file dự toán" : "Tải bản nháp"}</span>
+            <span>{loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu…" : savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : "Chưa có file dự toán đã lưu"}</span>
           </button>
           {canApprove && (["draft", "needs_info", "pending_review"].includes(quote.status)) && (
             <>
