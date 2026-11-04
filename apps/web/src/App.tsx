@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ApiError, api, apiUploadWithProgress, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
+import { ApiError, api, apiUploadWithProgress, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import MoneyInput from "./MoneyInput";
 import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
@@ -1559,7 +1559,6 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const [customerEmail, setCustomerEmail] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [editingCustomer, setEditingCustomer] = useState(false);
-  const [activeQuoteDownload, setActiveQuoteDownload] = useState<"word" | "excel" | "document" | null>(null);
   const [savedEstimateFile, setSavedEstimateFile] = useState<GeneratedFileRef | null>(null);
 
   const canEdit = user.role === "user";
@@ -1823,34 +1822,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const catalogLines = quote.lines.filter((line) => line.source !== "supplemental");
   const displaySupplementalProducts = supplementalProducts.filter(hasSupplementalProductContent);
   const visibleLineCount = catalogLines.length + displaySupplementalProducts.length;
-  const canExportDraftXlsx = editable && quote.status !== "approved";
-  const canDownloadQuote = quote.status === "approved" || canExportDraftXlsx;
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
-
-  const createQuoteExport = async (excelOnly: boolean) => {
-    setBusy(true); setError("");
-    const templateExtension = quote.template?.originalFilename.split(".").pop()?.toLowerCase();
-    const downloadKind = canExportDraftXlsx || excelOnly ? "excel" : templateExtension === "docx" ? "word" : templateExtension === "xlsx" ? "excel" : "document";
-    setActiveQuoteDownload(downloadKind);
-    const fileLabel = downloadKind === "excel" ? "Đang tạo file Excel" : downloadKind === "word" ? "Đang tạo file Word" : "Đang tạo file dự toán";
-    setTaskProgress({ label: fileLabel, detail: "AI đang sửa mẫu và lưu file lên Cloudinary…" });
-    try {
-      if (editable && hasUnsavedChanges && !hasIncompleteSupplementalProduct) {
-        await api(`/api/quotes/${quote._id}`, { method: "PATCH", body: JSON.stringify(editPayload()) });
-        await load();
-        onChanged();
-      }
-      const exportParams = new URLSearchParams();
-      if (canExportDraftXlsx) exportParams.set("draft", "1");
-      else if (excelOnly) exportParams.set("excel", "1");
-      exportParams.set("background", "1");
-      const exportQuery = `?${exportParams.toString()}`;
-      const file = await createGeneratedExport(`/api/quotes/${quote._id}/export${exportQuery}`);
-      setSavedEstimateFile(file);
-      onToast(`Đã tạo và lưu ${file.filename} lên Cloudinary.`, "success");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tạo được file dự toán."); }
-    finally { setBusy(false); setTaskProgress(null); setActiveQuoteDownload(null); }
-  };
 
   const downloadSavedEstimate = async () => {
     if (!savedEstimateFile || busy) return;
@@ -1945,22 +1917,6 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             <Icon name="download" size={16} />
             <span>{savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : "Chưa có file dự toán đã lưu"}</span>
           </button>
-          <button
-            type="button"
-            className="button button-soft"
-            disabled={busy || !canDownloadQuote}
-            title={canExportDraftXlsx ? "Tạo file Excel nháp bằng AI" : "Tạo file dự toán bằng AI"}
-            onClick={() => void createQuoteExport(false)}
-          >
-            <Icon name="download" size={16} />
-            <span>{quote.status === "approved" ? "Tạo file mới bằng AI" : canExportDraftXlsx ? "Tạo Excel nháp bằng AI" : "Tạo file bằng AI"}</span>
-          </button>
-          {quote.status === "approved" && (
-            <button type="button" className="button button-soft" disabled={busy} onClick={() => void createQuoteExport(true)}>
-              {activeQuoteDownload === "excel" ? <span className="spinner-dark" aria-hidden="true" /> : <Icon name="download" size={16} />}
-              <span>{activeQuoteDownload === "excel" ? "Đang tạo Excel…" : "Tạo Excel bằng AI"}</span>
-            </button>
-          )}
           {canApprove && (["draft", "needs_info", "pending_review"].includes(quote.status)) && (
             <>
               {quote.status === "pending_review" && (
@@ -2074,7 +2030,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             </span>
             <div className="quote-step-copy">
               <strong>3. Xuất & gửi khách hàng</strong>
-              <span>{quote.status === "approved" ? "Sẵn sàng xuất file" : canExportDraftXlsx ? "Có thể xuất Excel nháp" : "Chờ duyệt xong"}</span>
+              <span>{savedEstimateFile ? `Đã lưu ${savedEstimateFile.filename}` : "Chưa có file đã lưu để tải"}</span>
             </div>
           </div>
         </div>
