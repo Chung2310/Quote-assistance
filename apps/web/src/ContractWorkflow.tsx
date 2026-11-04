@@ -283,8 +283,10 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const wordUrl = (view === "contracts" ? "/api/contracts/" + contract._id + "/file" : "/api/acceptance-records/" + record!._id + "/file")
     + `?${wordParams.toString()}`;
   const settlementTemplateId = settlementTemplateOverride || settlementTemplates[0]?.id || "";
-  const settlementUrl = "/api/acceptance-records/" + record!._id + "/settlement.xlsx?background=1"
-    + (settlementTemplateId ? "&templateId=" + encodeURIComponent(settlementTemplateId) : "");
+  const settlementUrl = record
+    ? "/api/acceptance-records/" + record._id + "/settlement.xlsx?background=1"
+      + (settlementTemplateId ? "&templateId=" + encodeURIComponent(settlementTemplateId) : "")
+    : "";
   const templateSelector = wordTemplates.length > 0 && <label className="workflow-word-template">Mẫu tạo file
     <select aria-label="Mẫu chứng từ khi tạo file" value={wordTemplateId} onChange={(event) => setWordTemplateOverride(event.target.value)} disabled={downloading}>
       {wordTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
