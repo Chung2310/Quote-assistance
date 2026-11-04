@@ -4,10 +4,11 @@ import { Binary } from "mongodb";
 import Docxtemplater from "docxtemplater";
 import PizZip from "pizzip";
 import { requestTemplatePlan } from "./ai.js";
+import { directDocumentEditorEnabled, editDocumentFileDirectly } from "./document-edit-ai.js";
 import { makePdfReferenceContractWord, words } from "./contract-pdf-reference-word.js";
 import { convertPdfToWord } from "./pdf-to-word.js";
 import { logger } from "./logger.js";
-import { applyFontToAllWordRuns, applyFontToTemplateWordParagraphs, fillSchema, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
+import { applyFontToAllWordRuns, applyFontToTemplateWordParagraphs, fillSchema, inspectTemplate, renderMappedTemplate, templateAiContent, type QuoteTemplate } from "./quote-template.js";
 import type { Contract, TemplateFillPlan } from "./types.js";
 
 const architecturePdfHash = "72d9a684a94784ed813fac2b861556509f804de16acff141597eb3ab18685c04";
@@ -332,6 +333,19 @@ export async function renderContractFile(db: Db, template: QuoteTemplate, contra
   }
   if (mode === "pdf-ai" || mode === "docx-ai" || mode === "docx") {
     try {
+      if (directDocumentEditorEnabled()) {
+        const extension = template.extension as "docx" | "pdf";
+        const bytes = await runAi(() => editDocumentFileDirectly({
+          bytes: templateBytes(template), filename: template.originalFilename, extension, functionName: "Contract",
+          data: {
+            fields: contractBindings(contract),
+            products: contract.lines.map((line, index) => ({ index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", quantity: line.quantity, unit: line.unit, unitPrice: line.unitPrice, lineTotal: line.lineTotal, currency: line.currency })),
+          },
+        }));
+        if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
+        await inspectTemplate(bytes, extension);
+        return { bytes, extension };
+      }
       const plan = await getOrCreateContractFillPlan(db, template, contract, runAi);
       const bytes = await renderMappedTemplate(template, contractBindings(contract), plan);
       return { bytes, extension: mode === "pdf-ai" ? "pdf" : "docx" };
@@ -436,6 +450,22 @@ export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, cont
   if (mode === "pdf-reference" || mode === "pdf-ai" || mode === "docx-ai" || mode === "docx") {
     try {
       const wordTemplate = await acceptanceWordTemplate(db, template);
+      if (directDocumentEditorEnabled()) {
+        const bytes = await runAi(() => editDocumentFileDirectly({
+          bytes: templateBytes(wordTemplate), filename: wordTemplate.originalFilename, extension: "docx", functionName: "Acceptance and handover record",
+          data: {
+            fields: acceptanceBindings(contract, record),
+            contractProducts: contract.lines.map((line, index) => {
+              const acceptedQuantity = record.lines.find((entry) => entry.lineIndex === index)?.acceptedQuantity ?? 0;
+              return { index: index + 1, name: line.name, description: line.description ?? "", contractQuantity: line.quantity, acceptedQuantity, unit: line.unit, unitPrice: line.unitPrice, lineTotal: line.lineTotal };
+            }),
+          },
+        }));
+        if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
+        const finalized = finalizeAcceptanceWord(bytes, template, contract);
+        await inspectTemplate(finalized, "docx");
+        return { bytes: finalized, extension: "docx" };
+      }
       const plan = await getOrCreateAcceptanceFillPlan(db, wordTemplate, contract, record, runAi, template);
       const rendered = await renderMappedTemplate(wordTemplate, acceptanceBindings(contract, record), plan, { boundTextFont: "Arial" });
       return { bytes: finalizeAcceptanceWord(rendered, template, contract), extension: "docx" };

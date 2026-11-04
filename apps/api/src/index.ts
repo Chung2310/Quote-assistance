@@ -5,6 +5,7 @@ import { createServer } from "node:http";
 import { Binary, ObjectId, type Db, type Document, type Filter } from "mongodb";
 import PdfPrinter from "pdfmake";
 import { config } from "./config.js";
+import { directDocumentEditorEnabled } from "./document-edit-ai.js";
 import { logger } from "./logger.js";
 import { connectDatabase, closeDatabase } from "./db.js";
 import { databaseConnectionDiagnostics } from "./database-diagnostics.js";
@@ -3415,7 +3416,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     }
     const inputContext = await quoteInputContext(db, quote);
     let renderQuote = quote;
-    if (template && template.extension !== "xlsx") {
+    if (template && template.extension !== "xlsx" && !directDocumentEditorEnabled()) {
       const plan = await withAiUsage(db, userOf(request), "quote_export_template", () => createTemplateFillPlan(template, quote, inputContext));
       renderQuote = { ...quote, templateFillPlan: plan };
       await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
@@ -3427,11 +3428,14 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       bytes = await withAiUsage(db, userOf(request), "quote_export_default_pdf", async () => {
         const source = await makePdfBuffer(quote);
         const pdfTemplate = generatedExportTemplate(userOf(request), `${quote.quoteNumber}.pdf`, "pdf", source);
+        if (directDocumentEditorEnabled()) return renderTemplate(pdfTemplate, quote, inputContext);
         const plan = await createTemplateFillPlan(pdfTemplate, quote, inputContext);
         return renderTemplate(pdfTemplate, { ...quote, templateFillPlan: plan }, inputContext);
       });
     } else {
-      bytes = await renderTemplate(template, renderQuote, inputContext);
+      bytes = directDocumentEditorEnabled()
+        ? await withAiUsage(db, userOf(request), "quote_export_template", () => renderTemplate(template, renderQuote, inputContext))
+        : await renderTemplate(template, renderQuote, inputContext);
     }
     const extension = template?.extension ?? "pdf";
     const filename = `${quote.quoteNumber}${draftExport ? "-nhap" : ""}.${extension}`;

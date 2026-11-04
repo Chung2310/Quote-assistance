@@ -6,6 +6,7 @@ import PizZip from "pizzip";
 import { PDFDocument, PDFTextField, rgb } from "pdf-lib";
 import { DOMParser, XMLSerializer, type Document, type Element, type Node } from "@xmldom/xmldom";
 import { requestTemplatePlan } from "./ai.js";
+import { directDocumentEditorEnabled, editDocumentFileDirectly } from "./document-edit-ai.js";
 import fontkit from "@pdf-lib/fontkit";
 import type { Company, Quote, QuoteTemplateSnapshot, TemplateFillPlan, XlsxTemplateFillPlan } from "./types.js";
 
@@ -2010,6 +2011,32 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
     ...quote.lines,
     ...quote.missingProducts.map((name) => ({ catalogItemId: "", sku: "", name: `Chưa có trong danh mục: ${name}`, description: "", quantity: 1, unit: "", unitPrice: 0, priceUnavailable: true, currency: quote.currency, attributes: {}, lineTotal: 0 })),
   ] };
+  if (directDocumentEditorEnabled()) {
+    const functionName = quote.settlement ? "Settlement dossier"
+      : quote.kind === "budget" ? "Budget plan"
+        : quote.kind === "customer" ? "Customer product request"
+          : template.category === "estimate" || quote.kind === "estimate" ? "Estimate"
+            : "Quotation";
+    const bytes = await editDocumentFileDirectly({
+      bytes: Buffer.from(template.data.buffer), filename: template.originalFilename, extension: "xlsx", functionName,
+      userInstructions: inputContext,
+      data: {
+        documentKind: functionName,
+        businessFields: xlsxQuoteValues(quote),
+        products: quote.lines.map((line, index) => ({
+          index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", quantity: line.quantityUnknown ? null : line.quantity,
+          unit: line.unit, unitPrice: line.priceUnavailable ? null : line.unitPrice, lineTotal: line.lineTotalUnknown ? null : line.lineTotal,
+          currency: line.currency, attributes: line.attributes, catalogAttributes: line.catalogAttributes ?? {},
+        })),
+        additionalInformation: quoteAdditionalInformation(quote),
+        settlement: quote.settlement ?? null,
+        missingProducts: quote.missingProducts ?? [],
+      },
+    });
+    if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
+    await inspectTemplate(bytes, "xlsx");
+    return bytes;
+  }
   if (!quote.lines.length) {
     if (quote.kind === "customer") return renderCustomerXlsxTemplate(template, quote);
     const plan = await createXlsxTemplateFillPlan(template, quote, inputContext);
@@ -2206,6 +2233,33 @@ export async function savedTemplate(db: Db, companyId: string, snapshot: QuoteTe
 }
 
 export async function renderTemplate(template: QuoteTemplate, quote: Quote, inputContext = "") {
+  if (directDocumentEditorEnabled() && ["xlsx", "docx", "pdf"].includes(template.extension)) {
+    const functionName = quote.settlement ? "Settlement dossier"
+      : quote.kind === "budget" ? "Budget plan"
+        : template.category === "estimate" || quote.kind === "estimate" ? "Estimate"
+          : quote.kind === "customer" ? "Customer product request"
+            : "Quotation";
+    const bytes = await editDocumentFileDirectly({
+      bytes: Buffer.from(template.data.buffer), filename: template.originalFilename,
+      extension: template.extension as "xlsx" | "docx" | "pdf", functionName,
+      userInstructions: inputContext,
+      data: {
+        documentKind: functionName,
+        businessFields: xlsxQuoteValues(quote),
+        products: quote.lines.map((line, index) => ({
+          index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", quantity: line.quantityUnknown ? null : line.quantity,
+          unit: line.unit, unitPrice: line.priceUnavailable ? null : line.unitPrice, lineTotal: line.lineTotalUnknown ? null : line.lineTotal,
+          currency: line.currency, attributes: line.attributes, catalogAttributes: line.catalogAttributes ?? {},
+        })),
+        additionalInformation: quoteAdditionalInformation(quote),
+        settlement: quote.settlement ?? null,
+        missingProducts: quote.missingProducts ?? [],
+      },
+    });
+    if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
+    await inspectTemplate(bytes, template.extension);
+    return bytes;
+  }
   if (template.extension === "xlsx") {
     const xlsxPlan = quote.xlsxTemplateFillPlan ?? template.xlsxFillPlanCache?.[xlsxPlanKey(quote)];
     if (xlsxPlan) return renderXlsxTemplate(template, quote, xlsxPlan, inputContext);

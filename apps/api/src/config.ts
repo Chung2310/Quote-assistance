@@ -69,6 +69,8 @@ export const config = {
   openRouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
   openRouterModel: process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731",
   openRouterFileModel: process.env.OPENROUTER_FILE_MODEL ?? "openai/gpt-4o-mini",
+  openAiApiKey: process.env.OPENAI_API_KEY?.trim() ?? "",
+  openAiDocumentModel: process.env.OPENAI_DOCUMENT_MODEL?.trim() || "gpt-6-astra",
   openRouterSiteUrl: "http://localhost:3000",
   openRouterAppName: "AI Bao Gia Pilot",
   cloudinary: {
