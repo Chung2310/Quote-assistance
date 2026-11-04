@@ -3653,7 +3653,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       return { filename, mimeType, bytes, extension };
     };
     if (request.query.background === "1") {
-      const job = await queueGeneratedExport(db, userOf(request), "estimate", id.toHexString(), render);
+      const job = await queueGeneratedExport(db, userOf(request), draftExport ? "estimate_draft" : "estimate", id.toHexString(), render);
       return response.status(202).json(job);
     }
     const { bytes, extension, filename, mimeType } = await render();
