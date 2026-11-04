@@ -471,6 +471,8 @@ export function QuoteTemplatePanel({
                     <button
                       type="button"
                       className="qt-card-btn-preview"
+                      title="Xem trước mẫu"
+                      aria-label="Xem trước mẫu"
                       onClick={() =>
                         setPreview({
                           name: item.originalFilename,
@@ -478,43 +480,40 @@ export function QuoteTemplatePanel({
                         })
                       }
                     >
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                         <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
                         <circle cx="12" cy="12" r="3" />
                       </svg>
-                      <span>Xem trước mẫu</span>
                     </button>
 
-                    <div className="qt-card-sub-actions">
-                      <a
-                        className="qt-card-btn-download"
-                        href={`/api/quote-template/${item.id}/file`}
-                        title="Tải file mẫu về máy"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                          <polyline points="7 10 12 15 17 10" />
-                          <line x1="12" y1="15" x2="12" y2="3" />
-                        </svg>
-                        <span>Tải mẫu</span>
-                      </a>
+                    <a
+                      className="qt-card-btn-download"
+                      href={`/api/quote-template/${item.id}/file`}
+                      title="Tải file mẫu về máy"
+                      aria-label="Tải mẫu"
+                    >
+                      <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                    </a>
 
-                      {canManage && !selecting && (
-                        <button
-                          type="button"
-                          className="qt-card-btn-delete"
-                          disabled={Boolean(deletingId)}
-                          onClick={() => void deleteTemplate(item)}
-                          title="Xóa mẫu này"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <polyline points="3 6 5 6 21 6" />
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                          </svg>
-                          <span>{deletingId === item.id ? "Đang xóa…" : "Xóa"}</span>
-                        </button>
-                      )}
-                    </div>
+                    {canManage && !selecting && (
+                      <button
+                        type="button"
+                        className="qt-card-btn-delete"
+                        disabled={Boolean(deletingId)}
+                        onClick={() => void deleteTemplate(item)}
+                        title={deletingId === item.id ? "Đang xóa mẫu…" : "Xóa mẫu này"}
+                        aria-label={deletingId === item.id ? "Đang xóa mẫu" : "Xóa mẫu"}
+                      >
+                        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 </article>
               );

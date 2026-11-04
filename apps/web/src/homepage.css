@@ -4441,6 +4441,8 @@ h3 {
 #root .quote-top-avatar { background: #e4f1f0; }
 
 #root .quote-workspace-header { align-items: center; min-height: 82px; margin: 0; }
+#root .quote-workspace-header .page-heading-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+#root .quote-workspace-header .page-heading-actions .button { margin-top: 0; }
 #root .quote-workspace-heading-left { display: flex; flex-direction: row; align-items: center; gap: 18px; }
 #root .quote-heading-icon { display: grid; place-items: center; flex: none; width: 58px; height: 58px; border-radius: 50%; background: #daf1ff; color: #098eed; }
 #root .quote-workspace-heading-left h1 { margin: 0 0 4px; font-size: 36px; line-height: 1.2; letter-spacing: -0.04em; color: #0b1020; }

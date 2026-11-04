@@ -26,7 +26,7 @@ import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole,
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { budgetPlanAsQuote, makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
-import { currentTemplate, getOrCreateTemplateFillPlan, inspectTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
+import { createTemplateFillPlan, currentTemplate, inspectTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { AcceptanceRecord, CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, Contract, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
@@ -44,18 +44,34 @@ function sameProductLineName(first: string, second: string) {
     || (smaller.length >= 2 && smaller.every((token) => larger.includes(token)));
 }
 
+function removeAnsweredSupplementalPriceQuestions(fields: string[], lines: Quote["lines"]) {
+  return fields.filter((field) => {
+    const normalizedField = field.toLocaleLowerCase("vi").normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
+    if (!normalizedField.startsWith("cau hoi bo sung:") || !/\b(don gia|gia|price|pricing)\b/.test(normalizedField)) return true;
+    return !lines.some((line) => line.source === "supplemental"
+      && !line.priceUnavailable
+      && line.name.trim()
+      && line.unit.trim()
+      && Number.isFinite(line.quantity) && line.quantity > 0
+      && Number.isFinite(line.unitPrice) && line.unitPrice >= 0
+      && sameProductLineName(field, line.name));
+  });
+}
+
 function quoteForResponse(quote: Quote): Quote {
   const terms = { validityDays: quote.validityDays, completionDate: quote.completionDate };
   const information = cleanMissingInformation(quote.informationNeeded ?? [], quote.lines?.length > 0)
     .filter((field) => !isResolvedQuoteTermWarning(field, terms));
+  const informationNeeded = removeAnsweredSupplementalPriceQuestions(information, quote.lines ?? []);
   const taxRateConfirmed = quote.taxRateConfirmed ?? !information.some(isTaxInformation);
   const shippingFeeConfirmed = quote.shippingFeeConfirmed ?? (quote.shippingFee != null || !information.some(isShippingInformation));
-  const informationNeeded = information.filter((field) =>
+  const confirmedInformationNeeded = informationNeeded.filter((field) =>
     !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
   );
-  if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
-  if (!shippingFeeConfirmed && !informationNeeded.some(isShippingInformation)) informationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
-  const unresolved = informationNeeded.some((field) => isSupplementalProductInformation(field)
+  if (!taxRateConfirmed && !confirmedInformationNeeded.some(isTaxInformation)) confirmedInformationNeeded.push("VAT: cần xác nhận thuế suất.");
+  if (!shippingFeeConfirmed && !confirmedInformationNeeded.some(isShippingInformation)) confirmedInformationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
+  const unresolved = confirmedInformationNeeded.some((field) => isSupplementalProductInformation(field)
     ? !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field && !line.priceUnavailable)
     : !quote.additionalInformation?.[field]?.trim())
     || !taxRateConfirmed || !shippingFeeConfirmed;
@@ -64,7 +80,7 @@ function quoteForResponse(quote: Quote): Quote {
     : quote.status;
   return {
     ...quote,
-    informationNeeded,
+    informationNeeded: confirmedInformationNeeded,
     taxRateConfirmed,
     taxAmount: taxRateConfirmed ? quote.taxAmount : 0,
     shippingFee: quote.shippingFee ?? (shippingFeeConfirmed ? 0 : null),
@@ -612,6 +628,47 @@ function uploadedFileDetails(file: CompanyFile) {
     bytes: file.bytes,
     createdAt: file.createdAt,
   };
+}
+
+class GeneratedExportStorageError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "GeneratedExportStorageError";
+  }
+}
+
+function generatedExportErrorStatus(error: unknown) {
+  if (error instanceof AiQuotaExceededError) return 429;
+  return error instanceof GeneratedExportStorageError ? error.status : 422;
+}
+
+async function storeGeneratedExport(db: Db, user: SessionUser, filename: string, mimeType: string, bytes: Buffer) {
+  if (!config.cloudinaryConfigured) throw new GeneratedExportStorageError("Cloudinary chưa được cấu hình nên chưa thể lưu file đã xuất.", 409);
+  let uploaded;
+  try {
+    uploaded = await uploadCompanyFile(bytes, filename, mimeType, user.companyId, config.cloudinary);
+  } catch (error) {
+    throw new GeneratedExportStorageError(error instanceof Error ? `Không lưu được file đã xuất lên Cloudinary: ${error.message}` : "Không lưu được file đã xuất lên Cloudinary.", 502);
+  }
+  const file: CompanyFile = {
+    companyId: user.companyId,
+    uploadedBy: user.id,
+    originalFilename: filename,
+    mimeType,
+    bytes: bytes.length,
+    publicId: uploaded.publicId,
+    assetId: uploaded.assetId,
+    resourceType: uploaded.resourceType,
+    createdAt: new Date(),
+  };
+  try {
+    const result = await db.collection<CompanyFile>("companyFiles").insertOne(file);
+    file._id = result.insertedId;
+    await writeAudit(db, user, "generated_file_saved", "file", file._id.toHexString(), { originalFilename: filename, mimeType, bytes: file.bytes });
+  } catch {
+    throw new GeneratedExportStorageError("File đã được tải lên Cloudinary nhưng chưa lưu được thông tin file vào hệ thống.", 502);
+  }
+  return uploadedFileDetails(file);
 }
 
 function quoteLineDetails(line: Quote["lines"][number]) {
@@ -2140,18 +2197,32 @@ app.get("/api/budget-plans/:id/export", requireRole("user"), async (request, res
   if (!plan) return fail(response, "Không tìm thấy phương án.", 404);
   const templateId = request.query.templateId === undefined || request.query.templateId === "none" ? null : asId(String(request.query.templateId));
   if (request.query.templateId !== undefined && request.query.templateId !== "none" && !templateId) return fail(response, "Mã mẫu Excel không hợp lệ.");
+  const exportQuote = budgetPlanAsQuote(plan);
   let bytes: Buffer;
   if (templateId) {
     const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: plan.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } });
     if (!template) return fail(response, "Không tìm thấy mẫu Excel.", 404);
     if (template.extension !== "xlsx") return fail(response, "Hãy chọn mẫu Excel (.xlsx).", 422);
     try {
-      const quote = budgetPlanAsQuote(plan);
-      bytes = await renderAiMappedXlsxTemplate(template, quote, plan.input.description);
+      bytes = await withAiUsage(db, userOf(request), "budget_plan_export_template", () => renderAiMappedXlsxTemplate(template, exportQuote, plan.input.description));
     } catch (error) {
-      return fail(response, error instanceof Error ? error.message : "Không xuất được phương án theo mẫu Excel.", 422);
+      return fail(response, error instanceof Error ? error.message : "Không xuất được phương án theo mẫu Excel.", error instanceof AiQuotaExceededError ? 429 : 422);
     }
-  } else bytes = makeBudgetPlanExcel(plan);
+  } else {
+    const source = makeBudgetPlanExcel(plan);
+    try {
+      bytes = await withAiUsage(db, userOf(request), "budget_plan_export_default", () => renderAiMappedXlsxTemplate(
+        generatedExportTemplate(userOf(request), `phuong-an-${id.toHexString()}.xlsx`, "xlsx", source), exportQuote, plan.input.description,
+      ));
+    } catch (error) {
+      return fail(response, error instanceof Error ? error.message : "Không xuất được phương án Excel.", error instanceof AiQuotaExceededError ? 429 : 422);
+    }
+  }
+  try {
+    await storeGeneratedExport(db, userOf(request), `phuong-an-${id.toHexString()}.xlsx`, templateFormats.xlsx, bytes);
+  } catch (error) {
+    return fail(response, error instanceof Error ? error.message : "Không lưu được file phương án lên Cloudinary.", generatedExportErrorStatus(error));
+  }
   response.setHeader("Content-Type", templateFormats.xlsx);
   response.setHeader("Content-Disposition", `attachment; filename="phuong-an-${id.toHexString()}.xlsx"`);
   response.send(bytes);
@@ -2611,6 +2682,7 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   let informationNeeded = currentQuote.informationNeeded.filter((field) =>
     !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
   );
+  informationNeeded = removeAnsweredSupplementalPriceQuestions(informationNeeded, supplementalLines);
   if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
   if (!shippingFeeConfirmed && !informationNeeded.some(isShippingInformation)) informationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
   const unresolved = informationNeeded.some((field) => isSupplementalProductInformation(field)
@@ -2720,6 +2792,20 @@ function sendWord(response: express.Response, filename: string, bytes: Buffer) {
   response.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
   response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   response.send(bytes);
+}
+
+function generatedExportTemplate(user: SessionUser, filename: string, extension: "docx" | "xlsx" | "pdf", bytes: Buffer): QuoteTemplate {
+  return {
+    companyId: user.companyId,
+    category: "quote",
+    name: filename,
+    originalFilename: filename,
+    extension,
+    bytes: bytes.length,
+    data: new Binary(bytes),
+    createdAt: new Date(),
+    uploadedBy: user.id,
+  };
 }
 
 app.get("/api/document-templates/:kind", requireRole("user"), (request, response) => {
@@ -2890,15 +2976,18 @@ app.get(["/api/contracts/:id/docx", "/api/contracts/:id/file"], requireRole("use
     selectedTemplate = wordTemplates.find((template) => templateFilenameStem(template.originalFilename) === sourceStem) ?? wordTemplates[0] ?? null;
   }
   try {
-    const file = selectedTemplate
-      ? await renderContractFile(db, selectedTemplate, contract, (work) => withAiUsage(db, user, "contract_template_map", work))
-      : { bytes: makeDocumentWord("contract", contract), extension: "docx" as const };
+    const exportTemplate = selectedTemplate ?? {
+      ...generatedExportTemplate(user, `${contract.contractNumber}.docx`, "docx", makeDocumentWord("contract", contract)),
+      category: "contract" as const,
+    };
+    const file = await renderContractFile(db, exportTemplate, contract, (work) => withAiUsage(db, user, "contract_template_map", work));
+    await storeGeneratedExport(db, user, `${contract.contractNumber}.${file.extension}`, templateFormats[file.extension], file.bytes);
     if ("fallback" in file && file.fallback) response.setHeader("X-Contract-Template-Status", "fallback-ai-error");
     if (file.extension === "docx") return sendWord(response, `${contract.contractNumber}.docx`, file.bytes);
     response.setHeader("Content-Type", "application/pdf");
     response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`${contract.contractNumber}.pdf`)}`);
     return response.send(file.bytes);
-  } catch (error) { return fail(response, error instanceof Error ? error.message : "Không xuất được hợp đồng theo mẫu đã chọn.", error instanceof AiQuotaExceededError ? 429 : 422); }
+  } catch (error) { return fail(response, error instanceof Error ? error.message : "Không xuất được hợp đồng theo mẫu đã chọn.", generatedExportErrorStatus(error)); }
 });
 
 app.patch("/api/contracts/:id", requireRole("user"), async (request, response) => {
@@ -3073,13 +3162,16 @@ app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"]
   if (overrideTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu nghiệm thu đã chọn.", 404);
   if (savedTemplateId && !savedTemplate && !selectedTemplate) return fail(response, "Không tìm thấy mẫu đã dùng để tạo biên bản.", 404);
   try {
-    const file = selectedTemplate
-      ? await renderAcceptanceFile(db, selectedTemplate, contract, record, (work) => withAiUsage(db, user, "acceptance_template_map", work))
-      : { bytes: makeDocumentWord("acceptance", contract, record) };
+    const exportTemplate = selectedTemplate ?? {
+      ...generatedExportTemplate(user, `${record.acceptanceNumber}.docx`, "docx", makeDocumentWord("acceptance", contract, record)),
+      category: "acceptance" as const,
+    };
+    const file = await renderAcceptanceFile(db, exportTemplate, contract, record, (work) => withAiUsage(db, user, "acceptance_template_map", work));
+    await storeGeneratedExport(db, user, `${record.acceptanceNumber}.docx`, templateFormats[file.extension], file.bytes);
     if ("fallback" in file && file.fallback) response.setHeader("X-Acceptance-Template-Status", "fallback-ai-error");
     return sendWord(response, `${record.acceptanceNumber}.docx`, file.bytes);
   } catch (error) {
-    return fail(response, error instanceof Error ? error.message : "Không xuất được biên bản theo mẫu đã chọn.", error instanceof AiQuotaExceededError ? 429 : 422);
+    return fail(response, error instanceof Error ? error.message : "Không xuất được biên bản theo mẫu đã chọn.", generatedExportErrorStatus(error));
   }
 });
 
@@ -3170,71 +3262,92 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       selected = null;
     }
     try {
-      const bytes = selected ? await renderAiMappedXlsxTemplate(selected, quote) : makeQuoteExcel(quote);
+      const source = selected ? undefined : makeQuoteExcel(quote);
+      const exportTemplate = selected ?? generatedExportTemplate(userOf(request), `${quote.quoteNumber}.xlsx`, "xlsx", source!);
+      const bytes = await withAiUsage(db, userOf(request), "customer_quote_export_template", () => renderAiMappedXlsxTemplate(exportTemplate, quote));
+      await storeGeneratedExport(db, userOf(request), `${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx`, templateFormats.xlsx, bytes);
       response.setHeader("Content-Type", templateFormats.xlsx);
       response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx"`);
       response.send(bytes);
     } catch (error) {
-      return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá khách theo mẫu Excel.", 422);
+      return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá khách theo mẫu Excel.", generatedExportErrorStatus(error));
     }
     return;
   }
+  const requestedTemplateValue = request.query.templateId === undefined ? undefined : String(request.query.templateId);
+  const useDefaultTemplate = requestedTemplateValue === "none";
+  const requestedTemplateId = requestedTemplateValue && !useDefaultTemplate ? asId(requestedTemplateValue) : null;
+  if (requestedTemplateValue !== undefined && !useDefaultTemplate && !requestedTemplateId) return fail(response, "Mã mẫu dự toán không hợp lệ.");
+  const selectedTemplate = requestedTemplateId
+    ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({
+      _id: requestedTemplateId, companyId: quote.companyId, deletedAt: { $exists: false }, category: "estimate",
+    })
+    : !useDefaultTemplate && quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
+  if (requestedTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu dự toán.", 404);
   if (excelExport && quote.status === "approved") {
     try {
-      const selected = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
-      const bytes = selected?.extension === "xlsx"
-        ? await renderAiMappedXlsxTemplate(selected, quote, await quoteInputContext(db, quote))
-        : makeQuoteExcel(quote);
+      const source = selectedTemplate?.extension === "xlsx" ? undefined : makeQuoteExcel(quote);
+      const exportTemplate = selectedTemplate?.extension === "xlsx" ? selectedTemplate : generatedExportTemplate(userOf(request), `${quote.quoteNumber}.xlsx`, "xlsx", source!);
+      const bytes = await withAiUsage(db, userOf(request), "quote_export_template", async () => renderAiMappedXlsxTemplate(exportTemplate, quote, await quoteInputContext(db, quote)));
+      await storeGeneratedExport(db, userOf(request), `${quote.quoteNumber}.xlsx`, templateFormats.xlsx, bytes);
       response.setHeader("Content-Type", templateFormats.xlsx);
       response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.xlsx"`);
       response.send(bytes);
     } catch (error) {
-      return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu Excel.", 422);
+      return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu Excel.", generatedExportErrorStatus(error));
     }
     return;
   }
-  let templateWasXlsx = false;
   try {
-    const template = quote.template ? await savedTemplate(db, quote.companyId, quote.template) : null;
-    templateWasXlsx = template?.extension === "xlsx";
+    const template = selectedTemplate;
     if (draftExport && quote.status === "approved") {
       return fail(response, "Báo giá đã duyệt; hãy tải file chính thức.", 409);
     }
     if (draftExport && (template?.extension !== "xlsx" || quote.lines.length === 0)) {
+      const source = makeQuoteExcel(quote);
+      const bytes = await withAiUsage(db, userOf(request), "quote_draft_export_default", async () => renderAiMappedXlsxTemplate(
+        generatedExportTemplate(userOf(request), `${quote.quoteNumber}-nhap.xlsx`, "xlsx", source), quote, await quoteInputContext(db, quote),
+      ));
+      await storeGeneratedExport(db, userOf(request), `${quote.quoteNumber}-nhap.xlsx`, templateFormats.xlsx, bytes);
       response.setHeader("Content-Type", templateFormats.xlsx);
       response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}-nhap.xlsx"`);
-      response.send(makeQuoteExcel(quote));
+      response.send(bytes);
       return;
     }
     const inputContext = await quoteInputContext(db, quote);
     let renderQuote = quote;
     if (template && template.extension !== "xlsx") {
-      const plan = await getOrCreateTemplateFillPlan(db, template, quote);
+      const plan = await withAiUsage(db, userOf(request), "quote_export_template", () => createTemplateFillPlan(template, quote, inputContext));
       renderQuote = { ...quote, templateFillPlan: plan };
-      const fillPlanKey = `${quote.lines.some((line) => Boolean(quoteLineDetails(line))) ? "v4d" : "v4"}_${quote.lines.length}_${Object.values(quote.additionalInformation ?? {}).some((answer) => answer.trim()) ? "i1" : "i0"}`;
-      if (template.extension === "pdf" || quote.lines.length > 30 || !template.fillPlanCache?.[fillPlanKey]) {
-        await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
-      }
+      await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
     }
-    const bytes = template?.extension === "xlsx" ? await renderAiMappedXlsxTemplate(template, quote, inputContext)
-      : template ? await renderTemplate(template, renderQuote, inputContext) : await makePdfBuffer(quote);
+    let bytes: Buffer;
+    if (template?.extension === "xlsx") {
+      bytes = await withAiUsage(db, userOf(request), "quote_export_template", () => renderAiMappedXlsxTemplate(template, quote, inputContext));
+    } else if (!template) {
+      bytes = await withAiUsage(db, userOf(request), "quote_export_default_pdf", async () => {
+        const source = await makePdfBuffer(quote);
+        const pdfTemplate = generatedExportTemplate(userOf(request), `${quote.quoteNumber}.pdf`, "pdf", source);
+        const plan = await createTemplateFillPlan(pdfTemplate, quote, inputContext);
+        return renderTemplate(pdfTemplate, { ...quote, templateFillPlan: plan }, inputContext);
+      });
+    } else {
+      bytes = await renderTemplate(template, renderQuote, inputContext);
+    }
     const extension = template?.extension ?? "pdf";
+    const filename = `${quote.quoteNumber}${draftExport ? "-nhap" : ""}.${extension}`;
+    const mimeType = templateFormats[extension];
+    if (!mimeType) throw new Error("Định dạng file xuất không được hỗ trợ để lưu.");
+    await storeGeneratedExport(db, userOf(request), filename, mimeType, bytes);
     if (preview && extension === "docx") {
       response.type("html").setHeader("Content-Disposition", "inline").send(previewDocxHtml(bytes, `${quote.quoteNumber}.docx`));
       return;
     }
     response.setHeader("Content-Type", templateFormats[extension]);
-    const filename = `${quote.quoteNumber}${draftExport ? "-nhap" : ""}.${extension}`;
     response.setHeader("Content-Disposition", `${preview ? "inline" : "attachment"}; filename="${filename}"`);
     response.send(bytes);
   } catch (error) {
-    if (draftExport && !templateWasXlsx && !response.headersSent) {
-      response.setHeader("Content-Type", templateFormats.xlsx);
-      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}-nhap.xlsx"`);
-      response.send(makeQuoteExcel(quote));
-      return;
-    }
-    return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu.", 422);
+    return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu.", generatedExportErrorStatus(error));
   }
 });
 
@@ -3249,12 +3362,7 @@ app.get("/api/quotes/:id/pdf", requireRole("user"), async (request, response) =>
   if (quote.status !== "approved") return fail(response, "Chỉ có thể xuất PDF sau khi báo giá được duyệt.", 409);
   if (quote.kind === "customer") return fail(response, "Danh sách sản phẩm khách được xuất dưới dạng Excel.", 409);
   if (quoteHasUnresolvedInformation(quote)) return fail(response, "Không thể xuất báo giá khi còn khoản chưa có giá hoặc điều khoản chưa xác nhận.", 409);
-  if (quote.template) return response.redirect(307, `/api/quotes/${quote._id}/export`);
-  const pdf = makePdf(quote);
-  response.setHeader("Content-Type", "application/pdf");
-  response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.pdf"`);
-  pdf.pipe(response);
-  pdf.end();
+  return response.redirect(307, `/api/quotes/${quote._id}/export${quote.template ? "" : "?templateId=none"}`);
 });
 
 const server = createServer(app);
