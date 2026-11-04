@@ -1842,7 +1842,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const canDownloadQuote = quote.status === "approved" || canExportDraftXlsx;
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
-  const createQuoteExport = async (excelOnly: boolean, templateId: string) => {
+  const createQuoteExport = async (excelOnly: boolean, templateId?: string) => {
     setBusy(true); setError("");
     const selectedTemplate = downloadTemplateChoices.find((entry) => entry.id === templateId);
     const downloadKind = canExportDraftXlsx || excelOnly ? "excel" : selectedTemplate?.extension === "docx" ? "word" : selectedTemplate?.extension === "xlsx" ? "excel" : "document";
@@ -1858,7 +1858,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       const exportParams = new URLSearchParams();
       if (canExportDraftXlsx) exportParams.set("draft", "1");
       else if (excelOnly) exportParams.set("excel", "1");
-      exportParams.set("templateId", templateId || "none");
+      if (templateId !== undefined) exportParams.set("templateId", templateId || "none");
       exportParams.set("background", "1");
       const exportQuery = `?${exportParams.toString()}`;
       const file = await createGeneratedExport(`/api/quotes/${quote._id}/export${exportQuery}`);
@@ -1996,7 +1996,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             className="button button-soft"
             disabled={busy || !canDownloadQuote}
             title={canExportDraftXlsx ? "Tạo file Excel nháp bằng AI" : "Tạo file dự toán bằng AI"}
-            onClick={() => void openDownloadTemplateDialog()}
+            onClick={() => canExportDraftXlsx ? void createQuoteExport(false) : void openDownloadTemplateDialog()}
           >
             <Icon name="download" size={16} />
             <span>{quote.status === "approved" ? "Tạo file mới bằng AI" : canExportDraftXlsx ? "Tạo Excel nháp bằng AI" : "Tạo file bằng AI"}</span>
