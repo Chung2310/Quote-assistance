@@ -1311,7 +1311,34 @@ function renderXlsxTemplate(template: QuoteTemplate, quote: Quote, raw: XlsxTemp
     }
     info.zip.file(sheet.path, serializer.serializeToString(document));
   }
+  const targetWorksheet = plan.lineRows[0]?.sheet ?? plan.cells[0]?.sheet;
+  if (targetWorksheet) activateXlsxWorksheet(info, targetWorksheet);
   return info.zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
+}
+
+function activateXlsxWorksheet(info: XlsxWorkbookInfo, sheetName: string) {
+  const sheetIndex = [...info.sheets.keys()].indexOf(sheetName);
+  const workbookPart = info.zip.file("xl/workbook.xml");
+  if (sheetIndex < 0 || !workbookPart) return;
+  const workbook = validateXml(workbookPart.asText());
+  const workbookView = descendants(workbook, "workbookView")[0];
+  if (workbookView) {
+    workbookView.setAttribute("activeTab", String(sheetIndex));
+    info.zip.file("xl/workbook.xml", new XMLSerializer().serializeToString(workbook));
+  }
+  const serializer = new XMLSerializer();
+  for (const [name, sheet] of info.sheets) {
+    const part = info.zip.file(sheet.path);
+    if (!part) continue;
+    const document = validateXml(part.asText());
+    const views = descendants(document, "sheetView");
+    if (!views.length) continue;
+    views.forEach((view, index) => {
+      if (name === sheetName && index === 0) view.setAttribute("tabSelected", "1");
+      else view.removeAttribute("tabSelected");
+    });
+    info.zip.file(sheet.path, serializer.serializeToString(document));
+  }
 }
 
 function inferCustomerXlsxPlan(template: QuoteTemplate, quote: Quote): XlsxTemplateFillPlan | undefined {
@@ -1988,6 +2015,8 @@ export async function renderCustomerXlsxTemplate(template: QuoteTemplate, quote:
     }
     info.zip.file(sheet.path, serializer.serializeToString(document));
   }
+  const targetWorksheet = mappedRows[0]?.sheet ?? mappedCells[0]?.sheet;
+  if (targetWorksheet) activateXlsxWorksheet(info, targetWorksheet);
   return info.zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
 }
 
