@@ -24,6 +24,7 @@ export async function api<T>(url: string, options: RequestInit = {}): Promise<T>
 }
 
 export type GeneratedFileRef = { id: string; filename: string; mimeType?: string; createdAt?: string };
+export type GeneratedExportStatus = { id: string; status: "queued" | "running" | "completed" | "failed"; error?: string; filename?: string; createdAt?: string; updatedAt?: string };
 
 export async function createGeneratedExport(url: string, timeoutMs = 15 * 60_000): Promise<GeneratedFileRef> {
   const response = await fetch(url, { credentials: "include" });
@@ -50,7 +51,7 @@ export async function createGeneratedExport(url: string, timeoutMs = 15 * 60_000
 
 export async function getLatestGeneratedFile(sourceId: string, kind: string) {
   const params = new URLSearchParams({ sourceId, kind });
-  return api<{ file: GeneratedFileRef | null }>(`/api/generated-export-files/latest?${params.toString()}`);
+  return api<{ file: GeneratedFileRef | null; job: GeneratedExportStatus | null }>(`/api/generated-export-files/latest?${params.toString()}`);
 }
 
 export async function downloadGeneratedFile(fileId: string) {

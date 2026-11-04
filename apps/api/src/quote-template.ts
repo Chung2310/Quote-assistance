@@ -527,7 +527,7 @@ function xlsxTargetWorksheetPurpose(quote: Quote, inputContext = "") {
   if (quote.kind === "customer") return "customer quotation and customer-facing product prices";
   if (quote.kind === "budget") return "budget estimate and cost plan";
   if (/\b(quyet toan|settlement|current period|ky nay)\b/.test(normalizeSheetLabel(inputContext))) return "settlement quantities and settlement values";
-  if (quote.kind === "estimate") return "budget estimate and cost plan";
+  if (quote.kind === "estimate") return "estimate, quotation, or construction-cost worksheet with itemized products, quantities, and prices";
   return "estimate or quotation";
 }
 
@@ -545,8 +545,8 @@ function xlsxWorksheetPurposeScore(sheet: XlsxSheetInfo, quote: Quote, inputCont
       + (has(/\b(gia tri|bang gia|amount|value)\b/) ? 30 : 0)
       - (has(/\b(du toan|budget|estimate|bao gia khach|customer quote|hop dong|contract)\b/) ? 100 : 0);
   }
-  if (quote.kind === "estimate") return (has(/\b(du toan|budget|estimate|phuong an|chi phi|cost plan)\b/) ? 100 : 0)
-    - (has(/\b(bao gia khach|customer quote|hop dong|contract|nghiem thu|acceptance|quyet toan|settlement)\b/) ? 100 : 0);
+  if (quote.kind === "estimate") return (has(/\b(du toan|budget|estimate|phuong an|chi phi|chi phi thi cong|construction cost|cost plan|bao gia|quotation|quote)\b/) ? 100 : 0)
+    - (has(/\b(hop dong|contract|nghiem thu|acceptance|quyet toan|settlement)\b/) ? 100 : 0);
   return (has(/\b(du toan|estimate|bao gia|quotation|quote)\b/) ? 100 : 0)
     - (has(/\b(hop dong|contract|nghiem thu|acceptance|quyet toan|settlement)\b/) ? 100 : 0);
 }
@@ -971,6 +971,36 @@ function xlsxQuoteValues(quote: Quote): Record<string, string | number> {
     for (const [key, value] of Object.entries(lineValues)) values[`line_${index + 1}_${key}`] = value;
   });
   return values;
+}
+
+function directDocumentData(quote: Quote, documentKind: string) {
+  const businessFields = xlsxQuoteValues(quote);
+  if (quote.kind === "customer") {
+    for (const key of ["subtotal", "shippingFee", "taxRate", "taxAmount", "total"]) delete businessFields[key];
+    for (const key of Object.keys(businessFields)) {
+      if (/^line_\d+_(?:quantity|lineTotal|lineTaxRate|lineTaxAmount|lineTotalAfterTax)$/.test(key)) delete businessFields[key];
+    }
+  }
+  return {
+    documentKind,
+    businessFields,
+    products: quote.lines.map((line, index) => ({
+      index: index + 1,
+      sku: line.sku,
+      name: line.name,
+      description: line.description ?? "",
+      ...((quote.kind === "customer" || line.quantityUnknown) ? {} : { quantity: line.quantity }),
+      unit: line.unit,
+      unitPrice: line.priceUnavailable ? null : line.unitPrice,
+      ...(quote.kind === "customer" || line.lineTotalUnknown ? {} : { lineTotal: line.lineTotal }),
+      currency: line.currency,
+      attributes: line.attributes,
+      catalogAttributes: line.catalogAttributes ?? {},
+    })),
+    additionalInformation: quoteAdditionalInformation(quote),
+    settlement: quote.settlement ?? null,
+    missingProducts: quote.missingProducts ?? [],
+  };
 }
 
 function setSpreadsheetCell(cell: Element, value: string | number, formulaMode: "preserve" | "replace" | "reject") {
@@ -2022,27 +2052,38 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
     ...quote.missingProducts.map((name) => ({ catalogItemId: "", sku: "", name: `Chưa có trong danh mục: ${name}`, description: "", quantity: 1, unit: "", unitPrice: 0, priceUnavailable: true, currency: quote.currency, attributes: {}, lineTotal: 0 })),
   ] };
   if (directDocumentEditorEnabled()) {
-    const originalSheets = [...workbookInfo(template).sheets.keys()];
+    const workbook = workbookInfo(template);
+    const originalSheets = [...workbook.sheets.keys()];
+    const estimateWorksheet = quote.kind === "estimate"
+      ? [...workbook.sheets.values()]
+        .filter((sheet) => xlsxSheetHasCandidateTable(sheet, quote))
+        .map((sheet) => ({ sheet, score: xlsxWorksheetPurposeScore(sheet, quote, inputContext) }))
+        .filter(({ score }) => score >= 0)
+        .sort((left, right) => right.score - left.score)[0]?.sheet
+      : undefined;
+    const worksheetSummaries = [...workbook.sheets.values()].map((sheet) => {
+      const cellsByRow = new Map<number, string[]>();
+      for (const cell of sheet.cells.values()) {
+        if (!cell.value.trim()) continue;
+        const point = parseCellRef(cell.ref);
+        if (!point || point.row > 30) continue;
+        const row = cellsByRow.get(point.row) ?? [];
+        row.push(`${cell.ref}=${cell.value.slice(0, 100)}`);
+        cellsByRow.set(point.row, row);
+      }
+      return {
+        name: sheet.name,
+        content: [...cellsByRow.entries()].sort(([a], [b]) => a - b).map(([row, cells]) => `row ${row}: ${cells.join(" | ")}`).join("\n").slice(0, 4_000),
+      };
+    });
     const functionName = quote.settlement ? "Settlement dossier"
       : quote.kind === "budget" ? "Budget plan"
-        : quote.kind === "customer" ? "Customer product request"
-          : template.category === "estimate" || quote.kind === "estimate" ? "Estimate"
-            : "Quotation";
+        : template.category === "estimate" || quote.kind === "estimate" ? "Estimate"
+          : "Quotation";
     const bytes = await editDocumentFileDirectly({
       bytes: Buffer.from(template.data.buffer), filename: template.originalFilename, extension: "xlsx", functionName,
-      userInstructions: [inputContext, `The original workbook contains these worksheets in this exact order: ${JSON.stringify(originalSheets)}. The final workbook MUST retain every worksheet exactly once, with the exact same names and order. Do not delete, rename, add, or recreate any worksheet. Edit the matching sheet inside the original workbook only.`].filter(Boolean).join("\n\n"),
-      data: {
-        documentKind: functionName,
-        businessFields: xlsxQuoteValues(quote),
-        products: quote.lines.map((line, index) => ({
-          index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", quantity: line.quantityUnknown ? null : line.quantity,
-          unit: line.unit, unitPrice: line.priceUnavailable ? null : line.unitPrice, lineTotal: line.lineTotalUnknown ? null : line.lineTotal,
-          currency: line.currency, attributes: line.attributes, catalogAttributes: line.catalogAttributes ?? {},
-        })),
-        additionalInformation: quoteAdditionalInformation(quote),
-        settlement: quote.settlement ?? null,
-        missingProducts: quote.missingProducts ?? [],
-      },
+      userInstructions: [inputContext, `The workbook worksheets and their extracted cell contents are provided here: ${JSON.stringify(worksheetSummaries)}. Select the worksheet by inspecting its actual headings, table columns, labels, and content, not by worksheet name alone. For an Estimate export, a quotation, bao gia, chi phi thi cong, or construction-cost worksheet is a valid match when its actual rows and columns can represent the supplied estimate products, quantities, units, unit prices, and totals. A sheet name alone is never enough to accept or reject a worksheet. Do not use a settlement, acceptance, or contract form as an estimate just because it contains money or item descriptions. ${estimateWorksheet ? `Local workbook inspection found a valid estimate product table in worksheet "${estimateWorksheet.name}". Its headers match an item description/name, quantity, and unit price or line total. Use this exact worksheet for the estimate; do not reject it because it is labeled as a quotation or bao gia. Replace the existing example product rows with the supplied estimate products, keeping each supplied product on its own row and preserving the requested quantities.` : "If no worksheet has a matching itemized product table, explain that clearly and do not create a mismatched output."} The original worksheet order is ${JSON.stringify(originalSheets)}. The final workbook MUST retain every worksheet exactly once, with the exact same names and order. Do not delete, rename, add, or recreate any worksheet; edit only the matching worksheet.`].filter(Boolean).join("\n\n"),
+      data: directDocumentData(quote, functionName),
     });
     if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
     await inspectTemplate(bytes, "xlsx");
@@ -2249,24 +2290,12 @@ export async function renderTemplate(template: QuoteTemplate, quote: Quote, inpu
     const functionName = quote.settlement ? "Settlement dossier"
       : quote.kind === "budget" ? "Budget plan"
         : template.category === "estimate" || quote.kind === "estimate" ? "Estimate"
-          : quote.kind === "customer" ? "Customer product request"
-            : "Quotation";
+          : "Quotation";
     const bytes = await editDocumentFileDirectly({
       bytes: Buffer.from(template.data.buffer), filename: template.originalFilename,
       extension: template.extension as "xlsx" | "docx" | "pdf", functionName,
       userInstructions: inputContext,
-      data: {
-        documentKind: functionName,
-        businessFields: xlsxQuoteValues(quote),
-        products: quote.lines.map((line, index) => ({
-          index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", quantity: line.quantityUnknown ? null : line.quantity,
-          unit: line.unit, unitPrice: line.priceUnavailable ? null : line.unitPrice, lineTotal: line.lineTotalUnknown ? null : line.lineTotal,
-          currency: line.currency, attributes: line.attributes, catalogAttributes: line.catalogAttributes ?? {},
-        })),
-        additionalInformation: quoteAdditionalInformation(quote),
-        settlement: quote.settlement ?? null,
-        missingProducts: quote.missingProducts ?? [],
-      },
+      data: directDocumentData(quote, functionName),
     });
     if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
     await inspectTemplate(bytes, template.extension);

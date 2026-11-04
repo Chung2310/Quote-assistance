@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
+import { api, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import { formatVndInputValue, parseVndInputValue, updateVndInput } from "./money-input";
-import type { AcceptanceRecord, Contract } from "./types";
-import { AcceptanceCreationDialog } from "./DocumentDialogs";
+import type { AcceptanceRecord, Contract, Quote } from "./types";
+import { AcceptanceCreationDialog, ApprovedEstimatePickerDialog, ContractCreationDialog } from "./DocumentDialogs";
 import "./contract-workflow.css";
 
 type View = "contracts" | "acceptances";
@@ -48,14 +48,13 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const [amountPaidText, setAmountPaidText] = useState("");
   const [paymentDueDaysText, setPaymentDueDaysText] = useState("");
   const [showAcceptanceDialog, setShowAcceptanceDialog] = useState(false);
+  const [showEstimatePicker, setShowEstimatePicker] = useState(false);
+  const [contractSourceQuote, setContractSourceQuote] = useState<Quote | null>(null);
   const [quantities, setQuantities] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [settlementTemplates, setSettlementTemplates] = useState<Array<{ id: string; name: string }>>([]);
   const [downloading, setDownloading] = useState(false);
-  const [settlementDownloading, setSettlementDownloading] = useState(false);
   const [savedWordFile, setSavedWordFile] = useState<GeneratedFileRef | null>(null);
-  const [savedSettlementFile, setSavedSettlementFile] = useState<GeneratedFileRef | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,29 +104,16 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   }, [view, id, notify]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!id) { setSavedWordFile(null); setSavedSettlementFile(null); return; }
+    if (!id) { setSavedWordFile(null); return; }
     let active = true;
     const wordKind = view === "contracts" ? "contract" : "acceptance";
-    void Promise.all([
-      getLatestGeneratedFile(id, wordKind),
-      view === "acceptances" ? getLatestGeneratedFile(id, "settlement") : Promise.resolve({ file: null }),
-    ]).then(([word, settlement]) => {
+    void getLatestGeneratedFile(id, wordKind).then(({ file }) => {
       if (!active) return;
-      setSavedWordFile(word.file);
-      setSavedSettlementFile(settlement.file);
+      setSavedWordFile(file);
     }).catch(() => {
       if (!active) return;
       setSavedWordFile(null);
-      setSavedSettlementFile(null);
     });
-    return () => { active = false; };
-  }, [view, id]);
-  useEffect(() => {
-    if (!id || view !== "acceptances") { setSettlementTemplates([]); return; }
-    let active = true;
-    void api<{ templates: Array<{ id: string; name: string }> }>("/api/settlement-templates")
-      .then(({ templates }) => { if (active) setSettlementTemplates(templates); })
-      .catch(() => { if (active) setSettlementTemplates([]); });
     return () => { active = false; };
   }, [view, id]);
 
@@ -213,20 +199,6 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     finally { setBusy(false); }
   };
 
-  const createDocument = async (url: string, kind: "contract" | "acceptance" | "settlement") => {
-    if (downloading) return;
-    const isSettlementExport = kind === "settlement";
-    setDownloading(true);
-    if (isSettlementExport) setSettlementDownloading(true);
-    try {
-      const file = await createGeneratedExport(url);
-      if (isSettlementExport) setSavedSettlementFile(file);
-      else setSavedWordFile(file);
-      notify(`Đã tạo và lưu ${file.filename} lên Cloudinary.`, "success");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được file.", "error"); }
-    finally { setDownloading(false); setSettlementDownloading(false); }
-  };
-
   const downloadSavedDocument = async (file: GeneratedFileRef | null) => {
     if (downloading) return;
     if (!file) { notify("Chưa có file đã lưu để tải. Hãy tạo file trước.", "error"); return; }
@@ -240,7 +212,10 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
 
   if (loading) return <div className="workflow-page"><div className="workflow-loading"><span className="spinner spinner-dark" />Đang tải dữ liệu…</div></div>;
   const sectionHeader = <>
-    <header className="workflow-header"><div className="workflow-header-copy"><span className="workflow-header-badge">{id ? view === "contracts" ? "CHI TIẾT HỢP ĐỒNG" : "CHI TIẾT NGHIỆM THU" : view === "contracts" ? "QUẢN LÝ HỢP ĐỒNG" : "QUẢN LÝ NGHIỆM THU"}</span><h1>{view === "contracts" ? "Hợp đồng" : "Nghiệm thu"}</h1><p>{view === "contracts" ? id ? "Nội dung và trạng thái hồ sơ hợp đồng." : "Theo dõi các hợp đồng được tạo từ dự toán đã duyệt." : id ? "Thông tin bàn giao, khối lượng và giá trị nghiệm thu." : "Theo dõi biên bản nghiệm thu từ các hợp đồng đã ký."}</p></div></header>
+    <header className={`workflow-header${view === "contracts" && !id ? " workflow-contract-list-header" : ""}`}>
+      <div className="workflow-header-copy"><span className="workflow-header-badge">{id ? view === "contracts" ? "CHI TIẾT HỢP ĐỒNG" : "CHI TIẾT NGHIỆM THU" : view === "contracts" ? "QUẢN LÝ HỢP ĐỒNG" : "QUẢN LÝ NGHIỆM THU"}</span><h1>{view === "contracts" ? "Hợp đồng" : "Nghiệm thu"}</h1><p>{view === "contracts" ? id ? "Nội dung và trạng thái hồ sơ hợp đồng." : "Theo dõi các hợp đồng được tạo từ dự toán đã duyệt." : id ? "Thông tin bàn giao, khối lượng và giá trị nghiệm thu." : "Theo dõi biên bản nghiệm thu từ các hợp đồng đã ký."}</p></div>
+      {view === "contracts" && !id && <button type="button" className="button button-primary" onClick={() => setShowEstimatePicker(true)}>Tạo hợp đồng từ dự toán</button>}
+    </header>
   </>;
   if (!id) return <div className="workflow-page">
     {sectionHeader}
@@ -248,26 +223,23 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       <span className="workflow-card-header"><strong className="workflow-card-code">{item.contractNumber}</strong><span className={`workflow-status ${item.status === "signed" ? "is-complete" : "is-draft"}`}>{item.status === "signed" ? "Đã ký" : "Bản nháp"}</span></span>
       <span className="workflow-card-body"><span className="workflow-card-label">Khách hàng</span><strong className="workflow-card-title">{item.customerName}</strong><span className="workflow-card-contact">{[item.customerPhone, item.customerEmail].filter(Boolean).join(" · ") || "Chưa có thông tin liên hệ"}</span><span className="workflow-card-description">Từ dự toán {item.quoteNumber}{item.projectName ? ` · ${item.projectName}` : ""}</span></span>
       <span className="workflow-card-footer"><span className="workflow-card-total"><small>Giá trị hợp đồng</small><strong>{formatMoney(item.total, item.currency)}</strong></span><span className="workflow-card-open">Mở hồ sơ <span aria-hidden="true">→</span></span></span>
-    </button>)}</div> : <div className="workflow-empty"><h2>Chưa có hợp đồng</h2><p>Mở một dự toán đã duyệt và chọn “Tạo hợp đồng”.</p></div>
+    </button>)}</div> : <div className="workflow-empty"><h2>Chưa có hợp đồng</h2><p>Chọn dự toán đã duyệt để bắt đầu tạo hợp đồng.</p></div>
       : records.length ? <div className="workflow-cards-grid">{records.map((item) => <button className="workflow-card" key={item._id} onClick={() => navigate("acceptances", item._id)}>
         <span className="workflow-card-header"><strong className="workflow-card-code">{item.acceptanceNumber}</strong><span className={`workflow-status ${item.status === "completed" ? "is-complete" : "is-draft"}`}>{item.status === "completed" ? "Hoàn tất" : "Bản nháp"}</span></span>
         <span className="workflow-card-body"><span className="workflow-card-label">Khách hàng</span><strong className="workflow-card-title">{contracts.find((linkedContract) => linkedContract._id === item.contractId)?.customerName || item.contractNumber}</strong><span className="workflow-card-contact">{[contracts.find((linkedContract) => linkedContract._id === item.contractId)?.customerPhone, contracts.find((linkedContract) => linkedContract._id === item.contractId)?.customerEmail].filter(Boolean).join(" · ") || "Chưa có thông tin liên hệ"}</span><span className="workflow-card-description">Biên bản {item.acceptanceNumber} · Tạo ngày {formatDate(item.createdAt)}</span></span>
         <span className="workflow-card-footer"><span className="workflow-card-total"><small>Mã biên bản</small><strong>{item.acceptanceNumber}</strong></span><span className="workflow-card-open">Mở hồ sơ <span aria-hidden="true">→</span></span></span>
       </button>)}</div> : <div className="workflow-empty"><h2>Chưa có biên bản nghiệm thu</h2><p>Mở hợp đồng đã ký và chọn “Tạo nghiệm thu”.</p></div>}
+    {showEstimatePicker && <ApprovedEstimatePickerDialog contracts={contracts} notify={notify} onClose={() => setShowEstimatePicker(false)} onSelect={(quote) => { setShowEstimatePicker(false); setContractSourceQuote(quote); }} />}
+    {contractSourceQuote && <ContractCreationDialog quote={contractSourceQuote} notify={notify} onClose={() => setContractSourceQuote(null)} onCreated={(createdId, fileError) => {
+      setContractSourceQuote(null);
+      navigate("contracts", createdId);
+      notify(fileError ? `Đã tạo hợp đồng nhưng chưa tạo được file AI: ${fileError}` : "Đã tạo hợp đồng, AI đã điền mẫu và lưu file.", fileError ? "error" : "success");
+    }} />}
   </div>;
 
   if (!contract || (view === "acceptances" && !record)) {
     return <div className="workflow-page">{sectionHeader}<button className="button button-soft" onClick={() => navigate(view)}>Quay lại</button><p>Không tìm thấy chứng từ.</p></div>;
   }
-
-  const wordUrl = (view === "contracts" ? "/api/contracts/" + contract._id + "/file" : "/api/acceptance-records/" + record!._id + "/file")
-    + "?background=1";
-  const settlementUrl = record
-    ? "/api/acceptance-records/" + record._id + "/settlement.xlsx?background=1"
-    : "";
-  const createWordLabel = downloading
-    ? "AI đang tạo file…"
-    : view === "contracts" ? "Tạo file hợp đồng bằng AI" : "Tạo file nghiệm thu bằng AI";
 
   if (view === "contracts") {
     const editable = contract.status === "draft";
@@ -291,9 +263,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       <div className="workflow-toolbar">
         <button className="button button-soft" onClick={() => navigate("contracts")}>← Danh sách hợp đồng</button>
         <div className="workflow-toolbar-actions">
-          <button className="button button-soft" type="button" disabled={downloading} onClick={() => void createDocument(wordUrl, "contract")}>{createWordLabel}</button>
-          <button className="button button-primary" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>{savedWordFile ? `Tải file đã lưu (${savedWordFile.filename})` : "Chưa có file hợp đồng đã lưu"}</button>
-          <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>
+          <button className="button button-primary" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>Tải file</button>
           {contract.status === "signed" && <button className="button button-soft" disabled={busy} onClick={() => void createAcceptance(contract)}>Tạo nghiệm thu</button>}
         </div>
       </div>
@@ -398,14 +368,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     <div className="workflow-toolbar">
       <button className="button button-soft" onClick={() => navigate("acceptances")}>← Danh sách nghiệm thu</button>
       <div className="workflow-toolbar-actions">
-        <button className="button button-soft" type="button" disabled={downloading} onClick={() => void createDocument(wordUrl, "acceptance")}>{createWordLabel}</button>
-        <button className="button button-primary" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>{savedWordFile ? `Tải file đã lưu (${savedWordFile.filename})` : "Chưa có file nghiệm thu đã lưu"}</button>
-        {view === "acceptances" && acceptance.status === "completed" && <>
-          <button className="button button-soft" type="button" disabled={downloading || !settlementTemplates.length} onClick={() => void createDocument(settlementUrl, "settlement")}>{settlementDownloading ? "Đang tạo hồ sơ quyết toán…" : "Tạo file quyết toán bằng AI"}</button>
-          <button className="button button-primary" type="button" disabled={downloading || !savedSettlementFile} onClick={() => void downloadSavedDocument(savedSettlementFile)}>{savedSettlementFile ? `Tải file đã lưu (${savedSettlementFile.filename})` : "Chưa có hồ sơ quyết toán đã lưu"}</button>
-          {!settlementTemplates.length && <small className="workflow-template-source">Chưa có mẫu quyết toán Excel. Tải mẫu lên mục Quản lý mẫu → Quyết toán.</small>}
-        </>}
-        <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>
+        <button className="button button-primary" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>Tải file</button>
         <button className="button button-soft" onClick={() => navigate("contracts", contract._id)}>Xem hợp đồng</button>
       </div>
     </div>

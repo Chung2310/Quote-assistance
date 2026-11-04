@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ApiError, api } from "./api";
 import { TaskProgress } from "./Feedback";
-import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
+import { listCustomerQuoteTemplates, type CustomerQuoteTemplate } from "./customer-quote-templates";
 import type { CatalogItem, Quote, QuoteStatus } from "./types";
 import "./customer-quotes.css";
 
@@ -28,11 +28,13 @@ export default function CustomerQuotes({
   onCreated,
   onQuotaExceeded,
   onAiUsed,
+  onManageTemplate,
 }: {
   onOpen: (id: string) => void;
   onCreated: () => void;
   onQuotaExceeded: () => void;
   onAiUsed: () => void;
+  onManageTemplate: () => void;
 }) {
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -358,6 +360,7 @@ export default function CustomerQuotes({
       {creating && (
         <CustomerQuoteDialog
           onClose={() => setCreating(false)}
+          onManageTemplate={onManageTemplate}
           onQuotaExceeded={onQuotaExceeded}
           onAiUsed={onAiUsed}
           onCreated={(id) => {
@@ -374,18 +377,20 @@ export default function CustomerQuotes({
 
 function CustomerQuoteDialog({
   onClose,
+  onManageTemplate,
   onCreated,
   onQuotaExceeded,
   onAiUsed,
 }: {
   onClose: () => void;
+  onManageTemplate: () => void;
   onCreated: (id: string) => void;
   onQuotaExceeded: () => void;
   onAiUsed: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
-  const [templates, setTemplates] = useState<CustomerExcelTemplate[]>([]);
+  const [templates, setTemplates] = useState<CustomerQuoteTemplate[]>([]);
   const [templateId, setTemplateId] = useState("");
   const [mode, setMode] = useState<"manual" | "ai">("manual");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -431,11 +436,13 @@ function CustomerQuoteDialog({
 
   useEffect(() => {
     let live = true;
-    listCustomerExcelTemplates().then(({ templates: options, defaultTemplateId }) => {
+    listCustomerQuoteTemplates().then(({ templates: options, defaultTemplateId }) => {
       if (!live) return;
       setTemplates(options);
       if (options.some((entry) => entry.id === defaultTemplateId)) setTemplateId(defaultTemplateId!);
-    }).catch(() => { /* Có thể tạo báo giá và xuất Excel thường khi chưa có mẫu. */ });
+    }).catch((cause) => {
+      if (live) setError(cause instanceof Error ? cause.message : "Không tải được mẫu báo giá.");
+    });
     return () => { live = false; };
   }, []);
 
@@ -507,7 +514,8 @@ function CustomerQuoteDialog({
           customerName: customerName.trim(),
           customerEmail: customerEmail.trim(),
           customerPhone: customerPhone.trim(),
-          ...(templateId ? { templateId } : {}),
+          templateId,
+          sourceRequirements: prompt.trim(),
           idempotencyKey,
           missingProducts,
           items: selected.map(({ catalogItemId, quantity, unit }) => ({
@@ -562,6 +570,7 @@ function CustomerQuoteDialog({
               {error}
             </div>
           )}
+          {busy && !aiLoading && <TaskProgress label="Đang tạo báo giá khách" detail="Đang lưu thông tin khách hàng, sản phẩm và mẫu file…" />}
 
           {/* Section 1: Customer Info */}
           <div className="cq-form-section">
@@ -621,14 +630,17 @@ function CustomerQuoteDialog({
           </div>
 
           <div className="cq-form-section">
-            <div className="cq-section-label"><span>Mẫu Excel</span></div>
+            <div className="cq-section-label"><span>Mẫu file báo giá</span></div>
             <div className="cq-input-group">
               <div className="cq-input-wrapper">
-                <select value={templateId} onChange={(event) => setTemplateId(event.target.value)} aria-label="Mẫu Excel báo giá khách">
-                  <option value="">Excel thường</option>
-                  {templates.map((entry) => <option key={entry.id} value={entry.id}>{entry.name || entry.originalFilename}</option>)}
+                <select required value={templateId} onChange={(event) => setTemplateId(event.target.value)} aria-label="Mẫu file báo giá khách">
+                  <option value="">Chọn mẫu file</option>
+                  {templates.map((entry) => <option key={entry.id} value={entry.id}>{entry.name || entry.originalFilename} (.{entry.extension})</option>)}
                 </select>
               </div>
+              {!templates.length && <span className="field-hint">Cần tải lên mẫu báo giá Word, Excel hoặc PDF trước khi tạo.</span>}
+              <span className="field-hint">AI sẽ dùng thông tin khách hàng, sản phẩm và mô tả yêu cầu để điền mẫu khi tải file.</span>
+              <button type="button" className="text-button" disabled={busy} onClick={onManageTemplate}>Quản lý mẫu báo giá →</button>
             </div>
           </div>
 
@@ -793,7 +805,7 @@ function CustomerQuoteDialog({
             <button
               type="submit"
               className="button button-primary"
-              disabled={busy || !customerName.trim() || (!selectedRows.length && !missingProducts.length)}
+              disabled={busy || !customerName.trim() || !templateId || (!selectedRows.length && !missingProducts.length)}
             >
               {aiLoading ? "AI đang gợi ý…" : busy ? "Đang tạo…" : "Tạo báo giá"}
             </button>

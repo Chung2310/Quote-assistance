@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { api, formatMoney } from "./api";
+import { api, createGeneratedExport, formatMoney } from "./api";
 import { formatVndInputValue, parseVndInputValue, updateVndInput } from "./money-input";
 import type { AcceptanceRecord, Contract, Quote } from "./types";
 import "./document-dialogs.css";
 
 type CompanyPrefill = { name: string; address: string; taxId: string; representativeName: string; phone: string; email: string };
 type Notify = (message: string, kind?: "success" | "error") => void;
-type ContractTemplateOption = { id: string; name: string; originalFilename: string; extension: string; mode: "pdf-reference" | "pdf-ai" | "docx" | "docx-ai" };
+type ContractTemplateOption = { id: string; name: string; originalFilename: string; extension: string; mode?: "pdf-reference" | "pdf-ai" | "docx" | "docx-ai" };
 
 async function loadContractTemplates() {
   return (await api<{ templates: ContractTemplateOption[] }>("/api/contract-templates")).templates;
@@ -17,8 +17,49 @@ export function todayLocal() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+export function ApprovedEstimatePickerDialog({ contracts, onClose, onSelect, notify }: {
+  contracts: Contract[]; onClose: () => void; onSelect: (quote: Quote) => void; notify: Notify;
+}) {
+  const [quotes, setQuotes] = useState<Quote[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api<{ quotes: Quote[] }>("/api/quotes?status=approved")
+      .then(({ quotes: items }) => {
+        if (live) setQuotes(items.filter((quote) => !contracts.some((contract) => contract.quoteId === quote._id)));
+      })
+      .catch((error) => { if (live) notify(error instanceof Error ? error.message : "Không tải được dự toán đã duyệt.", "error"); })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [contracts, notify]);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (busy) return;
+    const quote = quotes.find((item) => item._id === selectedId);
+    if (!quote) return;
+    setBusy(true);
+    onSelect(quote);
+  };
+  return <div className="document-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+    <section className="document-dialog document-dialog-picker" role="dialog" aria-modal="true" aria-labelledby="estimate-picker-title">
+      <div className="document-dialog-head"><div><h2 id="estimate-picker-title">Tạo hợp đồng từ dự toán</h2><p>Chọn một dự toán đã duyệt để bắt đầu.</p></div><div className="document-dialog-head-actions"><button type="button" aria-label="Đóng" onClick={onClose}>×</button></div></div>
+      <form onSubmit={submit}>
+        <div className="document-dialog-body">
+          {loading ? <p className="document-dialog-note">Đang tải dự toán…</p> : quotes.length ? <label>Dự toán đã duyệt<select required value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+            <option value="">Chọn dự toán</option>
+            {quotes.map((quote) => <option key={quote._id} value={quote._id}>{quote.quoteNumber} · {quote.customerName} · {formatMoney(quote.total, quote.currency)}</option>)}
+          </select></label> : <p className="document-dialog-note">Không còn dự toán đã duyệt nào chưa tạo hợp đồng.</p>}
+        </div>
+        <div className="document-dialog-actions"><button type="button" className="button button-soft" onClick={onClose}>Đóng</button><button type="submit" className="button button-primary" disabled={loading || !quotes.length || !selectedId}>Tiếp tục</button></div>
+      </form>
+    </section>
+  </div>;
+}
+
 export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
-  quote: Quote; onClose: () => void; onCreated: (id: string) => void; notify: Notify;
+  quote: Quote; onClose: () => void; onCreated: (id: string, fileError?: string) => void; notify: Notify;
 }) {
   const [company, setCompany] = useState<CompanyPrefill>({ name: "", address: "", taxId: "", representativeName: "", phone: "", email: "" });
   const [templates, setTemplates] = useState<ContractTemplateOption[]>([]);
@@ -67,6 +108,8 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
   const [signedDate, setSignedDate] = useState(todayLocal());
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [generatingFile, setGeneratingFile] = useState(false);
+  const [createdContractId, setCreatedContractId] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
     api<{ company: CompanyPrefill }>("/api/contracts/prefill")
@@ -95,7 +138,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
     }
     setBusy(true);
     try {
-      const { contract } = await api<{ contract: Contract }>("/api/contracts", {
+      const { contract } = createdContractId ? { contract: { _id: createdContractId } as Contract } : await api<{ contract: Contract }>("/api/contracts", {
         method: "POST",
         body: JSON.stringify({
           quoteId: quote._id, templateId: templateId || undefined, customerName, customerEmail, customerPhone, customerAddress, customerTaxId,
@@ -106,7 +149,14 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
           paymentTerms, deliveryTerms, signingPlace, signedDate,
         }),
       });
-      onCreated(contract._id);
+      setCreatedContractId(contract._id);
+      setGeneratingFile(true);
+      try {
+        await createGeneratedExport(`/api/contracts/${contract._id}/file?background=1`);
+        onCreated(contract._id);
+      } catch (error) {
+        notify("Đã tạo hợp đồng nhưng AI chưa điền được file. Hãy kiểm tra mẫu hợp đồng rồi bấm tạo lại để thử lại.", "error");
+      }
     } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được hợp đồng.", "error"); }
     finally { setBusy(false); }
   };
@@ -117,7 +167,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
         <div className="document-dialog-body">
           <h3>Mẫu hợp đồng</h3>
           {templatesLoading ? <p className="document-dialog-note">Đang tải mẫu hợp đồng…</p> : templateError ? <p className="document-dialog-note" role="alert">{templateError}</p> : <label>Chọn mẫu hợp đồng<select value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={busy || templates.length === 0}>{templates.length ? templates.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.mode === "pdf-reference" ? "Word dựng theo PDF" : item.mode === "pdf-ai" ? "AI điền PDF" : item.mode === "docx-ai" ? "AI điền Word" : "Word có trường dữ liệu"})</option>) : <option value="">Mẫu Word mặc định</option>}</select></label>}
-          {!!templates.length && <p className="document-dialog-note">AI nhận diện vị trí dữ liệu trên mẫu Word hoặc PDF chưa có trường điền. Mẫu PDF khác sẽ xuất thành PDF để giữ bố cục.</p>}
+          {!!templates.length && <p className="document-dialog-note">Sau khi tạo, AI sẽ điền thông tin và hạng mục dự toán vào mẫu, rồi lưu file hợp đồng để tải lại trong hồ sơ.</p>}
           <h3>Bên A · Khách hàng</h3>
           <div className="document-dialog-grid"><label>Tên khách hàng *<input required maxLength={250} value={customerName} onChange={(event) => setCustomerName(event.target.value)} /></label><label>Người đại diện *<input required maxLength={250} value={customerRepresentative} onChange={(event) => setCustomerRepresentative(event.target.value)} /></label><label>Địa chỉ *<input required maxLength={250} value={customerAddress} onChange={(event) => setCustomerAddress(event.target.value)} /></label><label>Mã số thuế<input maxLength={250} value={customerTaxId} onChange={(event) => setCustomerTaxId(event.target.value)} /></label><label>Điện thoại<input maxLength={250} value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} /></label><label>Email<input type="email" maxLength={250} value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} /></label></div>
           <h3>Bên B · Đơn vị thực hiện</h3>
@@ -133,7 +183,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
           <label>Điều khoản bổ sung<textarea maxLength={10000} rows={4} value={otherTerms} onChange={(event) => setOtherTerms(event.target.value)} placeholder="Quyền và nghĩa vụ, bất khả kháng, giải quyết tranh chấp…" /></label>
           <p className="document-dialog-note">Hạng mục, đơn giá và tổng tiền được sao chép từ dự toán đã duyệt.</p>
         </div>
-        <div className="document-dialog-actions"><button type="button" className="button button-soft" onClick={onClose} disabled={busy}>Hủy</button><button type="submit" className="button button-primary" disabled={busy || loading || templatesLoading || Boolean(templateError)}>{busy ? "Đang tạo…" : "Tạo hợp đồng"}</button></div>
+        <div className="document-dialog-actions"><button type="button" className="button button-soft" onClick={onClose} disabled={busy}>Hủy</button><button type="submit" className="button button-primary" disabled={busy || loading || templatesLoading || Boolean(templateError)}>{generatingFile ? "AI đang điền và lưu mẫu…" : busy ? "Đang tạo hợp đồng…" : "Tạo hợp đồng"}</button></div>
       </form>
     </section>
   </div>;
@@ -165,6 +215,7 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
   const [contractLinesError, setContractLinesError] = useState("");
   const [quantities, setQuantities] = useState<number[]>(() => (Array.isArray(contract.lines) ? contract.lines : []).map(() => 0));
   const [busy, setBusy] = useState(false);
+  const [createdRecordId, setCreatedRecordId] = useState<string | null>(null);
   useEffect(() => {
     if (contractLines.length > 0) {
       setContractLinesLoading(false);
@@ -204,7 +255,7 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
     if (busy || templatesLoading || templateError || contractLinesLoading || contractLinesError || !contractLines.length || !quantities.some((quantity) => quantity > 0)) return;
     setBusy(true);
     try {
-      const { record } = await api<{ record: AcceptanceRecord }>("/api/acceptance-records", {
+      const { record } = createdRecordId ? { record: { _id: createdRecordId } as AcceptanceRecord } : await api<{ record: AcceptanceRecord }>("/api/acceptance-records", {
         method: "POST", body: JSON.stringify({ contractId: contract._id, templateId: templateId || undefined, acceptedDate, location, result, notes,
           startTime, endTime, handoverDetails, qualityAssessment,
           settlementAmount, amountPaid,
@@ -212,7 +263,13 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
           lines: quantities.map((acceptedQuantity, lineIndex) => ({ lineIndex, acceptedQuantity })),
         }),
       });
-      onCreated(record._id);
+      setCreatedRecordId(record._id);
+      try {
+        await createGeneratedExport(`/api/acceptance-records/${record._id}/file?background=1`);
+        onCreated(record._id);
+      } catch {
+        notify("Đã tạo biên bản nhưng AI chưa điền được file. Hãy kiểm tra mẫu nghiệm thu rồi bấm tạo lại để thử lại.", "error");
+      }
     } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được nghiệm thu.", "error"); }
     finally { setBusy(false); }
   };
@@ -221,7 +278,7 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
       <div className="document-dialog-head"><div><h2 id="acceptance-create-title">Tạo biên bản nghiệm thu</h2><p>Từ hợp đồng {contract.contractNumber}</p></div><div className="document-dialog-head-actions"><button type="button" aria-label="Đóng" onClick={onClose} disabled={busy}>×</button></div></div>
       <form onSubmit={(event) => void submit(event)}><div className="document-dialog-body">
         <h3>Mẫu nghiệm thu</h3>
-        {templatesLoading ? <p className="document-dialog-note">Đang tải mẫu nghiệm thu…</p> : templateError ? <p className="document-dialog-note" role="alert">{templateError}</p> : <label>Chọn mẫu dùng khi xuất<select value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={busy || templates.length === 0}>{templates.length ? templates.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.mode === "pdf-ai" ? "AI đọc PDF → Word" : item.mode === "docx-ai" ? "AI điền Word" : item.mode === "docx" ? "Word có trường dữ liệu" : "Word dựng theo PDF"})</option>) : <option value="">Mẫu Word mặc định</option>}</select></label>}
+        {templatesLoading ? <p className="document-dialog-note">Đang tải mẫu nghiệm thu và quyết toán…</p> : templateError ? <p className="document-dialog-note" role="alert">{templateError}</p> : <label>Chọn mẫu nghiệm thu / quyết toán<select value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={busy || templates.length === 0}>{templates.length ? templates.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.extension === "xlsx" ? "Excel" : item.mode === "pdf-ai" ? "AI đọc PDF → Word" : item.mode === "docx-ai" ? "AI điền Word" : item.mode === "docx" ? "Word có trường dữ liệu" : "Word dựng theo PDF"})</option>) : <option value="">Mẫu Word mặc định</option>}</select></label>}
         {!!templates.length && <p className="document-dialog-note">AI sẽ tìm vị trí ngày nghiệm thu, kết quả, khối lượng và quyết toán trong mẫu. Mẫu PDF được điền rồi chuyển sang file Word.</p>}
         <h3>Sản phẩm / hạng mục trong hợp đồng {!contractLinesLoading && `(${contractLines.length})`}</h3>
         <p className="document-dialog-note">Tích riêng từng sản phẩm đã nghiệm thu. Số lượng hợp đồng được giữ để đối chiếu; nhập số lượng nghiệm thu bên cạnh.</p>

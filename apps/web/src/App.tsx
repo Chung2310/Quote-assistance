@@ -413,8 +413,8 @@ function UserApp() {
       <nav className="side-nav">
         <NavButton icon="home" label="Tổng quan" href={sectionPaths.home} active={!quoteId && section === "home"} onClick={() => navigateSection("home")} />
         <NavButton icon="spark" label="Tư vấn ngân sách" href={sectionPaths.budgetPlanner} active={!quoteId && section === "budgetPlanner"} onClick={() => navigateSection("budgetPlanner")} />
-        <NavButton icon="file" label="Báo giá khách" href={sectionPaths.customerQuotes} active={!quoteId && section === "customerQuotes"} onClick={() => navigateSection("customerQuotes")} />
-        <NavButton icon="quote" label="Dự toán" href={sectionPaths.quotes} active={!quoteId && section === "quotes"} onClick={() => navigateSection("quotes")} />
+        <NavButton icon="file" label="Báo giá khách" href={sectionPaths.customerQuotes} active={section === "customerQuotes"} onClick={() => navigateSection("customerQuotes")} />
+        <NavButton icon="quote" label="Dự toán" href={sectionPaths.quotes} active={section === "quotes"} onClick={() => navigateSection("quotes")} />
         <NavButton icon="file" label="Hợp đồng" href="/hop-dong" active={section === "documents" && documentView === "contracts"} onClick={() => openWorkflow("contracts")} />
         <NavButton icon="file" label="Nghiệm thu" href="/nghiem-thu" active={section === "documents" && documentView === "acceptances"} onClick={() => openWorkflow("acceptances")} />
         <NavButton icon="template" label="Mẫu tài liệu" href={sectionPaths.templates} active={!quoteId && section === "templates"} onClick={() => navigateSection("templates")} />
@@ -428,7 +428,7 @@ function UserApp() {
       <main className="main-content">{section === "documents" ?
         <ContractWorkflow key={`${documentView}-${quoteId ?? "list"}`} view={documentView} id={quoteId} navigate={openWorkflow} openQuote={(id) => openQuote(id)} notify={notify} confirm={confirm} />
         : quoteId && section === "customerQuotes" ?
-        <CustomerQuoteDetail key={quoteId} id={quoteId} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} onCreateEstimate={createEstimateFromCustomerQuote} />
+        <CustomerQuoteDetail key={quoteId} id={quoteId} onBack={closeQuote} onChanged={refresh} onToast={notify} onAiUsed={() => void loadUsage()} confirm={confirm} onDeleteQuote={removeQuote} onCreateEstimate={createEstimateFromCustomerQuote} />
         : quoteId ?
           <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} onCreateContract={createContract} />
           : section === "home" ?
@@ -438,16 +438,16 @@ function UserApp() {
               : section === "budgetPlanner" ?
                 <BudgetPlanner onAiUsed={() => void loadUsage()} />
                 : section === "customerQuotes" ?
-                  <CustomerQuotes onOpen={(id) => openQuote(id, "customer")} onCreated={refresh} onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} />
+                  <CustomerQuotes onOpen={(id) => openQuote(id, "customer")} onCreated={refresh} onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onManageTemplate={() => { navigateSection("templates"); setTemplateCategoryToOpen("quote"); }} />
                   : section === "templates" ?
                     <QuoteTemplatePanel key={templateCategoryToOpen} initialCategory={templateCategoryToOpen} canManage confirm={confirm} templateUsage={usage?.templates ?? null} usageLoading={usageLoading} usageError={Boolean(usageError)} onRefreshUsage={() => void loadUsage()} onUsageChanged={() => void loadUsage()} />
                     : section === "catalog" ?
                       <PriceListPanel key={refreshKey} onToast={notify} />
                       : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
-    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? "Đã tạo dự toán nhưng chưa lưu được file AI: " + fileError : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); openQuote(id); }} />}
-    {creatingContractFromQuote && <ContractCreationDialog quote={creatingContractFromQuote} onClose={() => setCreatingContractFromQuote(null)} onCreated={(id) => { setCreatingContractFromQuote(null); openWorkflow("contracts", id); notify("Đã tạo hợp đồng.", "success"); }} notify={notify} />}
-    {creatingEstimateFromQuote && <CreateEstimateFromQuoteDialog sourceQuote={creatingEstimateFromQuote} onQuotaExceeded={() => void loadUsage()} onClose={() => setCreatingEstimateFromQuote(null)} onCreated={(id, fileError) => { setCreatingEstimateFromQuote(null); refresh(); openQuote(id); notify(fileError ? "Đã tạo dự toán nhưng chưa lưu được file AI: " + fileError : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); }} />}
+    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); openQuote(id); }} />}
+    {creatingContractFromQuote && <ContractCreationDialog quote={creatingContractFromQuote} onClose={() => setCreatingContractFromQuote(null)} onCreated={(id, fileError) => { setCreatingContractFromQuote(null); openWorkflow("contracts", id); notify(fileError ? `Đã tạo hợp đồng nhưng chưa tạo được file AI: ${fileError}` : "Đã tạo hợp đồng, AI đã điền mẫu và lưu file.", fileError ? "error" : "success"); }} notify={notify} />}
+    {creatingEstimateFromQuote && <CreateEstimateFromQuoteDialog sourceQuote={creatingEstimateFromQuote} onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingEstimateFromQuote(null)} onCreated={(id, fileError) => { setCreatingEstimateFromQuote(null); refresh(); openQuote(id); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
     {confirmationDialog}
   </div></NotificationProvider>;
@@ -1178,9 +1178,9 @@ function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuot
         method: "POST",
         body: JSON.stringify({ sourceQuoteId: currentSource._id, templateId, sourceRequirements, idempotencyKey }),
       });
-      const fileError = await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu vào mẫu và lưu file kết quả lên Cloudinary…" }));
       onAiUsed?.();
-      onCreated(quote._id, fileError);
+      onCreated(quote._id);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded?.();
       setError(cause instanceof Error ? cause.message : "Không thể tạo dự toán từ báo giá khách.");
@@ -1281,13 +1281,22 @@ async function loadQuoteOptions(): Promise<QuoteOptions> {
   return { ...templates, productsAvailable };
 }
 
-async function createSavedDraftEstimateFile(quoteId: string, onProgress: () => void): Promise<string | null> {
+async function createSavedDraftEstimateFile(quoteId: string, onProgress: () => void): Promise<void> {
   onProgress();
   try {
     await createGeneratedExport(`/api/quotes/${encodeURIComponent(quoteId)}/export?draft=1&background=1`);
-    return null;
   } catch (cause) {
-    return cause instanceof Error ? cause.message : "Không tạo hoặc lưu được file dự toán bằng AI.";
+    const detail = cause instanceof Error ? cause.message : "";
+    const normalized = detail.toLocaleLowerCase("vi");
+    const stillProcessing = normalized.includes("vẫn đang xử lý") || normalized.includes("still processing");
+    if (!stillProcessing) {
+      const savedFile = await getLatestGeneratedFile(quoteId, "estimate_draft").then(({ file }) => file).catch(() => null);
+      if (!savedFile) await api(`/api/quotes/${encodeURIComponent(quoteId)}`, { method: "DELETE" }).catch(() => undefined);
+    }
+    if (normalized.includes("openrouter") || normalized.includes("requested format") || normalized.includes("edited file") || normalized.includes("worksheet") || normalized.includes("trang tính")) {
+      throw new Error("AI chưa tạo được file dự toán vì chưa xác định được trang tính phù hợp trong mẫu. Hãy chọn sheet có bảng hạng mục, số lượng và đơn giá.");
+    }
+    throw new Error(detail || "Không tạo hoặc lưu được file dự toán bằng AI.");
   }
 }
 
@@ -1433,9 +1442,9 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           items: result.items.map(({ catalogItemId, quantity, unit, attributes }) => ({ catalogItemId, quantity, unit, attributes })),
         }),
       });
-      const fileError = await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu dự toán vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu dự toán vào mẫu và lưu file kết quả lên Cloudinary…" }));
       onAiUsed();
-      onCreated(quote._id, fileError);
+      onCreated(quote._id);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded();
       setError(cause instanceof Error ? cause.message : analysisCompleted ? "Không thể tạo bản nháp." : "Không thể phân tích yêu cầu.");
@@ -1467,9 +1476,9 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           items: selected.map(({ catalogItemId, quantity, unit, attributes }) => ({ catalogItemId, quantity, unit, attributes })),
         }),
       });
-      const fileError = await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu dự toán vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu dự toán vào mẫu và lưu file kết quả lên Cloudinary…" }));
       onAiUsed();
-      onCreated(quote._id, fileError);
+      onCreated(quote._id);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded();
       setError(cause instanceof Error ? cause.message : "Không thể tạo báo giá.");

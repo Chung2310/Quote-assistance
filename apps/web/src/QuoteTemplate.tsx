@@ -19,8 +19,7 @@ const templateTabs: { id: TemplateCategory; label: string }[] = [
   { id: "quote", label: "Mẫu báo giá" },
   { id: "estimate", label: "Mẫu dự toán" },
   { id: "contract", label: "Hợp đồng" },
-  { id: "acceptance", label: "Nghiệm thu" },
-  { id: "settlement", label: "Quyết toán" },
+  { id: "acceptance", label: "Nghiệm thu & quyết toán" },
 ];
 
 interface TemplatePage {
@@ -53,7 +52,7 @@ export function QuoteTemplatePanel({
   onUsageChanged?: () => void;
 }) {
   const [template, setTemplate] = useState<TemplateDetails | null>(null);
-  const [category, setCategory] = useState<TemplateCategory>(initialCategory);
+  const [category, setCategory] = useState<TemplateCategory>(initialCategory === "settlement" ? "acceptance" : initialCategory);
   const categoryLabel = templateTabs.find((tab) => tab.id === category)!.label;
   const [templates, setTemplates] = useState<TemplateDetails[]>([]);
   const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
@@ -370,7 +369,7 @@ export function QuoteTemplatePanel({
             >
               Word (.docx) <span className="qt-filter-count">{stats.docxCount}</span>
             </button>}
-            {(category !== "acceptance" && category !== "contract") && <button
+            {(category !== "contract" && category !== "settlement") && <button
               type="button"
               className={`qt-filter-btn ${filterFormat === "xlsx" ? "active" : ""}`}
               onClick={() => setFilterFormat("xlsx")}
@@ -525,7 +524,7 @@ export function QuoteTemplatePanel({
                       >
                         <option value="">Chuyển nhóm</option>
                         {templateTabs.filter((tab) => tab.id !== category
-                          && (tab.id === "settlement" ? item.extension === "xlsx" : tab.id === "contract" || tab.id === "acceptance" ? item.extension === "docx" : true))
+                          && (tab.id === "contract" ? item.extension === "docx" : true))
                           .map((tab) => <option key={tab.id} value={tab.id}>{tab.label}</option>)}
                       </select>
                     )}
@@ -655,7 +654,11 @@ function CreateTemplateDialog({
       setError("Mẫu quyết toán chỉ hỗ trợ file Excel (.xlsx).");
       return;
     }
-    if ((category === "acceptance" || category === "contract") && !/\.docx$/i.test(selected.name)) {
+    if (category === "acceptance" && !/\.(docx|xlsx)$/i.test(selected.name)) {
+      setError("Nhóm nghiệm thu và quyết toán chỉ nhận file Word (.docx) hoặc Excel (.xlsx).");
+      return;
+    }
+    if (category === "contract" && !/\.docx$/i.test(selected.name)) {
       setError("Mẫu hợp đồng và nghiệm thu chỉ hỗ trợ file Word (.docx).");
       return;
     }
@@ -686,7 +689,11 @@ function CreateTemplateDialog({
       setError("Mẫu quyết toán chỉ hỗ trợ file Excel (.xlsx).");
       return;
     }
-    if ((category === "acceptance" || category === "contract") && !/\.docx$/i.test(file.name)) {
+    if (category === "acceptance" && !/\.(docx|xlsx)$/i.test(file.name)) {
+      setError("Nhóm nghiệm thu và quyết toán chỉ nhận file Word (.docx) hoặc Excel (.xlsx).");
+      return;
+    }
+    if (category === "contract" && !/\.docx$/i.test(file.name)) {
       setError("Mẫu hợp đồng và nghiệm thu chỉ hỗ trợ file Word (.docx).");
       return;
     }
@@ -780,7 +787,7 @@ function CreateTemplateDialog({
               >
                 <input
                   type="file"
-                  accept={category === "settlement" ? ".xlsx" : (category === "acceptance" || category === "contract") ? ".docx" : ".docx,.xlsx,.pdf"}
+                  accept={category === "settlement" ? ".xlsx" : category === "acceptance" ? ".docx,.xlsx" : category === "contract" ? ".docx" : ".docx,.xlsx,.pdf"}
                   required
                   disabled={busy}
                   onChange={(event) => handleFileChange(event.target.files?.[0] ?? null)}
@@ -798,7 +805,7 @@ function CreateTemplateDialog({
                 </div>
                 <div className="qt-dropzone-badges">
                   {category !== "settlement" && <span className="qt-format-pill docx">.DOCX</span>}
-                  {(category !== "acceptance" && category !== "contract") && <span className="qt-format-pill xlsx">.XLSX</span>}
+                  {(category !== "contract" && category !== "settlement") && <span className="qt-format-pill xlsx">.XLSX</span>}
                   {(category !== "acceptance" && category !== "contract" && category !== "settlement") && <span className="qt-format-pill pdf">.PDF</span>}
                 </div>
               </div>

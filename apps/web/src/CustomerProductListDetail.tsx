@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
+import { useEffect, useRef, useState } from "react";
+import { api, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedExportStatus, type GeneratedFileRef } from "./api";
 import { TaskProgress, type ConfirmOptions, type Notify } from "./Feedback";
 import type { Quote } from "./types";
 import "./customer-quote-detail.css";
@@ -9,6 +9,7 @@ export default function CustomerProductListDetail({
   onBack,
   onChanged,
   onToast,
+  onAiUsed,
   confirm,
   onDeleteQuote,
   onCreateEstimate,
@@ -17,6 +18,7 @@ export default function CustomerProductListDetail({
   onBack: () => void;
   onChanged: () => void;
   onToast: Notify;
+  onAiUsed: () => void;
   confirm: (options: ConfirmOptions) => Promise<boolean>;
   onDeleteQuote: (quote: Quote) => void;
   onCreateEstimate: (quote: Quote) => void;
@@ -24,9 +26,15 @@ export default function CustomerProductListDetail({
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [exportingWithAi, setExportingWithAi] = useState(false);
+  const [generatingFile, setGeneratingFile] = useState(false);
   const [savedExport, setSavedExport] = useState<GeneratedFileRef | null>(null);
+  const [exportJob, setExportJob] = useState<GeneratedExportStatus | null>(null);
+  const [loadingSavedExport, setLoadingSavedExport] = useState(true);
+  const [exportRefresh, setExportRefresh] = useState(0);
   const [error, setError] = useState("");
+  const countedCompletedJob = useRef("");
+  const onAiUsedRef = useRef(onAiUsed);
+  onAiUsedRef.current = onAiUsed;
 
   const reload = async () => {
     const result = await api<{ quote: Quote }>("/api/quotes/" + id);
@@ -55,11 +63,33 @@ export default function CustomerProductListDetail({
 
   useEffect(() => {
     let active = true;
-    getLatestGeneratedFile(id, "customer_quote")
-      .then(({ file }) => { if (active) setSavedExport(file); })
-      .catch(() => { if (active) setSavedExport(null); });
-    return () => { active = false; };
-  }, [id]);
+    let timer: number | undefined;
+    setLoadingSavedExport(true);
+    const poll = async () => {
+      try {
+        const { file, job } = await getLatestGeneratedFile(id, "customer_quote");
+        if (!active) return;
+        setSavedExport(file);
+        setExportJob(job);
+        setLoadingSavedExport(false);
+        if (job?.status === "completed" && job.id && countedCompletedJob.current !== job.id) {
+          countedCompletedJob.current = job.id;
+          onAiUsedRef.current();
+        }
+        if (job?.status === "queued" || job?.status === "running") timer = window.setTimeout(() => void poll(), 2_000);
+      } catch (cause) {
+        if (!active) return;
+        setSavedExport(null);
+        setLoadingSavedExport(false);
+        setError(cause instanceof Error ? cause.message : "Không kiểm tra được file báo giá đã lưu.");
+      }
+    };
+    void poll();
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [id, quote?.status, exportRefresh]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -102,30 +132,27 @@ export default function CustomerProductListDetail({
       onToast("Đã duyệt danh sách sản phẩm thành công.", "success");
     });
 
-  const generateExport = () =>
-    void run(async () => {
-      if (!quote) return;
-      setExportingWithAi(true);
-      try {
-        const params = new URLSearchParams();
-        params.set("background", "1");
-        if (quote.status !== "approved") params.set("draft", "1");
-        const file = await createGeneratedExport("/api/quotes/" + id + "/export?" + params);
-        setSavedExport(file);
-        onToast(`Đã tạo và lưu ${file.filename} lên Cloudinary.`, "success");
-      } finally {
-        setExportingWithAi(false);
-      }
-    });
-
   const downloadSavedExport = () => void run(async () => {
-    if (!savedExport) throw new Error("Chưa có file đã lưu để tải.");
+    if (!savedExport) throw new Error("Chưa có file báo giá được lưu trên Cloudinary.");
     await downloadGeneratedFile(savedExport.id);
-    onToast("Đã tải file đã lưu từ Cloudinary.", "success");
+    onToast("Đã tải file báo giá đã lưu trên Cloudinary.", "success");
+  });
+
+  const createSavedExport = () => void run(async () => {
+    setGeneratingFile(true);
+    try {
+      const result = await api<{ jobId: string; status: GeneratedExportStatus["status"] }>(`/api/quotes/${id}/export/retry`, { method: "POST" });
+      setSavedExport(null);
+      setExportJob({ id: result.jobId, status: result.status });
+      setExportRefresh((value) => value + 1);
+      onToast("AI đang điền mẫu và lưu file báo giá lên Cloudinary.", "success");
+    } finally {
+      setGeneratingFile(false);
+    }
   });
 
   // Selected template name
-  const selectedTemplateName = quote?.template?.name || quote?.template?.originalFilename || "Excel mặc định";
+  const selectedTemplateName = quote?.template?.name || quote?.template?.originalFilename || "Chưa gắn mẫu";
 
   if (loading) {
     return (
@@ -151,6 +178,16 @@ export default function CustomerProductListDetail({
 
   const totalItemsCount = quote.lines.length + (quote.missingProducts?.length ?? 0);
   const isApproved = quote.status === "approved";
+  const exportIsRunning = exportJob?.status === "queued" || exportJob?.status === "running";
+  const exportFailed = exportJob?.status === "failed";
+  const needsGeneratedFile = !savedExport;
+  const downloadLabel = loadingSavedExport
+    ? "Đang kiểm tra file đã lưu…"
+    : exportIsRunning || generatingFile
+      ? "AI đang tạo và lưu file…"
+      : needsGeneratedFile
+        ? "Chưa có file đã lưu"
+        : `Tải file đã lưu (${savedExport.filename})`;
 
   return (
     <div className="customer-detail-page">
@@ -175,7 +212,10 @@ export default function CustomerProductListDetail({
         </div>
       )}
 
-      {exportingWithAi && <TaskProgress label="AI đang sửa file mẫu" detail="Đang tạo và lưu file kết quả lên Cloudinary…" />}
+      {exportIsRunning && <TaskProgress label="AI đang điền mẫu báo giá" detail="Đang gửi sản phẩm, thông tin khách hàng và mẫu đã chọn cho AI; file hoàn chỉnh sẽ được lưu lên Cloudinary." />}
+      {exportFailed && <div className="quote-setup-notice" role="alert" style={{ background: "#fef2f2", borderColor: "#fecaca", color: "#b91c1c", margin: 0 }}>
+        {exportJob.error || "AI chưa tạo được file báo giá theo mẫu đã chọn."}
+      </div>}
 
       {/* Header Banner Card */}
       <section className="cqd-header-card">
@@ -271,24 +311,14 @@ export default function CustomerProductListDetail({
               </button>
             )}
 
-            {/* Generate Button */}
-            <button
-              type="button"
-              className="button button-soft"
-              disabled={busy}
-              onClick={generateExport}
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                <polyline points="7 10 12 15 17 10" />
-                <line x1="12" y1="15" x2="12" y2="3" />
-              </svg>
-              <span>{exportingWithAi ? "Đang tạo file…" : "Tạo file mới bằng AI"}</span>
+            <button type="button" className="button button-primary" disabled={busy || loadingSavedExport || exportIsRunning || !savedExport} onClick={downloadSavedExport}>
+              <span>{downloadLabel}</span>
             </button>
-
-            <button type="button" className="button button-primary" disabled={busy || !savedExport} onClick={downloadSavedExport}>
-              <span>{savedExport ? `Tải file đã lưu (${savedExport.filename})` : "Chưa có file lưu để tải"}</span>
-            </button>
+            {(exportFailed || !loadingSavedExport && !savedExport && !exportIsRunning && (!exportJob || exportJob.status === "completed")) && (
+              <button type="button" className="button button-soft" disabled={busy || generatingFile} onClick={createSavedExport}>
+                <span>{exportFailed || exportJob ? "Thử tạo lại file" : "Tạo file báo giá"}</span>
+              </button>
+            )}
 
             {/* Delete Quote */}
             <button
@@ -340,7 +370,7 @@ export default function CustomerProductListDetail({
         </div>
 
         <div className="cqd-kpi-box">
-          <span className="cqd-kpi-box-title">Mẫu Excel xuất bản</span>
+          <span className="cqd-kpi-box-title">Mẫu file báo giá</span>
           <span
             className="cqd-kpi-box-value"
             style={{ fontSize: 15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
@@ -348,7 +378,7 @@ export default function CustomerProductListDetail({
           >
             {selectedTemplateName}
           </span>
-          <span className="cqd-kpi-box-sub">Mẫu đã gắn với danh sách này</span>
+          <span className="cqd-kpi-box-sub">AI dùng mẫu này để điền thông tin báo giá</span>
         </div>
       </section>
 
