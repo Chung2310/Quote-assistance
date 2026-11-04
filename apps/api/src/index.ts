@@ -28,7 +28,7 @@ import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning,
 import { budgetPlanAsQuote, makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
 import { createTemplateFillPlan, currentTemplate, inspectTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
-import type { AcceptanceRecord, CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, Contract, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
+import type { AcceptanceRecord, CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, Contract, GeneratedExportJob, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
 const require = createRequire(import.meta.url);
@@ -670,6 +670,44 @@ async function storeGeneratedExport(db: Db, user: SessionUser, filename: string,
     throw new GeneratedExportStorageError("File đã được tải lên Cloudinary nhưng chưa lưu được thông tin file vào hệ thống.", 502);
   }
   return uploadedFileDetails(file);
+}
+
+async function queueGeneratedExport(
+  db: Db,
+  user: SessionUser,
+  kind: string,
+  work: () => Promise<{ filename: string; mimeType: string; bytes: Buffer }>,
+) {
+  const jobs = db.collection<GeneratedExportJob>("generatedExportJobs");
+  const now = new Date();
+  const job: GeneratedExportJob = {
+    companyId: user.companyId,
+    createdBy: user.id,
+    kind,
+    status: "queued",
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { insertedId } = await jobs.insertOne(job);
+
+  void (async () => {
+    try {
+      await jobs.updateOne({ _id: insertedId, companyId: user.companyId, status: "queued" }, { $set: { status: "running", updatedAt: new Date() } });
+      const result = await work();
+      const file = await storeGeneratedExport(db, user, result.filename, result.mimeType, result.bytes);
+      await jobs.updateOne({ _id: insertedId, companyId: user.companyId }, {
+        $set: { status: "completed", filename: file.originalFilename, fileId: file._id, updatedAt: new Date() },
+        $unset: { error: "" },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message.slice(0, 700) : "Không thể tạo tệp xuất.";
+      await jobs.updateOne({ _id: insertedId, companyId: user.companyId }, {
+        $set: { status: "failed", error: message, updatedAt: new Date() },
+      }).catch(() => undefined);
+    }
+  })();
+
+  return { jobId: insertedId.toHexString(), status: "queued" as const };
 }
 
 function quoteLineDetails(line: Quote["lines"][number]) {
@@ -1557,6 +1595,43 @@ app.get("/api/files", requireRole("user"), async (request, response) => {
   response.json({ files: files.map(uploadedFileDetails) });
 });
 
+app.get("/api/export-jobs/:id", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã tác vụ xuất không hợp lệ.");
+  const user = userOf(request);
+  const job = await (await connectDatabase()).collection<GeneratedExportJob>("generatedExportJobs").findOne({
+    _id: id,
+    companyId: user.companyId,
+    createdBy: user.id,
+  });
+  if (!job) return fail(response, "Không tìm thấy tác vụ xuất.", 404);
+  response.json({ job: {
+    id: job._id?.toHexString(),
+    kind: job.kind,
+    status: job.status,
+    filename: job.filename,
+    fileId: job.fileId,
+    error: job.error,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+  } });
+});
+
+app.get("/api/files/:id/download", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã tệp không hợp lệ.");
+  const user = userOf(request);
+  const file = await (await connectDatabase()).collection<CompanyFile>("companyFiles").findOne({ _id: id, companyId: user.companyId });
+  if (!file) return fail(response, "Không tìm thấy tệp.", 404);
+  try {
+    const bytes = await downloadCompanyFile(file.assetId, config.cloudinary);
+    response.setHeader("Content-Type", file.mimeType)
+      .setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.originalFilename)}`)
+      .setHeader("X-Content-Type-Options", "nosniff")
+      .send(bytes);
+  } catch (error) { return fail(response, error instanceof Error ? error.message : "Không thể tải tệp.", 502); }
+});
+
 app.get("/api/files/:id/preview", requireRole("user"), async (request, response) => {
   const id = asId(request.params.id);
   if (!id) return fail(response, "Mã tệp không hợp lệ.");
@@ -2228,33 +2303,38 @@ app.get("/api/budget-plans/:id/export", requireRole("user"), async (request, res
   const templateId = request.query.templateId === undefined || request.query.templateId === "none" ? null : asId(String(request.query.templateId));
   if (request.query.templateId !== undefined && request.query.templateId !== "none" && !templateId) return fail(response, "Mã mẫu Excel không hợp lệ.");
   const exportQuote = budgetPlanAsQuote(plan);
-  let bytes: Buffer;
+  const user = userOf(request);
+  const filename = `phuong-an-${id.toHexString()}.xlsx`;
+  let selectedTemplate: QuoteTemplate | null = null;
   if (templateId) {
-    const template = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: plan.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } });
-    if (!template) return fail(response, "Không tìm thấy mẫu Excel.", 404);
-    if (template.extension !== "xlsx") return fail(response, "Hãy chọn mẫu Excel (.xlsx).", 422);
-    try {
-      bytes = await withAiUsage(db, userOf(request), "budget_plan_export_template", () => renderAiMappedXlsxTemplate(template, exportQuote, plan.input.description));
-    } catch (error) {
-      return fail(response, error instanceof Error ? error.message : "Không xuất được phương án theo mẫu Excel.", error instanceof AiQuotaExceededError ? 429 : 422);
-    }
-  } else {
-    const source = makeBudgetPlanExcel(plan);
-    try {
-      bytes = await withAiUsage(db, userOf(request), "budget_plan_export_default", () => renderAiMappedXlsxTemplate(
-        generatedExportTemplate(userOf(request), `phuong-an-${id.toHexString()}.xlsx`, "xlsx", source), exportQuote, plan.input.description,
-      ));
-    } catch (error) {
-      return fail(response, error instanceof Error ? error.message : "Không xuất được phương án Excel.", error instanceof AiQuotaExceededError ? 429 : 422);
-    }
+    selectedTemplate = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: plan.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } });
+    if (!selectedTemplate) return fail(response, "Không tìm thấy mẫu Excel.", 404);
+    if (selectedTemplate.extension !== "xlsx") return fail(response, "Hãy chọn mẫu Excel (.xlsx).", 422);
   }
+  const render = async () => ({
+    filename,
+    mimeType: templateFormats.xlsx,
+    bytes: selectedTemplate
+      ? await withAiUsage(db, user, "budget_plan_export_template", () => renderAiMappedXlsxTemplate(selectedTemplate!, exportQuote, plan.input.description))
+      : await withAiUsage(db, user, "budget_plan_export_default", () => renderAiMappedXlsxTemplate(
+        generatedExportTemplate(user, filename, "xlsx", makeBudgetPlanExcel(plan)), exportQuote, plan.input.description,
+      )),
+  });
+  if (request.query.background === "1") {
+    try {
+      const job = await queueGeneratedExport(db, user, "budget", render);
+      return response.status(202).json(job);
+    } catch (error) { return fail(response, error instanceof Error ? error.message : "Không tạo được tác vụ xuất phương án.", 500); }
+  }
+  let bytes: Buffer;
   try {
-    await storeGeneratedExport(db, userOf(request), `phuong-an-${id.toHexString()}.xlsx`, templateFormats.xlsx, bytes);
+    ({ bytes } = await render());
+    await storeGeneratedExport(db, user, filename, templateFormats.xlsx, bytes);
   } catch (error) {
-    return fail(response, error instanceof Error ? error.message : "Không lưu được file phương án lên Cloudinary.", generatedExportErrorStatus(error));
+    return fail(response, error instanceof Error ? error.message : "Không xuất được hoặc không lưu được file phương án lên Cloudinary.", generatedExportErrorStatus(error));
   }
   response.setHeader("Content-Type", templateFormats.xlsx);
-  response.setHeader("Content-Disposition", `attachment; filename="phuong-an-${id.toHexString()}.xlsx"`);
+  response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   response.send(bytes);
 });
 
@@ -3017,12 +3097,20 @@ app.get(["/api/contracts/:id/docx", "/api/contracts/:id/file"], requireRole("use
       ...generatedExportTemplate(user, `${contract.contractNumber}.docx`, "docx", makeDocumentWord("contract", contract)),
       category: "contract" as const,
     };
-    const file = await renderContractFile(db, exportTemplate, contract, (work) => withAiUsage(db, user, "contract_template_map", work));
-    await storeGeneratedExport(db, user, `${contract.contractNumber}.${file.extension}`, templateFormats[file.extension], file.bytes);
+    const render = async () => {
+      const file = await renderContractFile(db, exportTemplate, contract, (work) => withAiUsage(db, user, "contract_template_map", work));
+      return { ...file, filename: `${contract.contractNumber}.${file.extension}`, mimeType: templateFormats[file.extension] };
+    };
+    if (request.query.background === "1") {
+      const job = await queueGeneratedExport(db, user, "contract", render);
+      return response.status(202).json(job);
+    }
+    const file = await render();
+    await storeGeneratedExport(db, user, file.filename, file.mimeType, file.bytes);
     if ("fallback" in file && file.fallback) response.setHeader("X-Contract-Template-Status", "fallback-ai-error");
-    if (file.extension === "docx") return sendWord(response, `${contract.contractNumber}.docx`, file.bytes);
+    if (file.extension === "docx") return sendWord(response, file.filename, file.bytes);
     response.setHeader("Content-Type", "application/pdf");
-    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(`${contract.contractNumber}.pdf`)}`);
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
     return response.send(file.bytes);
   } catch (error) { return fail(response, error instanceof Error ? error.message : "Không xuất được hợp đồng theo mẫu đã chọn.", generatedExportErrorStatus(error)); }
 });
@@ -3203,10 +3291,18 @@ app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"]
       ...generatedExportTemplate(user, `${record.acceptanceNumber}.docx`, "docx", makeDocumentWord("acceptance", contract, record)),
       category: "acceptance" as const,
     };
-    const file = await renderAcceptanceFile(db, exportTemplate, contract, record, (work) => withAiUsage(db, user, "acceptance_template_map", work));
-    await storeGeneratedExport(db, user, `${record.acceptanceNumber}.docx`, templateFormats[file.extension], file.bytes);
+    const render = async () => {
+      const file = await renderAcceptanceFile(db, exportTemplate, contract, record, (work) => withAiUsage(db, user, "acceptance_template_map", work));
+      return { ...file, filename: `${record.acceptanceNumber}.${file.extension}`, mimeType: templateFormats[file.extension] };
+    };
+    if (request.query.background === "1") {
+      const job = await queueGeneratedExport(db, user, "acceptance", render);
+      return response.status(202).json(job);
+    }
+    const file = await render();
+    await storeGeneratedExport(db, user, file.filename, file.mimeType, file.bytes);
     if ("fallback" in file && file.fallback) response.setHeader("X-Acceptance-Template-Status", "fallback-ai-error");
-    return sendWord(response, `${record.acceptanceNumber}.docx`, file.bytes);
+    return sendWord(response, file.filename, file.bytes);
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không xuất được biên bản theo mẫu đã chọn.", generatedExportErrorStatus(error));
   }
@@ -3257,8 +3353,17 @@ app.get("/api/acceptance-records/:id/settlement.xlsx", requireRole("user"), asyn
   };
   const inputContext = `Hồ sơ quyết toán theo biên bản nghiệm thu ${record.acceptanceNumber}, hợp đồng ${contract.contractNumber}. Dùng số lượng nghiệm thu đã lưu, không dùng số lượng dự toán/hợp đồng. Giá trị quyết toán: ${record.settlementAmount} ${contract.currency}; đã thanh toán: ${record.amountPaid}; còn phải thanh toán: ${balance}. Ngày nghiệm thu: ${record.acceptedDate}; địa điểm: ${record.location}; kết quả: ${record.result}; bàn giao: ${record.handoverDetails}; đánh giá chất lượng: ${record.qualityAssessment}; thời hạn thanh toán còn lại: ${record.paymentDueDays ?? "chưa nhập"} ngày; ghi chú: ${record.notes}. Chỉ điền tab quyết toán/nghiệm thu phù hợp; giữ nguyên các tab của báo giá, dự toán và hợp đồng.`;
   const filename = `Ho-so-quyet-toan-${record.acceptanceNumber}.xlsx`;
+  const render = async () => ({
+    filename,
+    mimeType: templateFormats.xlsx,
+    bytes: await withAiUsage(db, user, "settlement_template_map", () => renderAiMappedXlsxTemplate(template, exportQuote, inputContext)),
+  });
   try {
-    const bytes = await withAiUsage(db, user, "settlement_template_map", () => renderAiMappedXlsxTemplate(template, exportQuote, inputContext));
+    if (request.query.background === "1") {
+      const job = await queueGeneratedExport(db, user, "settlement", render);
+      return response.status(202).json(job);
+    }
+    const { bytes } = await render();
     await storeGeneratedExport(db, user, filename, templateFormats.xlsx, bytes);
     response.setHeader("Content-Type", templateFormats.xlsx);
     response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
@@ -3357,10 +3462,16 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     try {
       const source = selected ? undefined : makeQuoteExcel(quote);
       const exportTemplate = selected ?? generatedExportTemplate(userOf(request), `${quote.quoteNumber}.xlsx`, "xlsx", source!);
-      const bytes = await withAiUsage(db, userOf(request), "customer_quote_export_template", () => renderAiMappedXlsxTemplate(exportTemplate, quote));
-      await storeGeneratedExport(db, userOf(request), `${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx`, templateFormats.xlsx, bytes);
+      const filename = `${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx`;
+      const render = async () => ({ filename, mimeType: templateFormats.xlsx, bytes: await withAiUsage(db, userOf(request), "customer_quote_export_template", () => renderAiMappedXlsxTemplate(exportTemplate, quote)) });
+      if (request.query.background === "1") {
+        const job = await queueGeneratedExport(db, userOf(request), "customer_quote", render);
+        return response.status(202).json(job);
+      }
+      const { bytes } = await render();
+      await storeGeneratedExport(db, userOf(request), filename, templateFormats.xlsx, bytes);
       response.setHeader("Content-Type", templateFormats.xlsx);
-      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}${quote.status === "approved" ? "" : "-nhap"}.xlsx"`);
+      response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       response.send(bytes);
     } catch (error) {
       return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá khách theo mẫu Excel.", generatedExportErrorStatus(error));
@@ -3388,10 +3499,16 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     try {
       const source = selectedTemplate?.extension === "xlsx" ? undefined : makeQuoteExcel(quote);
       const exportTemplate = selectedTemplate?.extension === "xlsx" ? selectedTemplate : generatedExportTemplate(userOf(request), `${quote.quoteNumber}.xlsx`, "xlsx", source!);
-      const bytes = await withAiUsage(db, userOf(request), "quote_export_template", async () => renderAiMappedXlsxTemplate(exportTemplate, quote, await quoteInputContext(db, quote)));
-      await storeGeneratedExport(db, userOf(request), `${quote.quoteNumber}.xlsx`, templateFormats.xlsx, bytes);
+      const filename = `${quote.quoteNumber}.xlsx`;
+      const render = async () => ({ filename, mimeType: templateFormats.xlsx, bytes: await withAiUsage(db, userOf(request), "quote_export_template", async () => renderAiMappedXlsxTemplate(exportTemplate, quote, await quoteInputContext(db, quote))) });
+      if (request.query.background === "1") {
+        const job = await queueGeneratedExport(db, userOf(request), "estimate", render);
+        return response.status(202).json(job);
+      }
+      const { bytes } = await render();
+      await storeGeneratedExport(db, userOf(request), filename, templateFormats.xlsx, bytes);
       response.setHeader("Content-Type", templateFormats.xlsx);
-      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}.xlsx"`);
+      response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       response.send(bytes);
     } catch (error) {
       return fail(response, error instanceof Error ? error.message : "Không xuất được báo giá theo mẫu Excel.", generatedExportErrorStatus(error));
@@ -3404,43 +3521,56 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       return fail(response, "Báo giá đã duyệt; hãy tải file chính thức.", 409);
     }
     if (draftExport && (template?.extension !== "xlsx" || quote.lines.length === 0)) {
-      const source = makeQuoteExcel(quote);
-      const bytes = await withAiUsage(db, userOf(request), "quote_draft_export_default", async () => renderAiMappedXlsxTemplate(
-        generatedExportTemplate(userOf(request), `${quote.quoteNumber}-nhap.xlsx`, "xlsx", source), quote, await quoteInputContext(db, quote),
-      ));
-      await storeGeneratedExport(db, userOf(request), `${quote.quoteNumber}-nhap.xlsx`, templateFormats.xlsx, bytes);
+      const filename = `${quote.quoteNumber}-nhap.xlsx`;
+      const render = async () => ({ filename, mimeType: templateFormats.xlsx, bytes: await withAiUsage(db, userOf(request), "quote_draft_export_default", async () => renderAiMappedXlsxTemplate(
+        generatedExportTemplate(userOf(request), filename, "xlsx", makeQuoteExcel(quote)), quote, await quoteInputContext(db, quote),
+      )) });
+      if (request.query.background === "1") {
+        const job = await queueGeneratedExport(db, userOf(request), "estimate_draft", render);
+        return response.status(202).json(job);
+      }
+      const { bytes } = await render();
+      await storeGeneratedExport(db, userOf(request), filename, templateFormats.xlsx, bytes);
       response.setHeader("Content-Type", templateFormats.xlsx);
-      response.setHeader("Content-Disposition", `attachment; filename="${quote.quoteNumber}-nhap.xlsx"`);
+      response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       response.send(bytes);
       return;
     }
     const inputContext = await quoteInputContext(db, quote);
-    let renderQuote = quote;
-    if (template && template.extension !== "xlsx" && !directDocumentEditorEnabled()) {
-      const plan = await withAiUsage(db, userOf(request), "quote_export_template", () => createTemplateFillPlan(template, quote, inputContext));
-      renderQuote = { ...quote, templateFillPlan: plan };
-      await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
+    const render = async () => {
+      let renderQuote = quote;
+      if (template && template.extension !== "xlsx" && !directDocumentEditorEnabled()) {
+        const plan = await withAiUsage(db, userOf(request), "quote_export_template", () => createTemplateFillPlan(template, quote, inputContext));
+        renderQuote = { ...quote, templateFillPlan: plan };
+        await quotes.updateOne({ _id: id, companyId: quote.companyId }, { $set: { templateFillPlan: plan } });
+      }
+      let bytes: Buffer;
+      if (template?.extension === "xlsx") {
+        bytes = await withAiUsage(db, userOf(request), "quote_export_template", () => renderAiMappedXlsxTemplate(template, quote, inputContext));
+      } else if (!template) {
+        bytes = await withAiUsage(db, userOf(request), "quote_export_default_pdf", async () => {
+          const source = await makePdfBuffer(quote);
+          const pdfTemplate = generatedExportTemplate(userOf(request), `${quote.quoteNumber}.pdf`, "pdf", source);
+          if (directDocumentEditorEnabled()) return renderTemplate(pdfTemplate, quote, inputContext);
+          const plan = await createTemplateFillPlan(pdfTemplate, quote, inputContext);
+          return renderTemplate(pdfTemplate, { ...quote, templateFillPlan: plan }, inputContext);
+        });
+      } else {
+        bytes = directDocumentEditorEnabled()
+          ? await withAiUsage(db, userOf(request), "quote_export_template", () => renderTemplate(template, renderQuote, inputContext))
+          : await renderTemplate(template, renderQuote, inputContext);
+      }
+      const extension = template?.extension ?? "pdf";
+      const filename = `${quote.quoteNumber}${draftExport ? "-nhap" : ""}.${extension}`;
+      const mimeType = templateFormats[extension];
+      if (!mimeType) throw new Error("Định dạng file xuất không được hỗ trợ để lưu.");
+      return { filename, mimeType, bytes, extension };
+    };
+    if (request.query.background === "1") {
+      const job = await queueGeneratedExport(db, userOf(request), "estimate", render);
+      return response.status(202).json(job);
     }
-    let bytes: Buffer;
-    if (template?.extension === "xlsx") {
-      bytes = await withAiUsage(db, userOf(request), "quote_export_template", () => renderAiMappedXlsxTemplate(template, quote, inputContext));
-    } else if (!template) {
-      bytes = await withAiUsage(db, userOf(request), "quote_export_default_pdf", async () => {
-        const source = await makePdfBuffer(quote);
-        const pdfTemplate = generatedExportTemplate(userOf(request), `${quote.quoteNumber}.pdf`, "pdf", source);
-        if (directDocumentEditorEnabled()) return renderTemplate(pdfTemplate, quote, inputContext);
-        const plan = await createTemplateFillPlan(pdfTemplate, quote, inputContext);
-        return renderTemplate(pdfTemplate, { ...quote, templateFillPlan: plan }, inputContext);
-      });
-    } else {
-      bytes = directDocumentEditorEnabled()
-        ? await withAiUsage(db, userOf(request), "quote_export_template", () => renderTemplate(template, renderQuote, inputContext))
-        : await renderTemplate(template, renderQuote, inputContext);
-    }
-    const extension = template?.extension ?? "pdf";
-    const filename = `${quote.quoteNumber}${draftExport ? "-nhap" : ""}.${extension}`;
-    const mimeType = templateFormats[extension];
-    if (!mimeType) throw new Error("Định dạng file xuất không được hỗ trợ để lưu.");
+    const { bytes, extension, filename, mimeType } = await render();
     await storeGeneratedExport(db, userOf(request), filename, mimeType, bytes);
     if (preview && extension === "docx") {
       response.type("html").setHeader("Content-Disposition", "inline").send(previewDocxHtml(bytes, `${quote.quoteNumber}.docx`));

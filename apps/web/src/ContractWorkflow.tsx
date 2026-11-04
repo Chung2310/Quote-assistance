@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, formatDate, formatMoney } from "./api";
+import { api, fetchGeneratedExport, formatDate, formatMoney } from "./api";
 import { formatVndInputValue, parseVndInputValue, updateVndInput } from "./money-input";
 import type { AcceptanceRecord, Contract } from "./types";
 import { AcceptanceCreationDialog } from "./DocumentDialogs";
@@ -57,6 +57,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const [wordTemplateOverride, setWordTemplateOverride] = useState("");
   const [settlementTemplateOverride, setSettlementTemplateOverride] = useState("");
   const [downloading, setDownloading] = useState(false);
+  const [settlementDownloading, setSettlementDownloading] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -208,9 +209,11 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
 
   const downloadDocument = async (url: string) => {
     if (downloading) return;
+    const isSettlementDownload = url.includes("/settlement.xlsx");
     setDownloading(true);
+    if (isSettlementDownload) setSettlementDownloading(true);
     try {
-      const response = await fetch(url, { credentials: "same-origin" });
+      const response = await fetchGeneratedExport(url);
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { error?: string } | null;
         throw new Error(body?.error || "Không tải được tài liệu đã điền.");
@@ -232,7 +235,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       if (usedDefaultContract) notify("Đã tải hợp đồng Word theo mẫu mặc định vì AI không điền được mẫu đã chọn. File dùng dữ liệu hợp đồng đã lưu; mẫu bạn chọn chưa được áp dụng.", "success");
       if (usedDefaultTemplate) notify("Đã tải biên bản nghiệm thu Word theo mẫu mặc định vì AI không điền được mẫu đã chọn. File dùng dữ liệu nghiệm thu đã lưu; mẫu bạn chọn chưa được áp dụng.", "success");
     } catch (error) { notify(error instanceof Error ? error.message : "Không tải được tài liệu đã điền.", "error"); }
-    finally { setDownloading(false); }
+    finally { setDownloading(false); setSettlementDownloading(false); }
   };
 
   if (loading) return <div className="workflow-page"><div className="workflow-loading"><span className="spinner spinner-dark" />Đang tải dữ liệu…</div></div>;
@@ -262,11 +265,13 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     || (savedWordTemplateId && wordTemplates.some((template) => template.id === savedWordTemplateId) ? savedWordTemplateId : "")
     || wordTemplates[0]?.id || "";
   const selectedTemplateMode = wordTemplates.find((template) => template.id === wordTemplateId)?.mode;
+  const wordParams = new URLSearchParams({ background: "1" });
+  if (wordTemplateId) wordParams.set("templateId", wordTemplateId);
   const wordUrl = (view === "contracts" ? "/api/contracts/" + contract._id + "/file" : "/api/acceptance-records/" + record!._id + "/file")
-    + (wordTemplateId ? "?templateId=" + encodeURIComponent(wordTemplateId) : "");
+    + `?${wordParams.toString()}`;
   const settlementTemplateId = settlementTemplateOverride || settlementTemplates[0]?.id || "";
-  const settlementUrl = "/api/acceptance-records/" + record!._id + "/settlement.xlsx"
-    + (settlementTemplateId ? "?templateId=" + encodeURIComponent(settlementTemplateId) : "");
+  const settlementUrl = "/api/acceptance-records/" + record!._id + "/settlement.xlsx?background=1"
+    + (settlementTemplateId ? "&templateId=" + encodeURIComponent(settlementTemplateId) : "");
   const templateSelector = wordTemplates.length > 0 && <label className="workflow-word-template">Mẫu xuất
     <select aria-label="Mẫu chứng từ khi tải" value={wordTemplateId} onChange={(event) => setWordTemplateOverride(event.target.value)} disabled={downloading}>
       {wordTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
@@ -413,7 +418,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
               {settlementTemplates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
             </select>
           </label>}
-          <button className="button button-soft" type="button" disabled={downloading || !settlementTemplates.length} onClick={() => void downloadDocument(settlementUrl)}>Tải hồ sơ quyết toán Excel</button>
+          <button className="button button-soft" type="button" disabled={downloading || !settlementTemplates.length} onClick={() => void downloadDocument(settlementUrl)}>{settlementDownloading ? "Đang tạo hồ sơ quyết toán…" : "Tải hồ sơ quyết toán Excel"}</button>
           {!settlementTemplates.length && <small className="workflow-template-source">Chưa có mẫu quyết toán Excel. Tải mẫu lên mục Quản lý mẫu → Quyết toán.</small>}
         </>}
         <button className="button button-soft" onClick={() => window.print()}>In / Lưu PDF</button>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ApiError, api, apiUploadWithProgress, formatDate, formatMoney, responseBlobWithProgress } from "./api";
+import { ApiError, api, apiUploadWithProgress, fetchGeneratedExport, formatDate, formatMoney, responseBlobWithProgress } from "./api";
 import MoneyInput from "./MoneyInput";
 import type { Analysis, AnalysisItem, CatalogItem, Quote, QuoteRequest, QuoteStatus, SuggestedProduct, SubscriptionPlanSummary, User } from "./types";
 import AdminApp from "./AdminApp";
@@ -1849,8 +1849,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       if (canExportDraftXlsx) exportParams.set("draft", "1");
       else if (excelOnly) exportParams.set("excel", "1");
       exportParams.set("templateId", templateId || "none");
+      exportParams.set("background", "1");
       const exportQuery = `?${exportParams.toString()}`;
-      const response = await fetch(`/api/quotes/${quote._id}/export${exportQuery}`, { credentials: "include" });
+      const response = await fetchGeneratedExport(`/api/quotes/${quote._id}/export${exportQuery}`);
       if (!response.ok) { const result = await response.json(); throw new Error(result.error || "Không tải được dự toán."); }
       const blob = await responseBlobWithProgress(response, (progress) => setTaskProgress({
         label: downloadKind === "excel" ? "Đang tải file Excel" : downloadKind === "word" ? "Đang tải file Word" : "Đang tải file dự toán",

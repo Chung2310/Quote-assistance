@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, formatDate, formatMoney } from "./api";
+import { api, fetchGeneratedExport, formatDate, formatMoney } from "./api";
 import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
 import { TaskProgress, type ConfirmOptions, type Notify } from "./Feedback";
 import type { Quote } from "./types";
@@ -130,8 +130,9 @@ export default function CustomerProductListDetail({
       if (templateId) setExportingWithAi(true);
       try {
         const params = new URLSearchParams({ templateId: templateId || "none" });
+        params.set("background", "1");
         if (quote.status !== "approved") params.set("draft", "1");
-        const response = await fetch("/api/quotes/" + id + "/export?" + params, { credentials: "include" });
+        const response = await fetchGeneratedExport("/api/quotes/" + id + "/export?" + params);
         if (!response.ok) {
           const body = (await response.json().catch(() => null)) as { error?: string } | null;
           throw new Error(body?.error || "Không tải được danh sách sản phẩm.");

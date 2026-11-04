@@ -23,6 +23,27 @@ export async function api<T>(url: string, options: RequestInit = {}): Promise<T>
   return body as T;
 }
 
+export async function fetchGeneratedExport(url: string, timeoutMs = 15 * 60_000): Promise<Response> {
+  let response = await fetch(url, { credentials: "include" });
+  if (response.status !== 202) return response;
+
+  const queued = await response.json().catch(() => null) as { jobId?: string } | null;
+  if (!queued?.jobId) throw new Error("Máy chủ chưa trả mã tác vụ xuất file.");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => window.setTimeout(resolve, 2_000));
+    const statusResponse = await fetch(`/api/export-jobs/${encodeURIComponent(queued.jobId)}`, { credentials: "include" });
+    const statusBody = await statusResponse.json().catch(() => null) as { error?: string; job?: { status?: string; fileId?: string; error?: string } } | null;
+    if (!statusResponse.ok || !statusBody?.job) throw new Error(statusBody?.error || "Không đọc được trạng thái tác vụ xuất file.");
+    if (statusBody.job.status === "failed") throw new Error(statusBody.job.error || "AI không tạo được file theo mẫu đã chọn.");
+    if (statusBody.job.status === "completed") {
+      if (!statusBody.job.fileId) throw new Error("Tác vụ đã xong nhưng thiếu mã file đã lưu.");
+      return fetch(`/api/files/${encodeURIComponent(statusBody.job.fileId)}/download`, { credentials: "include" });
+    }
+  }
+  throw new Error("Tác vụ vẫn đang xử lý. Bạn có thể thử tải lại sau ít phút.");
+}
+
 export function apiUploadWithProgress<T>(
   url: string,
   file: Blob,

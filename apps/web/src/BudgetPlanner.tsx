@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { ApiError, api, formatMoney } from "./api";
+import { ApiError, api, fetchGeneratedExport, formatMoney } from "./api";
 import { listCustomerExcelTemplates, type CustomerExcelTemplate } from "./customer-quote-templates";
 import MoneyInput from "./MoneyInput";
 import { TaskProgress } from "./Feedback";
@@ -246,7 +246,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
     setExporting(true);
     setError("");
     try {
-      const response = await fetch(`/api/budget-plans/${selectedId}/export?templateId=${encodeURIComponent(templateId)}`, { credentials: "include" });
+      const response = await fetchGeneratedExport(`/api/budget-plans/${selectedId}/export?templateId=${encodeURIComponent(templateId)}&background=1`);
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error || "Không xuất được phương án Excel.");

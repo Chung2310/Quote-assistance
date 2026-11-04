@@ -23,6 +23,21 @@ export interface CompanyFile {
   createdAt: Date;
 }
 
+export type GeneratedExportJobStatus = "queued" | "running" | "completed" | "failed";
+
+export interface GeneratedExportJob {
+  _id?: ObjectId;
+  companyId: string;
+  createdBy: string;
+  kind: string;
+  status: GeneratedExportJobStatus;
+  filename?: string;
+  fileId?: string;
+  error?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 export interface CompanyProfileDetails {
   taxId: string;
   address: string;

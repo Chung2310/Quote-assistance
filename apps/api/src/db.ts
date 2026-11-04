@@ -2,7 +2,7 @@ import { MongoClient, ObjectId, type Db } from "mongodb";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 import { logger } from "./logger.js";
-import type { Company, PlanContactRequest, SubscriptionPlan, UserAccount } from "./types.js";
+import type { Company, GeneratedExportJob, PlanContactRequest, SubscriptionPlan, UserAccount } from "./types.js";
 
 const client = new MongoClient(config.mongoUri, {
   appName: "bao-gia-ai-pilot",
@@ -242,6 +242,8 @@ export async function connectDatabase() {
         db.collection<PlanContactRequest>("planContactRequests").createIndex({ status: 1, createdAt: -1 }),
         db.collection<UserAccount>("users").createIndex({ email: 1 }, { unique: true }),
         db.collection("companyFiles").createIndex({ companyId: 1, createdAt: -1 }),
+        db.collection<GeneratedExportJob>("generatedExportJobs").createIndex({ companyId: 1, createdAt: -1 }),
+        db.collection<GeneratedExportJob>("generatedExportJobs").createIndex({ status: 1, createdAt: 1 }),
         db.collection("subscriptionPayments").createIndex({ code: 1 }, { unique: true }),
         db.collection("subscriptionPayments").createIndex({ sepayTransactionId: 1 }, { unique: true, sparse: true }),
         db.collection("subscriptionPayments").createIndex({ companyId: 1, status: 1, createdAt: -1 }),

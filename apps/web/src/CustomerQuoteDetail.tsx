@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, formatDate, formatMoney, responseBlobWithProgress } from "./api";
+import { api, fetchGeneratedExport, formatDate, formatMoney, responseBlobWithProgress } from "./api";
 import { TaskProgress, type ConfirmOptions, type Notify, type TaskProgressState } from "./Feedback";
 import type { Quote, QuoteStatus } from "./types";
 import VietnameseDatePicker from "./VietnameseDatePicker";
@@ -246,9 +246,9 @@ export default function CustomerQuoteDetail({
       if (!quote) return;
       const current = dirty && editable ? await save() : quote;
       const isDraft = current.status !== "approved";
-      const response = await fetch(`/api/quotes/${current._id}/export${isDraft ? "?draft=1" : ""}`, {
-        credentials: "include",
-      });
+      const exportParams = new URLSearchParams({ background: "1" });
+      if (isDraft) exportParams.set("draft", "1");
+      const response = await fetchGeneratedExport(`/api/quotes/${current._id}/export?${exportParams.toString()}`);
       if (!response.ok) {
         const result = (await response.json().catch(() => ({}))) as { error?: string };
         throw new Error(result.error ?? "Không xuất được báo giá.");
