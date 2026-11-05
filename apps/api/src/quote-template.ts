@@ -2054,7 +2054,7 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
   if (directDocumentEditorEnabled()) {
     const workbook = workbookInfo(template);
     const originalSheets = [...workbook.sheets.keys()];
-    const estimateWorksheet = quote.kind === "estimate"
+    const estimateWorksheet = quote.kind === "estimate" && !quote.settlement
       ? [...workbook.sheets.values()]
         .filter((sheet) => xlsxSheetHasCandidateTable(sheet, quote))
         .map((sheet) => ({ sheet, score: xlsxWorksheetPurposeScore(sheet, quote, inputContext) }))
@@ -2080,14 +2080,32 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
       : quote.kind === "budget" ? "Budget plan"
         : template.category === "estimate" || quote.kind === "estimate" ? "Estimate"
           : "Quotation";
+    const worksheetInstructions = quote.settlement
+      ? `This is one acceptance and settlement dossier spanning multiple related worksheets. Inspect every worksheet's actual content. Update all related sheets that present the same contract, project, accepted product/material list, accepted quantities, unit prices, totals, payment request, settlement balance, or dossier cover. Apply the authoritative data consistently across those sheets, replacing old example values where the sheets represent this dossier. Keep existing cross-sheet formulas intact and let them calculate where possible. Do not stop after editing one itemized-value worksheet. Preserve unrelated historical/example forms. Before saving, verify the accepted products and quantities and settlement amounts in every related sheet. If several related sheets exist, the output must contain edits in several sheets.`
+      : `Select the worksheet by inspecting its actual headings, table columns, labels, and content, not by worksheet name alone. For an Estimate export, a quotation, bao gia, chi phi thi cong, or construction-cost worksheet is a valid match when its actual rows and columns can represent the supplied estimate products, quantities, units, unit prices, and totals. A sheet name alone is never enough to accept or reject a worksheet. Do not use a settlement, acceptance, or contract form as an estimate just because it contains money or item descriptions. ${estimateWorksheet ? `Local workbook inspection found a valid estimate product table in worksheet "${estimateWorksheet.name}". Use this exact worksheet for the estimate; do not reject it because it is labeled as a quotation or bao gia. Replace the existing example product rows with the supplied estimate products, keeping each supplied product on its own row and preserving the requested quantities.` : "If no worksheet has a matching itemized product table, explain that clearly and do not create a mismatched output."}`;
     const bytes = await editDocumentFileDirectly({
       bytes: Buffer.from(template.data.buffer), filename: template.originalFilename, extension: "xlsx", functionName,
-      userInstructions: [inputContext, `The workbook worksheets and their extracted cell contents are provided here: ${JSON.stringify(worksheetSummaries)}. Select the worksheet by inspecting its actual headings, table columns, labels, and content, not by worksheet name alone. For an Estimate export, a quotation, bao gia, chi phi thi cong, or construction-cost worksheet is a valid match when its actual rows and columns can represent the supplied estimate products, quantities, units, unit prices, and totals. A sheet name alone is never enough to accept or reject a worksheet. Do not use a settlement, acceptance, or contract form as an estimate just because it contains money or item descriptions. ${estimateWorksheet ? `Local workbook inspection found a valid estimate product table in worksheet "${estimateWorksheet.name}". Its headers match an item description/name, quantity, and unit price or line total. Use this exact worksheet for the estimate; do not reject it because it is labeled as a quotation or bao gia. Replace the existing example product rows with the supplied estimate products, keeping each supplied product on its own row and preserving the requested quantities.` : "If no worksheet has a matching itemized product table, explain that clearly and do not create a mismatched output."} The original worksheet order is ${JSON.stringify(originalSheets)}. The final workbook MUST retain every worksheet exactly once, with the exact same names and order. Do not delete, rename, add, or recreate any worksheet; edit only the matching worksheet.`].filter(Boolean).join("\n\n"),
+      userInstructions: [inputContext, `The workbook worksheets and their extracted cell contents are provided here: ${JSON.stringify(worksheetSummaries)}. ${worksheetInstructions} The original worksheet order is ${JSON.stringify(originalSheets)}. The final workbook MUST retain every worksheet exactly once, with the exact same names and order. Do not delete, rename, add, or recreate any worksheet.`].filter(Boolean).join("\n\n"),
       data: directDocumentData(quote, functionName),
     });
     if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
     await inspectTemplate(bytes, "xlsx");
     assertXlsxWorksheetsPreserved(template, bytes);
+    if (quote.settlement) {
+      const editedWorkbook = workbookInfo({ ...template, bytes: bytes.length, data: new Binary(bytes) });
+      const relatedSheets = [...workbook.sheets.values()].filter((sheet) => {
+        const heading = [...sheet.cells.values()].filter((cell) => (parseCellRef(cell.ref)?.row ?? 0) <= 8).map((cell) => cell.value).join(" ");
+        return /\b(nghiem thu|quyet toan|thanh toan|gia tri|vat tu|acceptance|settlement|payment)\b/.test(normalizeSheetLabel(`${sheet.name} ${heading}`));
+      });
+      if (relatedSheets.length > 1) {
+        const changedSheets = relatedSheets.filter((sheet) => {
+          const edited = editedWorkbook.sheets.get(sheet.name);
+          return edited && JSON.stringify([...sheet.cells.values()].map((cell) => [cell.ref, cell.value, cell.formula]))
+            !== JSON.stringify([...edited.cells.values()].map((cell) => [cell.ref, cell.value, cell.formula]));
+        });
+        if (changedSheets.length < 2) throw new Error("AI mới cập nhật một phần hồ sơ nghiệm thu/quyết toán. File chưa được lưu vì các tab liên quan chưa được đồng bộ.");
+      }
+    }
     return bytes;
   }
   if (!quote.lines.length) {
