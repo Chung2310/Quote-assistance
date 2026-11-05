@@ -2066,18 +2066,37 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
         .sort((left, right) => right.score - left.score)[0]?.sheet
       : undefined;
     const worksheetSummaries = [...workbook.sheets.values()].map((sheet) => {
+      const rowsToShow = new Set<number>(Array.from({ length: 12 }, (_, index) => index + 1));
+      const rowCellsByNumber = new Map<number, XlsxCellInfo[]>();
+      for (const cell of sheet.cells.values()) {
+        const rowNumber = parseCellRef(cell.ref)?.row;
+        if (!rowNumber) continue;
+        const rowCells = rowCellsByNumber.get(rowNumber) ?? [];
+        rowCells.push(cell);
+        rowCellsByNumber.set(rowNumber, rowCells);
+      }
+      for (const rowNumber of sheet.rows) {
+        const rowCells = rowCellsByNumber.get(rowNumber) ?? [];
+        const roles = new Set(rowCells.flatMap((cell) => xlsxLineKeys.filter((key) => headerMatch(key, cell.value))));
+        const rowLabel = normalizeSheetLabel(rowCells.map((cell) => cell.value).join(" "));
+        if (roles.has("name") && (roles.has("quantity") || roles.has("unitPrice") || roles.has("lineTotal"))) {
+          for (let offset = 0; offset <= 2; offset++) rowsToShow.add(rowNumber + offset);
+        } else if (/\b(tong cong|tong gia tri|thanh toan|quyet toan|nghiem thu|contract value|settlement|payment)\b/.test(rowLabel)) {
+          rowsToShow.add(rowNumber);
+        }
+      }
       const cellsByRow = new Map<number, string[]>();
       for (const cell of sheet.cells.values()) {
         if (!cell.value.trim()) continue;
         const point = parseCellRef(cell.ref);
-        if (!point || point.row > 30) continue;
+        if (!point || !rowsToShow.has(point.row)) continue;
         const row = cellsByRow.get(point.row) ?? [];
         row.push(`${cell.ref}=${cell.value.slice(0, 100)}`);
         cellsByRow.set(point.row, row);
       }
       return {
         name: sheet.name,
-        content: [...cellsByRow.entries()].sort(([a], [b]) => a - b).map(([row, cells]) => `row ${row}: ${cells.join(" | ")}`).join("\n").slice(0, 4_000),
+        content: [...cellsByRow.entries()].sort(([a], [b]) => a - b).slice(0, 35).map(([row, cells]) => `row ${row}: ${cells.join(" | ")}`).join("\n").slice(0, 4_000),
       };
     });
     const functionName = quote.settlement ? "Settlement dossier"
@@ -2085,7 +2104,7 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
         : template.category === "estimate" || quote.kind === "estimate" ? "Estimate"
           : "Quotation";
     const worksheetInstructions = quote.settlement
-      ? `This is one acceptance and settlement dossier spanning multiple related worksheets. Inspect every worksheet's actual content. The "contractProducts" list is the signed contract's original products and quantities; use it for contract annexes such as PHỤ LỤC HĐ. The "products" list contains accepted quantities and values; use it for acceptance, quantity explanation (DIỄN GIẢI KHỐI LƯỢNG / DGKLHT), settlement and payment tables. Update every related itemized table, including contract annex and quantity explanation sheets, even when those sheets currently contain old sample products from another project. Replace those example rows and their old totals. Update linked covers, totals, payment requests and balances using the authoritative settlement fields. Keep cross-sheet formulas intact where possible. Do not stop after one itemized-value worksheet. Leave genuinely unrelated historical forms untouched. Before saving, inspect every related sheet for stale example products and amounts. A valid result may change only one sheet when the other sheets have no applicable fields.`
+      ? `This workbook may contain several related documents. Inspect the actual headings, field labels, table columns, sample rows, formulas, and cross-sheet references in every tab; names and positions are not fixed. Determine which tabs describe the signed contract, which describe accepted work, and which summarize settlement or payment. Fill every relevant field and itemized table using the correct data scope: "contractProducts" for original contract items and quantities; "products" for accepted items and quantities; "settlement" for approved amounts, payments, balances, dates, and identifiers. Replace stale example products and totals in relevant tabs even when the old examples describe another project. Preserve formulas, formatting, and truly unrelated sheets. Recheck each tab for remaining old business values before saving. A valid output may change one tab or several tabs, depending on the workbook content.`
       : `Select the worksheet by inspecting its actual headings, table columns, labels, and content, not by worksheet name alone. For an Estimate export, a quotation, bao gia, chi phi thi cong, or construction-cost worksheet is a valid match when its actual rows and columns can represent the supplied estimate products, quantities, units, unit prices, and totals. A sheet name alone is never enough to accept or reject a worksheet. Do not use a settlement, acceptance, or contract form as an estimate just because it contains money or item descriptions. ${estimateWorksheet ? `Local workbook inspection found a valid estimate product table in worksheet "${estimateWorksheet.name}". Use this exact worksheet for the estimate; do not reject it because it is labeled as a quotation or bao gia. Replace the existing example product rows with the supplied estimate products, keeping each supplied product on its own row and preserving the requested quantities.` : "If no worksheet has a matching itemized product table, explain that clearly and do not create a mismatched output."}`;
     const bytes = await editDocumentFileDirectly({
       bytes: Buffer.from(template.data.buffer), filename: template.originalFilename, extension: "xlsx", functionName,
