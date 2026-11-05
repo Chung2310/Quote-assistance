@@ -445,7 +445,7 @@ function UserApp() {
                       <PriceListPanel key={refreshKey} onToast={notify} />
                       : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
-    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); openQuote(id); }} />}
+    {creatingQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); openQuote(id); }} />}
     {creatingContractFromQuote && <ContractCreationDialog quote={creatingContractFromQuote} onClose={() => setCreatingContractFromQuote(null)} onCreated={(id, fileError) => { setCreatingContractFromQuote(null); openWorkflow("contracts", id); notify(fileError ? `Đã tạo hợp đồng nhưng chưa tạo được file AI: ${fileError}` : "Đã tạo hợp đồng, AI đã điền mẫu và lưu file.", fileError ? "error" : "success"); }} notify={notify} />}
     {creatingEstimateFromQuote && <CreateEstimateFromQuoteDialog sourceQuote={creatingEstimateFromQuote} onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingEstimateFromQuote(null)} onCreated={(id, fileError) => { setCreatingEstimateFromQuote(null); refresh(); openQuote(id); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
@@ -1377,8 +1377,8 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
-  const notify = useAppNotification();
-  const setError = useCallback((message: string) => { if (message) notify(message, "error"); }, [notify]);
+  const [inlineError, setInlineError] = useState("");
+  const setError = useCallback((message: string) => setInlineError(message), []);
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
 
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
@@ -1508,6 +1508,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
 
   return (
     <div className="page-stack">
+      {inlineError && <p className="estimate-from-quote-error" role="alert">{inlineError}</p>}
       <div className="creation-layout">
         <section className="content-card form-card">
           <form onSubmit={(event) => void analyze(event)} className="request-form">
