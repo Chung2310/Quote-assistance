@@ -453,11 +453,12 @@ export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, cont
       if (directDocumentEditorEnabled()) {
         const bytes = await runAi(() => editDocumentFileDirectly({
           bytes: templateBytes(wordTemplate), filename: wordTemplate.originalFilename, extension: "docx", functionName: "Acceptance and handover record",
+          userInstructions: "This is an acceptance and handover record. First inspect the entire attached document, including every page, table, header and footer. Identify the sections and fields from their actual labels, nearby text, tables and layout; do not assume a fixed template or placeholder names. Then fill every matching field using the supplied data: acceptance details from fields, original contracted item quantities from contractProducts.contractQuantity, and actually accepted quantities from contractProducts.acceptedQuantity. Keep those quantities distinct. Use the supplied settlement amounts and totals exactly; do not calculate or infer them. Replace example values only in relevant acceptance sections, preserve legal text, signatures, formatting and unrelated sections. Before saving, reopen the document and check that each supplied value was placed only in a matching field, all accepted quantities match the supplied data, and no old example values remain in the fields being replaced. If a supplied value has no clear matching field, leave that field unchanged and do not invent a location.",
           data: {
             fields: acceptanceBindings(contract, record),
             contractProducts: contract.lines.map((line, index) => {
               const acceptedQuantity = record.lines.find((entry) => entry.lineIndex === index)?.acceptedQuantity ?? 0;
-              return { index: index + 1, name: line.name, description: line.description ?? "", contractQuantity: line.quantity, acceptedQuantity, unit: line.unit, unitPrice: line.unitPrice, lineTotal: line.lineTotal };
+              return { index: index + 1, name: line.name, description: line.description ?? "", contractQuantity: line.quantity, acceptedQuantity, unit: line.unit, unitPrice: line.unitPrice, contractLineTotal: line.lineTotal };
             }),
           },
         }));
