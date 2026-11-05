@@ -228,6 +228,7 @@ export interface Quote {
   informationNeeded: string[];
   additionalInformation?: Record<string, string>;
   settlement?: {
+    contractLines?: QuoteLine[];
     contractNumber: string;
     projectName: string;
     projectAddress: string;

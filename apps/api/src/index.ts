@@ -3469,6 +3469,7 @@ app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"]
           informationNeeded: [], informationConfirmed: true, status: "approved", createdBy: user.id,
           createdAt: new Date(`${record.acceptedDate}T00:00:00Z`), updatedAt: record.updatedAt,
           settlement: {
+            contractLines: contract.lines.map((line) => ({ ...line })),
             contractNumber: contract.contractNumber, projectName: contract.projectName, projectAddress: contract.projectAddress,
             acceptanceNumber: record.acceptanceNumber, acceptedDate: record.acceptedDate,
             startTime: record.startTime, endTime: record.endTime, location: record.location,
@@ -3533,6 +3534,7 @@ app.get("/api/acceptance-records/:id/settlement.xlsx", requireRole("user"), asyn
     informationNeeded: [], informationConfirmed: true, status: "approved", createdBy: user.id,
     createdAt: new Date(`${record.acceptedDate}T00:00:00Z`), updatedAt: record.updatedAt,
     settlement: {
+      contractLines: contract.lines.map((line) => ({ ...line })),
       contractNumber: contract.contractNumber, projectName: contract.projectName, projectAddress: contract.projectAddress,
       acceptanceNumber: record.acceptanceNumber, acceptedDate: record.acceptedDate,
       startTime: record.startTime, endTime: record.endTime, location: record.location,
