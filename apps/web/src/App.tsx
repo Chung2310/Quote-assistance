@@ -1659,13 +1659,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     if (!quote?._id) { setSavedEstimateFile(null); setLoadingSavedEstimateFile(false); return; }
     let active = true;
     setLoadingSavedEstimateFile(true);
-    const loadSavedFile = quote.status === "approved"
-      ? getLatestGeneratedFile(quote._id, "estimate").then(({ file }) => file)
-      : Promise.all([
-        getLatestGeneratedFile(quote._id, "estimate_draft"),
-        getLatestGeneratedFile(quote._id, "estimate"),
-      ]).then(([draft, estimate]) => draft.file
-        ?? (estimate.file?.filename.match(/-nhap\.[^.]+$/i) ? estimate.file : null));
+    const loadSavedFile = Promise.all([
+      getLatestGeneratedFile(quote._id, "estimate_draft"),
+      getLatestGeneratedFile(quote._id, "estimate"),
+    ]).then(([draft, estimate]) => quote.status === "approved"
+      ? estimate.file ?? draft.file
+      : draft.file ?? estimate.file);
     loadSavedFile
       .then((file) => { if (active) setSavedEstimateFile(file); })
       .catch(() => { if (active) setSavedEstimateFile(null); })
