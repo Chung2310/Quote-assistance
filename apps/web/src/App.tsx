@@ -445,7 +445,7 @@ function UserApp() {
                       <PriceListPanel key={refreshKey} onToast={notify} />
                       : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
-    {creatingQuote && canCreateQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); openQuote(id); }} />}
+    {creatingQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); openQuote(id); }} />}
     {creatingContractFromQuote && <ContractCreationDialog quote={creatingContractFromQuote} onClose={() => setCreatingContractFromQuote(null)} onCreated={(id, fileError) => { setCreatingContractFromQuote(null); openWorkflow("contracts", id); notify(fileError ? `Đã tạo hợp đồng nhưng chưa tạo được file AI: ${fileError}` : "Đã tạo hợp đồng, AI đã điền mẫu và lưu file.", fileError ? "error" : "success"); }} notify={notify} />}
     {creatingEstimateFromQuote && <CreateEstimateFromQuoteDialog sourceQuote={creatingEstimateFromQuote} onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingEstimateFromQuote(null)} onCreated={(id, fileError) => { setCreatingEstimateFromQuote(null); refresh(); openQuote(id); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
@@ -1293,9 +1293,13 @@ async function createSavedDraftEstimateFile(quoteId: string, onProgress: () => v
       const savedFile = await getLatestGeneratedFile(quoteId, "estimate_draft").then(({ file }) => file).catch(() => null);
       if (!savedFile) await api(`/api/quotes/${encodeURIComponent(quoteId)}`, { method: "DELETE" }).catch(() => undefined);
     }
-    if (normalized.includes("openrouter") || normalized.includes("requested format") || normalized.includes("edited file") || normalized.includes("worksheet") || normalized.includes("trang tính")) {
+    if (normalized.includes("credit") || normalized.includes("insufficient funds")) {
+      throw new Error("AI chưa tạo được file dự toán vì tài khoản OpenRouter không đủ credit khả dụng. Dự toán chưa được lưu thành công.");
+    }
+    if (normalized.includes("requested format") || normalized.includes("edited file") || normalized.includes("worksheet") || normalized.includes("trang tính")) {
       throw new Error("AI chưa tạo được file dự toán vì chưa xác định được trang tính phù hợp trong mẫu. Hãy chọn sheet có bảng hạng mục, số lượng và đơn giá.");
     }
+    if (normalized.includes("openrouter")) throw new Error("AI chưa tạo được file dự toán. Vui lòng thử lại sau.");
     throw new Error(detail || "Không tạo hoặc lưu được file dự toán bằng AI.");
   }
 }
@@ -1373,8 +1377,8 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [taskProgress, setTaskProgress] = useState<TaskProgressState | null>(null);
-  const notify = useAppNotification();
-  const setError = useCallback((message: string) => { if (message) notify(message, "error"); }, [notify]);
+  const [inlineError, setInlineError] = useState("");
+  const setError = useCallback((message: string) => setInlineError(message), []);
   const [previewFile, setPreviewFile] = useState<PreviewFile | null>(null);
 
   useEffect(() => { onBusyChange(busy); }, [busy, onBusyChange]);
@@ -1504,6 +1508,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
 
   return (
     <div className="page-stack">
+      {inlineError && <p className="estimate-from-quote-error" role="alert">{inlineError}</p>}
       <div className="creation-layout">
         <section className="content-card form-card">
           <form onSubmit={(event) => void analyze(event)} className="request-form">
@@ -1654,13 +1659,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     if (!quote?._id) { setSavedEstimateFile(null); setLoadingSavedEstimateFile(false); return; }
     let active = true;
     setLoadingSavedEstimateFile(true);
-    const loadSavedFile = quote.status === "approved"
-      ? getLatestGeneratedFile(quote._id, "estimate").then(({ file }) => file)
-      : Promise.all([
-        getLatestGeneratedFile(quote._id, "estimate_draft"),
-        getLatestGeneratedFile(quote._id, "estimate"),
-      ]).then(([draft, estimate]) => draft.file
-        ?? (estimate.file?.filename.match(/-nhap\.[^.]+$/i) ? estimate.file : null));
+    const loadSavedFile = Promise.all([
+      getLatestGeneratedFile(quote._id, "estimate_draft"),
+      getLatestGeneratedFile(quote._id, "estimate"),
+    ]).then(([draft, estimate]) => quote.status === "approved"
+      ? estimate.file ?? draft.file
+      : draft.file ?? estimate.file);
     loadSavedFile
       .then((file) => { if (active) setSavedEstimateFile(file); })
       .catch(() => { if (active) setSavedEstimateFile(null); })

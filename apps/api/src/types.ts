@@ -193,6 +193,7 @@ export interface QuoteLine {
 }
 
 export interface Quote {
+  fileCreationPending?: boolean;
   kind?: "estimate" | "customer" | "budget";
   sourceQuote?: { id: string; quoteNumber: string };
   sourceRequirements?: string;
@@ -227,6 +228,7 @@ export interface Quote {
   informationNeeded: string[];
   additionalInformation?: Record<string, string>;
   settlement?: {
+    contractLines?: QuoteLine[];
     contractNumber: string;
     projectName: string;
     projectAddress: string;
