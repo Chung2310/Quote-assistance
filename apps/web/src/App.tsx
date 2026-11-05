@@ -1293,9 +1293,13 @@ async function createSavedDraftEstimateFile(quoteId: string, onProgress: () => v
       const savedFile = await getLatestGeneratedFile(quoteId, "estimate_draft").then(({ file }) => file).catch(() => null);
       if (!savedFile) await api(`/api/quotes/${encodeURIComponent(quoteId)}`, { method: "DELETE" }).catch(() => undefined);
     }
-    if (normalized.includes("openrouter") || normalized.includes("requested format") || normalized.includes("edited file") || normalized.includes("worksheet") || normalized.includes("trang tính")) {
+    if (normalized.includes("credit") || normalized.includes("insufficient funds")) {
+      throw new Error("AI chưa tạo được file dự toán vì tài khoản OpenRouter không đủ credit khả dụng. Dự toán chưa được lưu thành công.");
+    }
+    if (normalized.includes("requested format") || normalized.includes("edited file") || normalized.includes("worksheet") || normalized.includes("trang tính")) {
       throw new Error("AI chưa tạo được file dự toán vì chưa xác định được trang tính phù hợp trong mẫu. Hãy chọn sheet có bảng hạng mục, số lượng và đơn giá.");
     }
+    if (normalized.includes("openrouter")) throw new Error("AI chưa tạo được file dự toán. Vui lòng thử lại sau.");
     throw new Error(detail || "Không tạo hoặc lưu được file dự toán bằng AI.");
   }
 }

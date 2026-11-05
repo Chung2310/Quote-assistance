@@ -698,6 +698,10 @@ async function queueGeneratedExport(
       await jobs.updateOne({ _id: insertedId, companyId: user.companyId, status: "queued" }, { $set: { status: "running", updatedAt: new Date() } });
       const result = await work();
       const file = await storeGeneratedExport(db, user, result.filename, result.mimeType, result.bytes);
+      if (kind === "estimate_draft") await db.collection<Quote>("quotes").updateOne(
+        { _id: asId(sourceId), companyId: user.companyId, fileCreationPending: true },
+        { $unset: { fileCreationPending: "" } },
+      );
       await jobs.updateOne({ _id: insertedId, companyId: user.companyId }, {
         $set: { status: "completed", filename: file.originalFilename, fileId: file._id, updatedAt: new Date() },
         $unset: { error: "" },
@@ -707,6 +711,15 @@ async function queueGeneratedExport(
       await jobs.updateOne({ _id: insertedId, companyId: user.companyId }, {
         $set: { status: "failed", error: message, updatedAt: new Date() },
       }).catch(() => undefined);
+      if (kind === "estimate_draft") {
+        const otherJob = await jobs.findOne({
+          _id: { $ne: insertedId }, companyId: user.companyId, kind, sourceId,
+          status: { $in: ["queued", "running", "completed"] },
+        });
+        if (!otherJob) await db.collection<Quote>("quotes").deleteOne({
+          _id: asId(sourceId), companyId: user.companyId, fileCreationPending: true,
+        }).catch(() => undefined);
+      }
     }
   })();
 
@@ -2277,7 +2290,7 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const user = userOf(request);
   const collection = db.collection<Quote>("quotes");
   const status = request.query.status;
-  const filter: Document = { companyId: user.companyId };
+  const filter: Document = { companyId: user.companyId, fileCreationPending: { $ne: true } };
   if (request.query.kind === "customer") filter.kind = "customer";
   else filter.kind = { $ne: "customer" };
   if (typeof status === "string" && ["draft", "needs_info", "pending_review", "approved", "rejected"].includes(status)) filter.status = status;
@@ -2310,7 +2323,7 @@ app.get("/api/quotes", requireRole("user"), async (request, response) => {
   const [total, statusRows] = await Promise.all([
     collection.countDocuments(filter),
     collection.aggregate<{ _id: QuoteStatus; count: number; revenue: number }>([
-      { $match: { companyId: user.companyId, kind: filter.kind } },
+      { $match: { companyId: user.companyId, kind: filter.kind, fileCreationPending: { $ne: true } } },
       { $group: { _id: "$status", count: { $sum: 1 }, revenue: { $sum: { $cond: [{ $eq: ["$status", "approved"] }, "$total", 0] } } } },
     ]).toArray(),
   ]);
@@ -2607,6 +2620,7 @@ app.post("/api/quotes/from-customer", requireRole("user"), async (request, respo
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không thể tạo dự toán từ báo giá khách.", error instanceof AiQuotaExceededError ? 429 : 422);
   }
+  estimate.fileCreationPending = true;
   const result = await quotes.insertOne(estimate);
   await writeAudit(db, user, "estimate_created_from_customer_quote", "quote", result.insertedId.toHexString(), { sourceQuoteId: sourceId.toHexString(), quoteNumber: estimate.quoteNumber, productCount: estimate.lines.length });
   response.status(201).json({ quote: quoteForResponse({ ...estimate, _id: result.insertedId }) });
@@ -2683,6 +2697,7 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
   const quote: Quote = {
     companyId: user.companyId,
     kind: "estimate",
+    fileCreationPending: true,
     template: source.template,
     ...(source.priceListId ? { priceList: { id: source.priceListId, originalFilename: source.priceListFilename ?? "" } } : {}),
     ...(source.requestFile ? { requestFile: source.requestFile } : {}),
