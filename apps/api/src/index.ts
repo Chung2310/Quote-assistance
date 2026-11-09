@@ -1527,7 +1527,7 @@ app.get("/api/quote-templates", requireRole("user"), async (request, response) =
   if (request.query.cursor !== undefined && !cursor) return fail(response, "Trang danh sách mẫu không hợp lệ.");
   const company = await db.collection<Company>("companies").findOne({ _id: new ObjectId(user.companyId) }, { projection: { quoteTemplateId: 1 } });
   const templates = await db.collection<QuoteTemplate>("quoteTemplates")
-    .find({ companyId: user.companyId, deletedAt: { $exists: false }, category: category === "quote" ? { $in: ["quote", null] } : category === "acceptance" ? { $in: ["acceptance", "settlement"] } : category, ...((category === "contract") ? { extension: "docx" } : category === "settlement" ? { extension: "xlsx" } : {}), ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } })
+    .find({ companyId: user.companyId, deletedAt: { $exists: false }, category: category === "quote" ? { $in: ["quote", null] } : category === "acceptance" ? { $in: ["acceptance", "settlement"] } : category, ...(cursor ? { _id: { $lt: cursor } } : {}) }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } })
     .sort({ _id: -1 }).limit(13).toArray();
   const page = templates.slice(0, 12);
   response.json({ templates: page.map(templateDetails), defaultTemplateId: category === "quote" ? company?.quoteTemplateId ?? null : page[0]?._id?.toHexString() ?? null, nextCursor: templates.length > 12 ? page[11]._id!.toHexString() : null });
@@ -1551,9 +1551,6 @@ app.post("/api/quote-template", requireRole("user"), enforceTemplateQuota, expre
   catch { return fail(response, "Tên file không hợp lệ."); }
   if (!originalFilename || originalFilename.length > 255) return fail(response, "Tên file không hợp lệ.");
   const extension = originalFilename.split(".").pop()!.toLowerCase();
-  if (category === "settlement" && extension !== "xlsx") return fail(response, "Mẫu hồ sơ quyết toán chỉ hỗ trợ file Excel (.xlsx).", 422);
-  if (category === "contract" && extension !== "docx") return fail(response, "Mẫu hợp đồng chỉ hỗ trợ file Word (.docx).", 422);
-  if (category === "acceptance" && !["docx", "xlsx"].includes(extension)) return fail(response, "Nhóm nghiệm thu và quyết toán chỉ nhận Word (.docx) hoặc Excel (.xlsx).", 422);
   try { await inspectUploadedTemplate(request.body, extension); }
   catch (error) { return fail(response, error instanceof Error ? error.message : "Không đọc được mẫu báo giá.", 422); }
   const db = await connectDatabase();
@@ -1579,9 +1576,7 @@ app.patch("/api/quote-template/:id/category", requireRole("user"), async (reques
   const templates = db.collection<QuoteTemplate>("quoteTemplates");
   const current = await templates.findOne({ _id: id, companyId: user.companyId, deletedAt: { $exists: false } });
   if (!current) return fail(response, "Không tìm thấy mẫu.", 404);
-  if (category === "contract" && current.extension !== "docx") return fail(response, "Mẫu hợp đồng cần là file Word (.docx).", 422);
-  if (category === "acceptance" && !["docx", "xlsx"].includes(current.extension)) return fail(response, "Nhóm nghiệm thu và quyết toán cần là file Word (.docx) hoặc Excel (.xlsx).", 422);
-  if (category === "settlement" && current.extension !== "xlsx") return fail(response, "Mẫu quyết toán cần là file Excel (.xlsx).", 422);
+  if (!["docx", "xlsx", "pdf"].includes(current.extension)) return fail(response, "Hãy chọn mẫu Word (.docx), Excel (.xlsx) hoặc PDF.", 422);
   const updated = await templates.findOneAndUpdate(
     { _id: id, companyId: user.companyId, deletedAt: { $exists: false } },
     { $set: { category, updatedAt: new Date() } }, { returnDocument: "after" },
@@ -1708,20 +1703,20 @@ app.get("/api/generated-export-files/latest", requireRole("user"), async (reques
   if (!file && (kind !== "customer_quote" || !latestCustomerJob)) {
     const filenameCandidates: string[] = [];
     if (kind === "budget") {
-      filenameCandidates.push(`phuong-an-${sourceId.toHexString()}.xlsx`);
+      filenameCandidates.push(...["docx", "xlsx", "pdf"].map((extension) => `phuong-an-${sourceId.toHexString()}.${extension}`));
     } else if (kind === "contract") {
       const contract = await db.collection<Contract>("contracts").findOne({ _id: sourceId, companyId: user.companyId });
-      if (contract) filenameCandidates.push(`${contract.contractNumber}.docx`, `${contract.contractNumber}.pdf`);
+      if (contract) filenameCandidates.push(...["docx", "xlsx", "pdf"].map((extension) => `${contract.contractNumber}.${extension}`));
     } else if (kind === "acceptance" || kind === "settlement") {
       const record = await db.collection<AcceptanceRecord>("acceptanceRecords").findOne({ _id: sourceId, companyId: user.companyId });
-      if (record) filenameCandidates.push(kind === "settlement"
-        ? `Ho-so-quyet-toan-${record.acceptanceNumber}.xlsx`
-        : `${record.acceptanceNumber}.docx`);
+      if (record) filenameCandidates.push(...["docx", "xlsx", "pdf"].map((extension) => kind === "settlement"
+        ? `Ho-so-quyet-toan-${record.acceptanceNumber}.${extension}`
+        : `${record.acceptanceNumber}.${extension}`));
     } else {
       const quote = await db.collection<Quote>("quotes").findOne({ _id: sourceId, companyId: user.companyId });
       if (quote) {
         if (kind === "customer_quote") filenameCandidates.push(...["xlsx", "docx", "pdf"].flatMap((extension) => [`${quote.quoteNumber}.${extension}`, `${quote.quoteNumber}-nhap.${extension}`]));
-        else if (kind === "estimate_draft") filenameCandidates.push(`${quote.quoteNumber}-nhap.xlsx`);
+        else if (kind === "estimate_draft") filenameCandidates.push(...["xlsx", "docx", "pdf"].map((extension) => `${quote.quoteNumber}-nhap.${extension}`));
         else filenameCandidates.push(`${quote.quoteNumber}.xlsx`, `${quote.quoteNumber}.docx`, `${quote.quoteNumber}.pdf`);
       }
     }
@@ -2486,23 +2481,28 @@ app.get("/api/budget-plans/:id/export", requireRole("user"), async (request, res
     .findOne({ _id: id, companyId: userOf(request).companyId });
   if (!plan) return fail(response, "Không tìm thấy phương án.", 404);
   const templateId = request.query.templateId === undefined || request.query.templateId === "none" ? null : asId(String(request.query.templateId));
-  if (request.query.templateId !== undefined && request.query.templateId !== "none" && !templateId) return fail(response, "Mã mẫu Excel không hợp lệ.");
+  if (request.query.templateId !== undefined && request.query.templateId !== "none" && !templateId) return fail(response, "Mã mẫu tài liệu không hợp lệ.");
   const exportQuote = budgetPlanAsQuote(plan);
   const user = userOf(request);
-  const filename = `phuong-an-${id.toHexString()}.xlsx`;
+  const defaultFilename = `phuong-an-${id.toHexString()}.xlsx`;
   let selectedTemplate: QuoteTemplate | null = null;
   if (templateId) {
     selectedTemplate = await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: templateId, companyId: plan.companyId, deletedAt: { $exists: false }, category: { $in: ["quote", null] } });
-    if (!selectedTemplate) return fail(response, "Không tìm thấy mẫu Excel.", 404);
-    if (selectedTemplate.extension !== "xlsx") return fail(response, "Hãy chọn mẫu Excel (.xlsx).", 422);
+    if (!selectedTemplate) return fail(response, "Không tìm thấy mẫu tài liệu.", 404);
+    if (!["docx", "xlsx", "pdf"].includes(selectedTemplate.extension)) return fail(response, "Hãy chọn mẫu Word, Excel hoặc PDF.", 422);
   }
+  const extension = selectedTemplate?.extension ?? "xlsx";
+  const filename = `phuong-an-${id.toHexString()}.${extension}`;
+  const mimeType = templateFormats[extension]!;
   const render = async () => ({
     filename,
-    mimeType: templateFormats.xlsx,
+    mimeType,
     bytes: selectedTemplate
-      ? await withAiUsage(db, user, "budget_plan_export_template", () => renderAiMappedXlsxTemplate(selectedTemplate!, exportQuote, plan.input.description))
+      ? await withAiUsage(db, user, "budget_plan_export_template", () => selectedTemplate!.extension === "xlsx"
+        ? renderAiMappedXlsxTemplate(selectedTemplate!, exportQuote, plan.input.description)
+        : renderTemplate(selectedTemplate!, exportQuote, plan.input.description))
       : await withAiUsage(db, user, "budget_plan_export_default", () => renderAiMappedXlsxTemplate(
-        generatedExportTemplate(user, filename, "xlsx", makeBudgetPlanExcel(plan)), exportQuote, plan.input.description,
+        generatedExportTemplate(user, defaultFilename, "xlsx", makeBudgetPlanExcel(plan)), exportQuote, plan.input.description,
       )),
   });
   if (request.query.background === "1") {
@@ -2514,11 +2514,11 @@ app.get("/api/budget-plans/:id/export", requireRole("user"), async (request, res
   let bytes: Buffer;
   try {
     ({ bytes } = await render());
-    await storeGeneratedExport(db, user, filename, templateFormats.xlsx, bytes);
+    await storeGeneratedExport(db, user, filename, mimeType, bytes);
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không xuất được hoặc không lưu được file phương án lên Cloudinary.", generatedExportErrorStatus(error));
   }
-  response.setHeader("Content-Type", templateFormats.xlsx);
+  response.setHeader("Content-Type", mimeType);
   response.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
   response.send(bytes);
 });
@@ -3125,14 +3125,14 @@ app.get("/api/document-templates/:kind", requireRole("user"), (request, response
 
 async function usableContractTemplates(db: Db, companyId: string) {
   const saved = await db.collection<QuoteTemplate>("quoteTemplates")
-    .find({ companyId, category: "contract", extension: "docx", deletedAt: { $exists: false } }).sort({ _id: -1 }).limit(100).toArray();
+    .find({ companyId, category: "contract", extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } }).sort({ _id: -1 }).limit(100).toArray();
   return saved.filter((template) => contractTemplateMode(template));
 }
 
 async function usableAcceptanceTemplates(db: Db, companyId: string) {
   const saved = await db.collection<QuoteTemplate>("quoteTemplates")
-    .find({ companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx"] }, deletedAt: { $exists: false } }).sort({ _id: -1 }).limit(100).toArray();
-  return saved.filter((template) => template.extension === "xlsx" || Boolean(contractTemplateMode(template)));
+    .find({ companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } }).sort({ _id: -1 }).limit(100).toArray();
+  return saved.filter((template) => contractTemplateMode(template));
 }
 
 app.get("/api/contract-templates", requireRole("user"), async (request, response) => {
@@ -3147,7 +3147,7 @@ app.get("/api/acceptance-templates", requireRole("user"), async (request, respon
 
 app.get("/api/settlement-templates", requireRole("user"), async (request, response) => {
   const templates = await (await connectDatabase()).collection<QuoteTemplate>("quoteTemplates")
-    .find({ companyId: userOf(request).companyId, category: { $in: ["acceptance", "settlement"] }, extension: "xlsx", deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } })
+    .find({ companyId: userOf(request).companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } }, { projection: { data: 0, fillPlanCache: 0, xlsxFillPlanCache: 0 } })
     .sort({ _id: -1 }).limit(100).toArray();
   response.json({ templates: templates.map(templateDetails) });
 });
@@ -3188,10 +3188,10 @@ app.post("/api/contracts", requireRole("user"), async (request, response) => {
   if (body.templateId && !requestedTemplateId) return fail(response, "Mẫu hợp đồng không hợp lệ.");
   const templates = db.collection<QuoteTemplate>("quoteTemplates");
   let selectedTemplate = requestedTemplateId
-    ? await templates.findOne({ _id: requestedTemplateId, companyId: user.companyId, category: "contract", extension: "docx", deletedAt: { $exists: false } })
+    ? await templates.findOne({ _id: requestedTemplateId, companyId: user.companyId, category: "contract", extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } })
     : (await usableContractTemplates(db, user.companyId))[0] ?? null;
   if (requestedTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu hợp đồng đã chọn.", 404);
-  if (selectedTemplate && !contractTemplateMode(selectedTemplate)) return fail(response, "Mẫu hợp đồng cần là file Word (.docx) hợp lệ.", 422);
+  if (selectedTemplate && !contractTemplateMode(selectedTemplate)) return fail(response, "Mẫu hợp đồng cần là file Word, Excel hoặc PDF hợp lệ.", 422);
   const requiredFields = ["customerName", "customerAddress", "customerRepresentative", "companyName", "companyAddress", "companyRepresentative", "scope", "projectName", "projectAddress", "deliverables", "paymentTerms", "deliveryTerms", "signingPlace"] as const;
   for (const field of requiredFields) {
     if (!validText(body[field], ["scope", "deliverables", "paymentTerms", "deliveryTerms"].includes(field) ? 4000 : 250)) {
@@ -3280,17 +3280,12 @@ app.get(["/api/contracts/:id/docx", "/api/contracts/:id/file"], requireRole("use
   const savedTemplateId = contract.template?.id ? asId(contract.template.id) : null;
   if (contract.template && !savedTemplateId) return fail(response, "Mẫu hợp đồng đã lưu không hợp lệ.", 422);
   let selectedTemplate = overrideTemplateId
-    ? await templates.findOne({ _id: overrideTemplateId, companyId: user.companyId, category: "contract", extension: "docx", deletedAt: { $exists: false } })
+    ? await templates.findOne({ _id: overrideTemplateId, companyId: user.companyId, category: "contract", extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } })
     : savedTemplateId
     ? await templates.findOne({ _id: savedTemplateId, companyId: user.companyId, category: "contract" })
     : (await usableContractTemplates(db, user.companyId))[0] ?? null;
   if (overrideTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu hợp đồng đã chọn.", 404);
   if (savedTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu đã dùng để tạo hợp đồng.", 404);
-  if (!overrideTemplateId && selectedTemplate?.extension !== "docx") {
-    const wordTemplates = await usableContractTemplates(db, user.companyId);
-    const sourceStem = selectedTemplate ? templateFilenameStem(selectedTemplate.originalFilename) : null;
-    selectedTemplate = wordTemplates.find((template) => templateFilenameStem(template.originalFilename) === sourceStem) ?? wordTemplates[0] ?? null;
-  }
   try {
     const exportTemplate = selectedTemplate ?? {
       ...generatedExportTemplate(user, `${contract.contractNumber}.docx`, "docx", makeDocumentWord("contract", contract)),
@@ -3308,7 +3303,7 @@ app.get(["/api/contracts/:id/docx", "/api/contracts/:id/file"], requireRole("use
     await storeGeneratedExport(db, user, file.filename, file.mimeType, file.bytes);
     if ("fallback" in file && file.fallback) response.setHeader("X-Contract-Template-Status", "fallback-ai-error");
     if (file.extension === "docx") return sendWord(response, file.filename, file.bytes);
-    response.setHeader("Content-Type", "application/pdf");
+    response.setHeader("Content-Type", file.mimeType);
     response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
     return response.send(file.bytes);
   } catch (error) { return fail(response, error instanceof Error ? error.message : "Không xuất được hợp đồng theo mẫu đã chọn.", generatedExportErrorStatus(error)); }
@@ -3388,7 +3383,7 @@ app.post("/api/acceptance-records", requireRole("user"), async (request, respons
   const requestedTemplateId = request.body?.templateId ? asId(String(request.body.templateId)) : null;
   if (request.body?.templateId && !requestedTemplateId) return fail(response, "Mẫu nghiệm thu không hợp lệ.");
   let selectedTemplate = requestedTemplateId
-    ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: requestedTemplateId, companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx"] }, deletedAt: { $exists: false } })
+    ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({ _id: requestedTemplateId, companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } })
     : (await usableAcceptanceTemplates(db, user.companyId))[0] ?? null;
   if (requestedTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu nghiệm thu đã chọn.", 404);
   if (selectedTemplate && selectedTemplate.extension === "docx" && !contractTemplateMode(selectedTemplate)) return fail(response, "Mẫu Word nghiệm thu không hợp lệ.", 422);
@@ -3432,10 +3427,6 @@ function validAcceptanceLines(lines: unknown, contract: Contract): lines is Acce
       && line.acceptedQuantity >= 0 && line.acceptedQuantity <= contract.lines[index]!.quantity);
 }
 
-function templateFilenameStem(filename: string) {
-  return filename.replace(/\.[^/.]+$/, "").trim().toLocaleLowerCase("vi-VN");
-}
-
 function acceptanceDetailsError(body: Record<string, unknown>, contract: Contract): string | null {
   if (!validDocumentTime(body.startTime) || !validDocumentTime(body.endTime) || body.endTime <= body.startTime) return "Thời gian nghiệm thu không hợp lệ.";
   if (!validText(body.handoverDetails, 4000) || !validText(body.qualityAssessment, 2000)) return "Hãy nhập hồ sơ bàn giao và đánh giá chất lượng.";
@@ -3474,17 +3465,10 @@ app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"]
     ? await templateCollection.findOne({ _id: savedTemplateId, companyId: user.companyId, category: { $in: ["acceptance", "settlement"] } })
     : null;
   let selectedTemplate = overrideTemplateId
-    ? await templateCollection.findOne({ _id: overrideTemplateId, companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx"] }, deletedAt: { $exists: false } })
+    ? await templateCollection.findOne({ _id: overrideTemplateId, companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } })
     : savedTemplate ?? (await usableAcceptanceTemplates(db, user.companyId))[0] ?? null;
-  if (!overrideTemplateId && savedTemplate?.extension === "pdf") {
-    const sourceStem = templateFilenameStem(savedTemplate.originalFilename);
-    const wordTemplates = await templateCollection.find({
-      companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: "docx", deletedAt: { $exists: false },
-    }).sort({ _id: -1 }).limit(24).toArray();
-    selectedTemplate = wordTemplates.find((template) => templateFilenameStem(template.originalFilename) === sourceStem) ?? (await usableAcceptanceTemplates(db, user.companyId))[0] ?? null;
-  }
   if (overrideTemplateId && !selectedTemplate) return fail(response, "Không tìm thấy mẫu nghiệm thu đã chọn.", 404);
-  if (savedTemplateId && !savedTemplate && !selectedTemplate) return fail(response, "Không tìm thấy mẫu đã dùng để tạo biên bản.", 404);
+  if (!overrideTemplateId && savedTemplateId && !savedTemplate) return fail(response, "Không tìm thấy mẫu đã dùng để tạo biên bản. Hãy chọn lại mẫu tài liệu.", 404);
   try {
     const exportTemplate = selectedTemplate ?? {
       ...generatedExportTemplate(user, `${record.acceptanceNumber}.docx`, "docx", makeDocumentWord("acceptance", contract, record)),
@@ -3538,7 +3522,7 @@ app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"]
   }
 });
 
-app.get("/api/acceptance-records/:id/settlement.xlsx", requireRole("user"), async (request, response) => {
+app.get(["/api/acceptance-records/:id/settlement/file", "/api/acceptance-records/:id/settlement.xlsx"], requireRole("user"), async (request, response) => {
   const id = asId(request.params.id);
   if (!id) return fail(response, "Mã nghiệm thu không hợp lệ.");
   const user = userOf(request);
@@ -3553,10 +3537,12 @@ app.get("/api/acceptance-records/:id/settlement.xlsx", requireRole("user"), asyn
   if (request.query.templateId !== undefined && !templateId) return fail(response, "Mã mẫu quyết toán không hợp lệ.");
   const templates = db.collection<QuoteTemplate>("quoteTemplates");
   const template = templateId
-    ? await templates.findOne({ _id: templateId, companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: "xlsx", deletedAt: { $exists: false } })
-    : await templates.find({ companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: "xlsx", deletedAt: { $exists: false } }).sort({ _id: -1 }).limit(1).next();
+    ? await templates.findOne({ _id: templateId, companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } })
+    : record.template?.id && asId(record.template.id)
+    ? await templates.findOne({ _id: asId(record.template.id)!, companyId: user.companyId })
+    : await templates.find({ companyId: user.companyId, category: { $in: ["acceptance", "settlement"] }, extension: { $in: ["docx", "xlsx", "pdf"] }, deletedAt: { $exists: false } }).sort({ _id: -1 }).limit(1).next();
   if (templateId && !template) return fail(response, "Không tìm thấy mẫu quyết toán đã chọn.", 404);
-  if (!template) return fail(response, "Hãy tải mẫu Excel vào mục Mẫu quyết toán trước khi xuất hồ sơ.", 409);
+  if (!template) return fail(response, "Hãy tải mẫu Word, Excel hoặc PDF vào mục Nghiệm thu & quyết toán trước khi xuất hồ sơ.", 409);
   const acceptedQuantities = new Map(record.lines.map((line) => [line.lineIndex, line.acceptedQuantity]));
   const lines = contract.lines.flatMap((line, lineIndex) => {
     const quantity = acceptedQuantities.get(lineIndex) ?? 0;
@@ -3584,22 +3570,24 @@ app.get("/api/acceptance-records/:id/settlement.xlsx", requireRole("user"), asyn
     },
   };
   const inputContext = `Hồ sơ quyết toán theo biên bản nghiệm thu ${record.acceptanceNumber}, hợp đồng ${contract.contractNumber}. Dùng số lượng nghiệm thu đã lưu, không dùng số lượng dự toán/hợp đồng. Giá trị quyết toán: ${record.settlementAmount} ${contract.currency}; đã thanh toán: ${record.amountPaid}; còn phải thanh toán: ${balance}. Ngày nghiệm thu: ${record.acceptedDate}; địa điểm: ${record.location}; kết quả: ${record.result}; bàn giao: ${record.handoverDetails}; đánh giá chất lượng: ${record.qualityAssessment}; thời hạn thanh toán còn lại: ${record.paymentDueDays ?? "chưa nhập"} ngày; ghi chú: ${record.notes}. Chỉ điền tab quyết toán/nghiệm thu phù hợp; giữ nguyên các tab của báo giá, dự toán và hợp đồng.`;
-  const filename = `Ho-so-quyet-toan-${record.acceptanceNumber}.xlsx`;
-  const render = async () => ({
-    filename,
-    mimeType: templateFormats.xlsx,
-    bytes: await withAiUsage(db, user, "settlement_template_map", () => renderAiMappedXlsxTemplate(template, exportQuote, inputContext)),
-  });
+  const render = async () => {
+    if (template.extension === "xlsx") return {
+      filename: `Ho-so-quyet-toan-${record.acceptanceNumber}.xlsx`, mimeType: templateFormats.xlsx,
+      bytes: await withAiUsage(db, user, "settlement_template_map", () => renderAiMappedXlsxTemplate(template, exportQuote, inputContext)),
+    };
+    const file = await renderAcceptanceFile(db, template, contract, record, (work) => withAiUsage(db, user, "settlement_template_map", work), "settlement");
+    return { ...file, filename: `Ho-so-quyet-toan-${record.acceptanceNumber}.${file.extension}`, mimeType: templateFormats[file.extension] };
+  };
   try {
     if (request.query.background === "1") {
       const job = await queueGeneratedExport(db, user, "settlement", id.toHexString(), render);
       return response.status(202).json(job);
     }
-    const { bytes } = await render();
-    await storeGeneratedExport(db, user, filename, templateFormats.xlsx, bytes);
-    response.setHeader("Content-Type", templateFormats.xlsx);
-    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
-    return response.send(bytes);
+    const file = await render();
+    await storeGeneratedExport(db, user, file.filename, file.mimeType, file.bytes);
+    response.setHeader("Content-Type", file.mimeType);
+    response.setHeader("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(file.filename)}`);
+    return response.send(file.bytes);
   } catch (error) {
     return fail(response, error instanceof Error ? error.message : "Không xuất được hồ sơ quyết toán theo mẫu đã chọn.", generatedExportErrorStatus(error));
   }
@@ -3710,14 +3698,11 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
       _id: requestedTemplateId, companyId: quote.companyId, deletedAt: { $exists: false }, category: templateCategory,
     })
     : !useDefaultTemplate && quote.template?.id && asId(quote.template.id) ? await db.collection<QuoteTemplate>("quoteTemplates").findOne({
-      _id: asId(quote.template.id)!, companyId: quote.companyId, deletedAt: { $exists: false }, category: templateCategory,
+      _id: asId(quote.template.id)!, companyId: quote.companyId,
     }) : null;
   if (requestedTemplateId && !selectedTemplate) return fail(response, quote.kind === "customer" ? "Không tìm thấy mẫu báo giá khách." : "Không tìm thấy mẫu dự toán.", 404);
   if (!requestedTemplateId && !useDefaultTemplate && quote.template && !selectedTemplate) {
-    selectedTemplate = await db.collection<QuoteTemplate>("quoteTemplates").find({
-      companyId: quote.companyId, deletedAt: { $exists: false }, category: templateCategory,
-      ...(quote.kind === "customer" ? {} : { extension: "xlsx" }),
-    }).sort({ _id: -1 }).limit(1).next();
+    return fail(response, "Không tìm thấy mẫu đã dùng để tạo dự toán. Hãy chọn lại mẫu tài liệu.", 404);
   }
   if (quote.kind === "customer" && !selectedTemplate && !useDefaultTemplate) {
     const company = await db.collection<Company>("companies").findOne({ _id: asId(quote.companyId) }, { projection: { quoteTemplateId: 1 } });
@@ -3731,7 +3716,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     }
     if (!selectedTemplate) return fail(response, "Hãy tải lên mẫu báo giá Word, Excel hoặc PDF trước khi xuất file.", 409);
   }
-  if (quote.kind !== "customer" && excelExport && quote.status === "approved") {
+  if (quote.kind !== "customer" && excelExport && quote.status === "approved" && (!selectedTemplate || selectedTemplate.extension === "xlsx")) {
     try {
       const source = selectedTemplate?.extension === "xlsx" ? undefined : makeQuoteExcel(quote);
       const exportTemplate = selectedTemplate?.extension === "xlsx" ? selectedTemplate : generatedExportTemplate(userOf(request), `${quote.quoteNumber}.xlsx`, "xlsx", source!);
@@ -3756,7 +3741,7 @@ app.get("/api/quotes/:id/export", requireRole("user"), async (request, response)
     if (draftExport && quote.status === "approved") {
       return fail(response, "Báo giá đã duyệt; hãy tải file chính thức.", 409);
     }
-    if (quote.kind !== "customer" && draftExport && (template?.extension !== "xlsx" || quote.lines.length === 0)) {
+    if (quote.kind !== "customer" && draftExport && !template) {
       const filename = `${quote.quoteNumber}-nhap.xlsx`;
       const render = async () => ({ filename, mimeType: templateFormats.xlsx, bytes: await withAiUsage(db, userOf(request), "quote_draft_export_default", async () => renderAiMappedXlsxTemplate(
         generatedExportTemplate(userOf(request), filename, "xlsx", makeQuoteExcel(quote)), quote, await quoteInputContext(db, quote),

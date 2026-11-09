@@ -5,6 +5,7 @@ import MoneyInput from "./MoneyInput";
 import { TaskProgress } from "./Feedback";
 import type { CatalogItem } from "./types";
 import "./budget-planner.css";
+import { listCustomerQuoteTemplates, type CustomerQuoteTemplate } from "./customer-quote-templates";
 
 interface PlanLine {
   catalogItemId: string;
@@ -92,6 +93,10 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
   const [busy, setBusy] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [savedExport, setSavedExport] = useState<GeneratedFileRef | null>(null);
+  const [exportTemplates, setExportTemplates] = useState<CustomerQuoteTemplate[]>([]);
+  const [exportTemplateId, setExportTemplateId] = useState("none");
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templateLoadError, setTemplateLoadError] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<PlanResult | null>(null);
   const [history, setHistory] = useState<SavedPlan[]>([]);
@@ -106,6 +111,21 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
   const [missingQuantities, setMissingQuantities] = useState<Record<string, string>>({});
   const [newProducts, setNewProducts] = useState<Record<string, { sku: string; name: string; unit: string; price: string }>>({});
   const [updateNotice, setUpdateNotice] = useState("");
+
+  useEffect(() => {
+    if (dialogMode !== "view") return;
+    let active = true;
+    setTemplatesLoading(true);
+    setTemplateLoadError("");
+    listCustomerQuoteTemplates().then(({ templates }) => {
+      if (active) {
+        setExportTemplates(templates);
+        setExportTemplateId((current) => current === "none" || templates.some((template) => template.id === current) ? current : "none");
+      }
+    }).catch((cause) => { if (active) setTemplateLoadError(userMessage(cause, "Không tải được danh sách mẫu.")); })
+      .finally(() => { if (active) setTemplatesLoading(false); });
+    return () => { active = false; };
+  }, [dialogMode]);
 
   useEffect(() => {
     if (!selectedId) { setSavedExport(null); return; }
@@ -238,16 +258,16 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
     }
   };
 
-  const exportExcel = async () => {
+  const exportPlan = async () => {
     if (!selectedId || exporting) return;
     setExporting(true);
     setError("");
     try {
-      const file = await createGeneratedExport(`/api/budget-plans/${selectedId}/export?background=1`);
+      const file = await createGeneratedExport(`/api/budget-plans/${selectedId}/export?background=1&templateId=${encodeURIComponent(exportTemplateId)}`);
       setSavedExport(file);
       setUpdateNotice(`Đã tạo và lưu ${file.filename}.`);
     } catch (cause) {
-      setError(userMessage(cause, "Không xuất được phương án Excel."));
+      setError(userMessage(cause, "Không xuất được file phương án."));
     } finally {
       setExporting(false);
     }
@@ -518,7 +538,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                     </span>
 
                     <span className="bp-view-link">
-                      <span>Xem và xuất Excel theo mẫu</span>
+                      <span>Xem và xuất file theo mẫu</span>
                       <span aria-hidden="true">→</span>
                     </span>
                   </div>
@@ -725,21 +745,23 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
 
                 </div>
 
-                <section className="bp-export-panel" aria-label="Xuất phương án Excel">
+                <section className="bp-export-panel" aria-label="Xuất phương án theo mẫu">
                   <div className="bp-export-panel-heading">
                     <strong>Tạo file phương án</strong>
-                    <span>Tạo file Excel theo mẫu đã chọn, sau đó tải file đã hoàn thiện.</span>
+                    <span>Dùng mẫu Word, Excel hoặc PDF của bạn; file xuất giữ định dạng của mẫu đã chọn.</span>
                   </div>
                   <div className="bp-export-panel-controls">
-                    <button type="button" className="button button-soft button-compact" disabled={!selectedId || exporting || Boolean(saving)} onClick={() => void exportExcel()}>
+                    <label className="bp-export-template">Mẫu tài liệu<select aria-label="Mẫu xuất phương án" value={exportTemplateId} disabled={templatesLoading || exporting} onChange={(event) => setExportTemplateId(event.target.value)}><option value="none">Mẫu mặc định (Excel)</option>{exportTemplates.map((template) => <option key={template.id} value={template.id}>{template.name} ({template.extension === "docx" ? "Word" : template.extension === "xlsx" ? "Excel" : "PDF"})</option>)}</select></label>
+                    <button type="button" className="button button-soft button-compact" disabled={!selectedId || exporting || templatesLoading || Boolean(saving)} onClick={() => void exportPlan()}>
                       {exporting ? "Đang tạo file…" : "Tạo file mới bằng AI"}
                     </button>
                     <button type="button" className="button button-primary button-compact" disabled={exporting || !savedExport} onClick={() => void (savedExport && downloadGeneratedFile(savedExport.id).catch((cause) => setError(userMessage(cause, "Không tải được file đã lưu."))))}>
                       {savedExport ? `Tải file đã lưu (${savedExport.filename})` : "Chưa có file đã lưu"}
                     </button>
                   </div>
+                  {templateLoadError && <p role="alert">{templateLoadError}</p>}
                   {savedExport && <p className="bp-export-status">File lưu gần nhất: {savedExport.filename}</p>}
-                  {exporting && <TaskProgress label="AI đang tạo Excel phương án" detail="Đang hoàn thiện và lưu file phương án…" />}
+                  {exporting && <TaskProgress label="Đang tạo file phương án" detail="Đang hoàn thiện và lưu file phương án…" />}
                 </section>
 
                 {/* Financial KPI Strip */}

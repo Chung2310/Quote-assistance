@@ -221,7 +221,7 @@ export function QuoteTemplatePanel({
           </span>
           <h1>Quản lý {categoryLabel}</h1>
           <p>
-            {category === "quote" || category === "estimate" ? "Lưu mẫu Word, Excel hoặc PDF để sử dụng khi tạo và xuất tài liệu." : category === "settlement" ? "Lưu mẫu Excel để lập hồ sơ từ dữ liệu nghiệm thu và thanh toán." : "Lưu, xem trước và tải về các mẫu tài liệu của doanh nghiệp."}
+            Lưu mẫu Word, Excel hoặc PDF có bố cục tùy ý. Khi tạo file, thông tin được điền vào đúng mẫu bạn chọn.
           </p>
         </div>
 
@@ -364,27 +364,27 @@ export function QuoteTemplatePanel({
             >
               {category === "quote" ? "Mặc định" : "Mới nhất"} <span className="qt-filter-count">{defaultTemplateId ? 1 : 0}</span>
             </button>
-            {category !== "settlement" && <button
+            <button
               type="button"
               className={`qt-filter-btn ${filterFormat === "docx" ? "active" : ""}`}
               onClick={() => setFilterFormat("docx")}
             >
               Word (.docx) <span className="qt-filter-count">{stats.docxCount}</span>
-            </button>}
-            {(category !== "contract" && category !== "settlement") && <button
+            </button>
+            <button
               type="button"
               className={`qt-filter-btn ${filterFormat === "xlsx" ? "active" : ""}`}
               onClick={() => setFilterFormat("xlsx")}
             >
               Excel (.xlsx) <span className="qt-filter-count">{stats.xlsxCount}</span>
-            </button>}
-            {(category !== "acceptance" && category !== "contract" && category !== "settlement") && <button
+            </button>
+            <button
               type="button"
               className={`qt-filter-btn ${filterFormat === "pdf" ? "active" : ""}`}
               onClick={() => setFilterFormat("pdf")}
             >
               PDF (.pdf) <span className="qt-filter-count">{stats.pdfCount}</span>
-            </button>}
+            </button>
           </div>
         </div>
 
@@ -738,7 +738,7 @@ function CreateTemplateDialog({
           </div>
           <div>
             <h2 id="create-template-title">Tải lên {categoryLabel} mới</h2>
-            <p>{category === "settlement" ? "Hỗ trợ bảng tính Excel (.xlsx)" : category === "contract" ? "Hỗ trợ tài liệu Word (.docx)" : category === "acceptance" ? "Hỗ trợ tài liệu Word (.docx) hoặc bảng tính Excel (.xlsx)" : "Hỗ trợ tài liệu Word (.docx), bảng tính Excel (.xlsx) hoặc tài liệu PDF"}</p>
+            <p>Hỗ trợ Word (.docx), Excel (.xlsx) hoặc PDF với bố cục tùy ý, không cần trường điền sẵn.</p>
           </div>
         </div>
 
@@ -768,7 +768,7 @@ function CreateTemplateDialog({
               >
                 <input
                   type="file"
-                  accept={category === "settlement" ? ".xlsx" : category === "acceptance" ? ".docx,.xlsx" : category === "contract" ? ".docx" : ".docx,.xlsx,.pdf"}
+                  accept=".docx,.xlsx,.pdf"
                   required
                   disabled={busy}
                   onChange={(event) => handleFileChange(event.target.files?.[0] ?? null)}
@@ -782,12 +782,12 @@ function CreateTemplateDialog({
                 </div>
                 <div className="qt-dropzone-text">
                   <strong>Kéo thả file mẫu vào đây, hoặc bấm để duyệt file</strong>
-                  <span>{category === "settlement" ? "Chọn file Excel (.xlsx) từ máy tính của bạn" : category === "contract" ? "Chọn file Word (.docx) từ máy tính của bạn" : category === "acceptance" ? "Chọn file Word (.docx) hoặc Excel (.xlsx) từ máy tính của bạn" : "Chọn file Word (.docx), Excel (.xlsx) hoặc PDF từ máy tính của bạn"}</span>
+                  <span>Chọn file Word (.docx), Excel (.xlsx) hoặc PDF từ máy tính của bạn</span>
                 </div>
                 <div className="qt-dropzone-badges">
-                  {category !== "settlement" && <span className="qt-format-pill docx">.DOCX</span>}
-                  {(category !== "contract" && category !== "settlement") && <span className="qt-format-pill xlsx">.XLSX</span>}
-                  {(category !== "acceptance" && category !== "contract" && category !== "settlement") && <span className="qt-format-pill pdf">.PDF</span>}
+                  <span className="qt-format-pill docx">.DOCX</span>
+                  <span className="qt-format-pill xlsx">.XLSX</span>
+                  <span className="qt-format-pill pdf">.PDF</span>
                 </div>
               </div>
             ) : (
