@@ -4,6 +4,7 @@ import { ApiError, api, apiUploadWithProgress, formatDate } from "./api";
 import FilePreview, { type PreviewFile } from "./FilePreview";
 import { TaskProgress, useAppNotification, type ConfirmOptions, type TaskProgressState } from "./Feedback";
 import "./quote-template.css";
+import { templateFileError } from "./template-upload";
 
 export interface TemplateDetails {
   id: string;
@@ -54,7 +55,7 @@ export function QuoteTemplatePanel({
 }) {
   const [template, setTemplate] = useState<TemplateDetails | null>(null);
   const [category, setCategory] = useState<TemplateCategory>(initialCategory === "settlement" ? "acceptance" : initialCategory);
-  const categoryLabel = templateTabs.find((tab) => tab.id === category)!.label;
+  const categoryLabel = templateTabs.find((tab) => tab.id === category)?.label ?? "Mẫu quyết toán";
   const [templates, setTemplates] = useState<TemplateDetails[]>([]);
   const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -619,7 +620,7 @@ function CreateTemplateDialog({
   onSaved: (template: TemplateDetails) => void;
   onQuotaExceeded?: () => void;
 }) {
-  const categoryLabel = templateTabs.find((tab) => tab.id === category)!.label;
+  const categoryLabel = templateTabs.find((tab) => tab.id === category)?.label ?? "Mẫu quyết toán";
   const dialog = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -651,16 +652,10 @@ function CreateTemplateDialog({
 
   const handleFileChange = (selected: File | null) => {
     if (!selected) return;
-    if (category === "settlement" && !/\.xlsx$/i.test(selected.name)) {
-      setError("Mẫu quyết toán chỉ hỗ trợ file Excel (.xlsx).");
-      return;
-    }
-    if (category === "acceptance" && !/\.(docx|xlsx)$/i.test(selected.name)) {
-      setError("Nhóm nghiệm thu và quyết toán chỉ nhận file Word (.docx) hoặc Excel (.xlsx).");
-      return;
-    }
-    if (category === "contract" && !/\.docx$/i.test(selected.name)) {
-      setError("Mẫu hợp đồng và nghiệm thu chỉ hỗ trợ file Word (.docx).");
+    const error = templateFileError(selected, category);
+    if (error) {
+      setFile(null);
+      setError(error);
       return;
     }
     setFile(selected);
@@ -686,24 +681,9 @@ function CreateTemplateDialog({
       setError(`Vui lòng nhập tên ${categoryLabel.toLowerCase()}.`);
       return;
     }
-    if (category === "settlement" && !/\.xlsx$/i.test(file.name)) {
-      setError("Mẫu quyết toán chỉ hỗ trợ file Excel (.xlsx).");
-      return;
-    }
-    if (category === "acceptance" && !/\.(docx|xlsx)$/i.test(file.name)) {
-      setError("Nhóm nghiệm thu và quyết toán chỉ nhận file Word (.docx) hoặc Excel (.xlsx).");
-      return;
-    }
-    if (category === "contract" && !/\.docx$/i.test(file.name)) {
-      setError("Mẫu hợp đồng và nghiệm thu chỉ hỗ trợ file Word (.docx).");
-      return;
-    }
-    if (!/\.(docx|xlsx|pdf)$/i.test(file.name)) {
-      setError("Hãy chọn file Word (.docx), Excel (.xlsx) hoặc PDF.");
-      return;
-    }
-    if (!file.size || file.size > 10 * 1024 * 1024) {
-      setError("File mẫu phải có dung lượng từ 1 byte đến tối đa 10 MB.");
+    const error = templateFileError(file, category);
+    if (error) {
+      setError(error);
       return;
     }
 
@@ -758,7 +738,7 @@ function CreateTemplateDialog({
           </div>
           <div>
             <h2 id="create-template-title">Tải lên {categoryLabel} mới</h2>
-            <p>{category === "settlement" ? "Chỉ hỗ trợ bảng tính Excel (.xlsx)" : (category === "acceptance" || category === "contract") ? "Chỉ hỗ trợ tài liệu Word (.docx)" : "Hỗ trợ tài liệu Word (.docx), bảng tính Excel (.xlsx) hoặc tài liệu PDF"}</p>
+            <p>{category === "settlement" ? "Hỗ trợ bảng tính Excel (.xlsx)" : category === "contract" ? "Hỗ trợ tài liệu Word (.docx)" : category === "acceptance" ? "Hỗ trợ tài liệu Word (.docx) hoặc bảng tính Excel (.xlsx)" : "Hỗ trợ tài liệu Word (.docx), bảng tính Excel (.xlsx) hoặc tài liệu PDF"}</p>
           </div>
         </div>
 
@@ -802,7 +782,7 @@ function CreateTemplateDialog({
                 </div>
                 <div className="qt-dropzone-text">
                   <strong>Kéo thả file mẫu vào đây, hoặc bấm để duyệt file</strong>
-                  <span>{category === "settlement" ? "Chọn file Excel (.xlsx) từ máy tính của bạn" : (category === "acceptance" || category === "contract") ? "Chọn file Word (.docx) từ máy tính của bạn" : "Chọn file Word (.docx), Excel (.xlsx) hoặc PDF từ máy tính của bạn"}</span>
+                  <span>{category === "settlement" ? "Chọn file Excel (.xlsx) từ máy tính của bạn" : category === "contract" ? "Chọn file Word (.docx) từ máy tính của bạn" : category === "acceptance" ? "Chọn file Word (.docx) hoặc Excel (.xlsx) từ máy tính của bạn" : "Chọn file Word (.docx), Excel (.xlsx) hoặc PDF từ máy tính của bạn"}</span>
                 </div>
                 <div className="qt-dropzone-badges">
                   {category !== "settlement" && <span className="qt-format-pill docx">.DOCX</span>}

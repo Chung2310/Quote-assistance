@@ -29,7 +29,8 @@ import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole,
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { budgetPlanAsQuote, makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
-import { assertXlsxWorksheetsPreserved, createTemplateFillPlan, currentTemplate, inspectTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
+import { availablePriceListRows } from "./catalog-availability.js";
+import { assertXlsxWorksheetsPreserved, createTemplateFillPlan, currentTemplate, inspectUploadedTemplate, previewDocxHtml, renderAiMappedXlsxTemplate, renderTemplate, savedTemplate, templateDetails, templateFormats, type QuoteTemplate } from "./quote-template.js";
 import type { AcceptanceRecord, CatalogItem, Company, CompanyFile, CompanyProfileDetails, ContactRequestStatus, Contract, GeneratedExportJob, PlanContactRequest, Quote, QuoteRequest, QuoteStatus, SessionUser, SubscriptionPlan, UserAccount } from "./types.js";
 
 const app = express();
@@ -526,6 +527,7 @@ function currentCatalogFilter(companyId: string): Document {
   return {
     companyId,
     active: true,
+    deletedAt: { $exists: false },
     $and: [
       { $or: [{ effectiveFrom: { $exists: false } }, { effectiveFrom: null }, { effectiveFrom: { $lte: today } }] },
       { $or: [{ effectiveTo: { $exists: false } }, { effectiveTo: null }, { effectiveTo: { $gte: today } }] },
@@ -1550,8 +1552,9 @@ app.post("/api/quote-template", requireRole("user"), enforceTemplateQuota, expre
   if (!originalFilename || originalFilename.length > 255) return fail(response, "Tên file không hợp lệ.");
   const extension = originalFilename.split(".").pop()!.toLowerCase();
   if (category === "settlement" && extension !== "xlsx") return fail(response, "Mẫu hồ sơ quyết toán chỉ hỗ trợ file Excel (.xlsx).", 422);
-  if ((category === "acceptance" && !["docx", "xlsx"].includes(extension)) || (category === "contract" && extension !== "docx")) return fail(response, "Nhóm nghiệm thu và quyết toán chỉ nhận Word (.docx) hoặc Excel (.xlsx).", 422);
-  try { await inspectTemplate(request.body, extension); }
+  if (category === "contract" && extension !== "docx") return fail(response, "Mẫu hợp đồng chỉ hỗ trợ file Word (.docx).", 422);
+  if (category === "acceptance" && !["docx", "xlsx"].includes(extension)) return fail(response, "Nhóm nghiệm thu và quyết toán chỉ nhận Word (.docx) hoặc Excel (.xlsx).", 422);
+  try { await inspectUploadedTemplate(request.body, extension); }
   catch (error) { return fail(response, error instanceof Error ? error.message : "Không đọc được mẫu báo giá.", 422); }
   const db = await connectDatabase();
   const user = userOf(request);
@@ -1576,8 +1579,9 @@ app.patch("/api/quote-template/:id/category", requireRole("user"), async (reques
   const templates = db.collection<QuoteTemplate>("quoteTemplates");
   const current = await templates.findOne({ _id: id, companyId: user.companyId, deletedAt: { $exists: false } });
   if (!current) return fail(response, "Không tìm thấy mẫu.", 404);
-  if (((category === "contract" && current.extension !== "docx") || (category === "acceptance" && !["docx", "xlsx"].includes(current.extension)))
-    || (category === "settlement" && current.extension !== "xlsx")) return fail(response, category === "settlement" ? "Mẫu quyết toán cần là file Excel (.xlsx)." : "Mẫu hợp đồng và nghiệm thu cần là file Word (.docx).", 422);
+  if (category === "contract" && current.extension !== "docx") return fail(response, "Mẫu hợp đồng cần là file Word (.docx).", 422);
+  if (category === "acceptance" && !["docx", "xlsx"].includes(current.extension)) return fail(response, "Nhóm nghiệm thu và quyết toán cần là file Word (.docx) hoặc Excel (.xlsx).", 422);
+  if (category === "settlement" && current.extension !== "xlsx") return fail(response, "Mẫu quyết toán cần là file Excel (.xlsx).", 422);
   const updated = await templates.findOneAndUpdate(
     { _id: id, companyId: user.companyId, deletedAt: { $exists: false } },
     { $set: { category, updatedAt: new Date() } }, { returnDocument: "after" },
@@ -1933,7 +1937,7 @@ app.post("/api/price-list", requireRole("user"), express.raw({ type: "applicatio
       ...(product.effectiveFrom ? { effectiveFrom: product.effectiveFrom } : {}),
       ...(product.effectiveTo ? { effectiveTo: product.effectiveTo } : {}),
     };
-    const unset: { effectiveFrom?: "" | 1 | true; effectiveTo?: "" | 1 | true } = {};
+    const unset: { effectiveFrom?: "" | 1 | true; effectiveTo?: "" | 1 | true; deletedAt: "" } = { deletedAt: "" };
     if (!catalogProduct.effectiveFrom) unset.effectiveFrom = "";
     if (!catalogProduct.effectiveTo) unset.effectiveTo = "";
     return {
@@ -1978,7 +1982,7 @@ app.post("/api/price-list", requireRole("user"), express.raw({ type: "applicatio
 app.get("/api/catalog", requireRole("user"), async (request, response) => {
   const db = await connectDatabase();
   const user = userOf(request);
-  const items = await scoped<CatalogItem>(db, "catalogItems", user).sort({ sku: 1 }).limit(5000).toArray();
+  const items = await db.collection<CatalogItem>("catalogItems").find({ companyId: user.companyId, deletedAt: { $exists: false } }).sort({ sku: 1 }).limit(5000).toArray();
   response.json({ items, currency: config.currency });
 });
 
@@ -1992,7 +1996,7 @@ app.patch("/api/catalog/:id", requireRole("user"), async (request, response) => 
   const db = await connectDatabase();
   const user = userOf(request);
   const catalog = db.collection<CatalogItem>("catalogItems");
-  const existing = await catalog.findOne({ _id: id, companyId: user.companyId });
+  const existing = await catalog.findOne({ _id: id, companyId: user.companyId, deletedAt: { $exists: false } });
   if (!existing) return fail(response, "Không tìm thấy sản phẩm.", 404);
 
   const duplicate = await catalog.findOne({ _id: { $ne: id }, companyId: user.companyId, sku: mapped.value.sku });
@@ -2012,16 +2016,33 @@ app.patch("/api/catalog/:id", requireRole("user"), async (request, response) => 
     ...(!effectiveFrom ? { effectiveFrom: true as const } : {}),
     ...(!effectiveTo ? { effectiveTo: true as const } : {}),
   };
-  await catalog.updateOne(
-    { _id: id, companyId: user.companyId },
+  const update = await catalog.updateOne(
+    { _id: id, companyId: user.companyId, deletedAt: { $exists: false } },
     { $set: setFields, ...(Object.keys(unsetFields).length ? { $unset: unsetFields } : {}) },
   );
+  if (!update.matchedCount) return fail(response, "Không tìm thấy sản phẩm.", 404);
   const item = await catalog.findOne({ _id: id, companyId: user.companyId });
   await writeAudit(db, user, "catalog_item_updated", "catalogItem", id.toHexString(), {
     before: { sku: existing.sku, name: existing.name, description: existing.description, unit: existing.unit, price: existing.price, currency: existing.currency, attributes: existing.attributes ?? {}, active: existing.active, effectiveFrom: existing.effectiveFrom, effectiveTo: existing.effectiveTo },
     after: { sku: setFields.sku, name: setFields.name, description: setFields.description, unit: setFields.unit, price: setFields.price, currency: setFields.currency, attributes: setFields.attributes, active: setFields.active, effectiveFrom: setFields.effectiveFrom, effectiveTo: setFields.effectiveTo },
   });
   response.json({ item });
+});
+
+app.delete("/api/catalog/:id", requireRole("user"), async (request, response) => {
+  const id = asId(request.params.id);
+  if (!id) return fail(response, "Mã sản phẩm không hợp lệ.");
+  const db = await connectDatabase();
+  const user = userOf(request);
+  const now = new Date();
+  const item = await db.collection<CatalogItem>("catalogItems").findOneAndUpdate(
+    { _id: id, companyId: user.companyId, deletedAt: { $exists: false } },
+    { $set: { active: false, deletedAt: now, updatedAt: now } },
+    { returnDocument: "before" },
+  );
+  if (!item) return fail(response, "Không tìm thấy sản phẩm.", 404);
+  await writeAudit(db, user, "catalog_item_deleted", "catalogItem", id.toHexString(), { sku: item.sku, name: item.name });
+  response.status(204).end();
 });
 
 app.post("/api/catalog/import/preview", requireRole("user"), (request, response) => {
@@ -2087,7 +2108,7 @@ app.post("/api/catalog/import/confirm", requireRole("user"), async (request, res
   const operations = normalized.map((row) => ({
     updateOne: {
       filter: { companyId: user.companyId, sku: row.sku },
-      update: { $set: { ...row, active: true, updatedAt: now }, $setOnInsert: { companyId: user.companyId, createdAt: now } },
+      update: { $set: { ...row, active: true, updatedAt: now }, $unset: { deletedAt: "" as const }, $setOnInsert: { companyId: user.companyId, createdAt: now } },
       upsert: true,
     },
   }));
@@ -2255,6 +2276,13 @@ app.post("/api/quote-requests/:id/analyze", requireRole("user"), async (request,
         { _id: priceList._id, companyId: user.companyId },
         { $set: { analysisRows: priceList.analysisRows } },
       );
+    }
+  }
+  if (priceLists.length) {
+    const unavailable = await db.collection<CatalogItem>("catalogItems").find({ companyId: user.companyId, deletedAt: { $exists: true } }).project<{sku:string;name:string}>({ sku: 1, name: 1 }).toArray();
+    if (unavailable.length) {
+      const active = await db.collection<CatalogItem>("catalogItems").find(currentCatalogFilter(user.companyId)).project<{sku:string}>({ sku: 1 }).toArray();
+      for (const priceList of priceLists) priceList.analysisRows = availablePriceListRows(priceList.analysisRows ?? [], unavailable, active.map((item) => item.sku));
     }
   }
   const requestFile = quoteRequest.requestFile ? await db.collection<RequestFile>("requestFiles").findOne({ _id: new ObjectId(quoteRequest.requestFile.id), companyId: user.companyId, uploadedBy: quoteRequest.createdBy }) : null;
@@ -2659,6 +2687,11 @@ app.post("/api/quotes", requireRole("user"), async (request, response) => {
     }
   }
   const catalogIds = [...new Set(requestedItems.map((item: { catalogItemId: string }) => asId(item.catalogItemId)).filter(Boolean))] as ObjectId[];
+  const requestedIds = new Set(requestedItems.map((item: { catalogItemId: string }) => item.catalogItemId));
+  const candidateSkus = (source.candidates ?? []).filter((item) => requestedIds.has(String(item._id))).map((item) => item.sku);
+  if (await db.collection<CatalogItem>("catalogItems").findOne({ companyId: user.companyId, deletedAt: { $exists: true }, $or: [{ _id: { $in: catalogIds } }, { sku: { $in: candidateSkus } }] })) {
+    return fail(response, "Một số sản phẩm đã bị xóa khỏi danh mục. Hãy chọn lại sản phẩm trước khi tạo báo giá.", 422);
+  }
   const catalog = await db.collection<CatalogItem>("catalogItems").find({ _id: { $in: catalogIds }, ...currentCatalogFilter(user.companyId) }).toArray();
   let totals;
   try {

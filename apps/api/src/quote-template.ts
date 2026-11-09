@@ -1,6 +1,7 @@
 import { Binary, ObjectId, type Db } from "mongodb";
 import { createRequire } from "node:module";
 import { posix as pathPosix } from "node:path";
+import { fillXlsxPartyNames } from "./xlsx-party-fields.js";
 import Docxtemplater from "docxtemplater";
 import PizZip from "pizzip";
 import { PDFDocument, PDFTextField, rgb } from "pdf-lib";
@@ -2116,12 +2117,13 @@ export async function renderAiMappedXlsxTemplate(template: QuoteTemplate, quote:
     const worksheetInstructions = quote.settlement
       ? `This workbook may contain several related documents and its tabs may use different layouts and labels. First inspect every tab, its actual headings, field labels, table columns, sample rows, formulas, and cross-sheet references. Identify all tabs and sections relevant to acceptance and settlement from their content; do not rely on tab names, fixed positions, or known sample templates. Then fill every matching field and itemized table using the correct data scope: "contractProducts" contains original contracted items and quantities; "products" contains items and quantities actually accepted; "settlement" contains approved amounts, payments, balances, dates, results, handover details, and identifiers. Never use contracted quantities as accepted quantities. Use supplied amounts and totals as given; do not calculate or infer them. Replace stale example values only in relevant sections, preserve legal text, signatures, formulas, formatting, and unrelated tabs. Reopen the workbook and verify each relevant tab against the supplied data, including all item rows and accepted quantities, before saving. Keep every original tab exactly once and in its original order.`
       : `Select the worksheet by inspecting its actual headings, table columns, labels, and content, not by worksheet name alone. For an Estimate export, a quotation, bao gia, chi phi thi cong, or construction-cost worksheet is a valid match when its actual rows and columns can represent the supplied estimate products, quantities, units, unit prices, and totals. A sheet name alone is never enough to accept or reject a worksheet. Do not use a settlement, acceptance, or contract form as an estimate just because it contains money or item descriptions. ${estimateWorksheet ? `Local workbook inspection found a valid estimate product table in worksheet "${estimateWorksheet.name}". Use this exact worksheet for the estimate; do not reject it because it is labeled as a quotation or bao gia. Replace the existing example product rows with the supplied estimate products, keeping each supplied product on its own row and preserving the requested quantities.` : "If no worksheet has a matching itemized product table, explain that clearly and do not create a mismatched output."}`;
-    const bytes = await editDocumentFileDirectly({
+    const editedBytes = await editDocumentFileDirectly({
       bytes: Buffer.from(template.data.buffer), filename: template.originalFilename, extension: "xlsx", functionName,
       userInstructions: [inputContext, `The workbook worksheets and their extracted cell contents are provided here: ${JSON.stringify(worksheetSummaries)}. ${worksheetInstructions} The original worksheet order is ${JSON.stringify(originalSheets)}. The final workbook MUST retain every worksheet exactly once, with the exact same names and order. Do not delete, rename, add, or recreate any worksheet.`].filter(Boolean).join("\n\n"),
       data: directDocumentData(quote, functionName),
     });
-    if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
+    if (!editedBytes) throw new Error("Direct template editing is enabled but returned no edited file.");
+    const bytes = quote.settlement?.contract ? fillXlsxPartyNames(editedBytes, quote.settlement.contract) : editedBytes;
     await inspectTemplate(bytes, "xlsx");
     assertXlsxWorksheetsPreserved(template, bytes);
     return bytes;
@@ -2299,6 +2301,50 @@ export async function inspectTemplate(bytes: Buffer, extension: string) {
   } else {
     const zip = openZip(bytes);
     for (const part of officeParts(zip, extension)) validateXml(part.asText());
+  }
+}
+
+/** Validate the Office package before saving a user-uploaded template. */
+export async function inspectUploadedTemplate(bytes: Buffer, extension: string) {
+  const invalidFile = "File mẫu bị hỏng hoặc thiếu nội dung. Hãy mở và lưu lại bằng Word, Excel hoặc trình đọc PDF rồi tải lại.";
+  try {
+    await inspectTemplate(bytes, extension);
+    if (extension === "pdf") return;
+    const zip = openZip(bytes);
+    const readPart = (name: string, root: string) => {
+      const part = zip.file(name);
+      if (!part) throw new Error(invalidFile);
+      const document = validateXml(part.asText());
+      if (document.documentElement?.localName !== root) throw new Error(invalidFile);
+      return document;
+    };
+    const types = readPart("[Content_Types].xml", "Types");
+    const relationships = readPart("_rels/.rels", "Relationships");
+    const root = extension === "docx" ? "word/document.xml" : "xl/workbook.xml";
+    if (!descendants(types, "Override").some((entry) => entry.getAttribute("PartName") === `/${root}`)
+      || !descendants(relationships, "Relationship").some((entry) => /\/officeDocument$/.test(entry.getAttribute("Type") ?? "") && (entry.getAttribute("Target") ?? "").replace(/^\//, "") === root)) throw new Error(invalidFile);
+    if (extension === "docx") {
+      const document = readPart(root, "document");
+      if (!descendants(document, "body").length) throw new Error(invalidFile);
+      return;
+    }
+    const workbook = readPart(root, "workbook");
+    const relations = readPart("xl/_rels/workbook.xml.rels", "Relationships");
+    const sheets = descendants(workbook, "sheet");
+    if (!sheets.length) throw new Error(invalidFile);
+    for (const sheet of sheets) {
+      const relation = descendants(relations, "Relationship").find((entry) => entry.getAttribute("Id") === sheet.getAttribute("r:id"));
+      const target = relation?.getAttribute("Target");
+      if (!target || relation?.getAttribute("TargetMode") === "External") throw new Error(invalidFile);
+      const path = target.startsWith("/") ? target.slice(1) : pathPosix.normalize(pathPosix.join("xl", target));
+      const kind = relation!.getAttribute("Type")?.split("/").pop();
+      if (kind !== "worksheet" && kind !== "chartsheet") throw new Error(invalidFile);
+      readPart(path, kind);
+    }
+  } catch (error) {
+    // Keep useful limits and unsupported-content errors, without leaking parser diagnostics.
+    if (error instanceof Error && /50 MB|macro|đối tượng nhúng|khớp định dạng|Hãy chọn mẫu/.test(error.message)) throw error;
+    throw new Error(invalidFile);
   }
 }
 

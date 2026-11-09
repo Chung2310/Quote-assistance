@@ -7,7 +7,7 @@ import ThemedSelect from "./ThemedSelect";
 import VietnameseDatePicker from "./VietnameseDatePicker";
 import type { CatalogItem } from "./types";
 import type { Notify } from "./Feedback";
-import { TaskProgress, type TaskProgressState } from "./Feedback";
+import { TaskProgress, useConfirmation, type TaskProgressState } from "./Feedback";
 
 interface StoredPriceList { _id: string; originalFilename: string; bytes: number; updatedAt: string; productCount?: number; skippedRows?: number }
 type ImportColumnRole = "sku" | "name" | "unit" | "price" | "currency" | "description" | "effectiveFrom" | "effectiveTo" | "attribute" | "ignore";
@@ -164,11 +164,26 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
   const [pageSize, setPageSize] = useState(50);
   const [exporting, setExporting] = useState(false);
   const [editingProduct, setEditingProduct] = useState<CatalogItem | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const { confirm, dialog: confirmationDialog } = useConfirmation();
   const [pendingImports, setPendingImports] = useState<PendingImport[]>([]);
   const [preview, setPreview] = useState<PreviewFile | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const today = new Date().toISOString().slice(0, 10);
+
+  const deleteProduct = async (item: CatalogItem) => {
+    if (deletingId || busy) return;
+    if (!await confirm({ title: "Xóa sản phẩm?", message: `Xóa “${item.name}” khỏi danh mục? Các báo giá và hợp đồng đã lập vẫn giữ nguyên dữ liệu.`, confirmLabel: "Xóa sản phẩm", tone: "danger" })) return;
+    setDeletingId(item._id);
+    try {
+      await api(`/api/catalog/${encodeURIComponent(item._id)}`, { method: "DELETE" });
+      setProducts((current) => current.filter((entry) => entry._id !== item._id));
+      onToast("Đã xóa sản phẩm.");
+    } catch (error) {
+      onToast(userMessage(error, "Không thể xóa sản phẩm. Vui lòng thử lại."), "error");
+    } finally { setDeletingId(null); }
+  };
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -658,9 +673,11 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
                         type="button"
                         className="button button-soft"
                         onClick={() => setEditingProduct(item)}
+                        disabled={busy || deletingId !== null}
                       >
                         Sửa
                       </button>
+                      <button type="button" className="button button-danger" disabled={busy || deletingId !== null} aria-label={`Xóa sản phẩm ${item.name}`} onClick={() => void deleteProduct(item)}>{deletingId === item._id ? "Đang xóa…" : "Xóa"}</button>
                     </td>
                   </tr>
                 );
@@ -700,6 +717,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
     </details>}
     {products.length > 0 && <p className="catalog-note">CSV / XLSX / XLS · Tối đa 5 MB mỗi file · Có thể chọn nhiều file cùng lúc.</p>}
     <FilePreview file={preview} onClose={() => setPreview(null)} />
+    {confirmationDialog}
     {editingProduct && <EditCatalogProductDialog key={editingProduct._id} item={editingProduct} onToast={onToast} onClose={() => setEditingProduct(null)} onSaved={(item) => {
       setProducts((current) => current.map((entry) => entry._id === item._id ? item : entry));
       setEditingProduct(null);

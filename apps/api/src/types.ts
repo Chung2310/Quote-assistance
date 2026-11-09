@@ -127,6 +127,7 @@ export interface CatalogItem {
   price: number;
   currency: string;
   active: boolean;
+  deletedAt?: Date;
   effectiveFrom?: string;
   effectiveTo?: string;
   createdAt: Date;
