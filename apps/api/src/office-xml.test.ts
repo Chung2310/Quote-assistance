@@ -15,6 +15,17 @@ function packageWith(xml: string) {
 }
 const original = packageWith(`<worksheet xmlns="${main}" xmlns:mc="${mc}" xmlns:x14ac="urn:excel:2010" xmlns:xr="urn:excel:revision" mc:Ignorable="x14ac xr"><sheetData><row r="1"><c r="A1"><v>10</v></c></row></sheetData></worksheet>`);
 
+test("removes coincident merged ranges left by edited product rows while retaining values, layout and binary assets", () => {
+  const edited = packageWith(`<worksheet xmlns="${main}"><sheetData><row r="15"><c r="G15"><f>SUM(G10:G13)</f><v>12336000</v></c></row></sheetData><mergeCells count="3"><mergeCell ref="B15:F15"/><mergeCell ref="$B$15:$F$15"/><mergeCell ref="B16:F16"/></mergeCells></worksheet>`);
+  const prepared = new PizZip(prepareEditedOfficeFile(original, edited), { checkCRC32: true });
+  const document = new DOMParser().parseFromString(prepared.file("xl/worksheets/sheet1.xml")!.asText(), "application/xml");
+  assert.deepEqual(Array.from(document.getElementsByTagNameNS(main, "mergeCell")).map((merge) => merge.getAttribute("ref")), ["B15:F15", "B16:F16"]);
+  assert.equal(document.getElementsByTagNameNS(main, "mergeCells")[0]!.getAttribute("count"), "2");
+  assert.equal(document.getElementsByTagNameNS(main, "v")[0]!.textContent, "12336000");
+  assert.equal(document.getElementsByTagNameNS(main, "f")[0]!.textContent, "SUM(G10:G13)");
+  assert.deepEqual(prepared.file("xl/media/image1.png")!.asNodeBuffer(), Buffer.from([1, 2, 3]));
+});
+
 test("restores namespaces dropped by Python while preserving edited values, formulas and binary parts", () => {
   const sheet = `<worksheet xmlns="${main}" xmlns:ns1="${mc}" ns1:Ignorable="x14ac xr"><sheetData><row r="1"><c r="A1" s="4"><f>2*12</f><v>24</v></c></row></sheetData></worksheet>`;
   const repaired = new PizZip(restoreOfficeXmlNamespaces(original, packageWith(sheet)), { checkCRC32: true });
