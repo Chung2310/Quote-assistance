@@ -68,3 +68,18 @@ test("removes the old calculation chain and its package references after formula
   assert.strictEqual(prepareEditedOfficeFile(sourceBytes, prepared), prepared);
   assert.strictEqual(prepareEditedOfficeFile(sourceBytes, sourceBytes), sourceBytes);
 });
+
+test("normalizes formula elements appended after cached values so Excel can open the workbook", () => {
+  const edited = packageWith(`<worksheet xmlns="${main}"><sheetData><row r="1"><c r="A1" s="4"><v>24</v><f>2*12</f></c><c r="B1"><f>A1+1</f><v>25</v></c></row></sheetData></worksheet>`);
+  const prepared = prepareEditedOfficeFile(original, edited);
+  const zip = new PizZip(prepared);
+  assert.match(zip.file("xl/worksheets/sheet1.xml")!.asText(), /<c r="A1" s="4"><f>2\*12<\/f><v>24<\/v><\/c>/);
+  assert.match(zip.file("xl/worksheets/sheet1.xml")!.asText(), /<c r="B1"><f>A1\+1<\/f><v>25<\/v><\/c>/);
+  assert.deepEqual(zip.file("xl/media/image1.png")!.asUint8Array(), new Uint8Array([1,2,3]));
+  assert.strictEqual(prepareEditedOfficeFile(original, prepared), prepared);
+});
+
+test("rejects duplicate formulas in a single cell instead of publishing an unreadable workbook", () => {
+  const edited = packageWith(`<worksheet xmlns="${main}"><sheetData><row r="1"><c r="A1"><f>2*12</f><v>24</v><f>3*8</f></c></row></sheetData></worksheet>`);
+  assert.throws(() => prepareEditedOfficeFile(original, edited), /công thức trùng/);
+});

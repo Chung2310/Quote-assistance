@@ -127,6 +127,7 @@ export interface CatalogItem {
   price: number;
   currency: string;
   active: boolean;
+  deletedAt?: Date;
   effectiveFrom?: string;
   effectiveTo?: string;
   createdAt: Date;
@@ -197,6 +198,9 @@ export interface Quote {
   kind?: "estimate" | "customer" | "budget";
   sourceQuote?: { id: string; quoteNumber: string };
   sourceRequirements?: string;
+  revisionRequirements?: string;
+  requiresAiRecalculation?: boolean;
+  aiAppliedInputs?: { revisionRequirements: string; additionalInformation: Record<string, string> };
   customerPricesCaptured?: boolean;
   missingProducts?: string[];
   priceList?: { id: string; originalFilename: string };

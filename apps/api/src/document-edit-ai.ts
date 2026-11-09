@@ -187,6 +187,8 @@ export async function editDocumentFileDirectly(request: DirectDocumentEditReques
       `The original file is attached under the sandbox HOME directory, which is /workspace/home. Its exact path is ${JSON.stringify(`/workspace/home/${attachedFilename}`)}. In Python use pathlib.Path.home() / ${JSON.stringify(attachedFilename)}; never guess /root or /home/oai. Open and edit this exact file. Save exactly one final file at ${JSON.stringify(`/workspace/home/${outputPath}`)} with the same extension: .${request.extension}.`,
       request.extension === "xlsx"
         ? "The sandbox has python3 but does not include openpyxl. Use python3 and its standard library (zipfile and xml.etree.ElementTree) to inspect and edit the XLSX Open XML package. Do not run `python`, do not install packages, and do not spend time searching for other spreadsheet libraries. Preserve every untouched ZIP entry and existing style/formula metadata; edit every relevant worksheet XML, then reopen the ZIP and verify it."
+        : request.extension === "docx"
+        ? "Use python3 with ONLY its standard library: zipfile, xml.etree.ElementTree, copy and pathlib. Do not run python, install packages, import docx/lxml, or search for office software. Inspect word/document.xml, headers and footers as numbered paragraph text and table rows, with at most 60 short lines per inspection. Word values can be split across multiple w:t nodes: join paragraph text to identify a value, replace its text across the relevant runs, preserving paragraph properties, run formatting, relationships and all unrelated text. Clone an existing product table row for extra supplied products and remove old product rows that are no longer needed. Write one edit script immediately after inspection, then verify the ZIP and the final paragraph/table values."
         : "Use the provided shell environment to inspect the attached file, make the requested edits to it, reopen the saved result, and verify it. Do not return a textual plan in place of the edited file.",
       "Choose relevant worksheets by reading their actual headings, table columns, and rows, not by title alone. Estimate, quotation, and construction-cost worksheets may serve the same estimate when their product/item, quantity, unit, and price fields fit the supplied data. A settlement or acceptance dossier can have several linked sheets: update each related cover, item list, quantity, value, payment and summary sheet with the supplied facts. Preserve unrelated worksheets. Never place estimate data in settlement, contract, or acceptance forms, or customer quotation data in an unrelated section.",
       "Preserve the original layout, logos, styles, merged cells, print settings, legal clauses, and formulas wherever possible. Replace old sample/example product rows with exactly the supplied product list and remove excess sample rows. Do not reuse example values as current values.",
@@ -207,7 +209,7 @@ export async function editDocumentFileDirectly(request: DirectDocumentEditReques
       headers: { ...authorizationHeaders(), "Content-Type": "application/json" },
       body: JSON.stringify({
         model: config.openRouterDocumentModel,
-        reasoning: { effort: "medium" },
+        reasoning: { effort: request.extension === "docx" ? "low" : "medium" },
         tools: [{ type: "openrouter:shell", parameters: {
           engine: "openrouter",
           environment: {
