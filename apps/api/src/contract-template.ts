@@ -9,6 +9,7 @@ import { assertPdfPagesPreserved, assertXlsxWorksheetsPreserved, fillSchema, ins
 import type { Contract, TemplateFillPlan } from "./types.js";
 import { fillWordBusinessTemplate, prepareWordProductPlaceholders } from "./word-template-fill.js";
 import { fillXlsxPartyNames } from "./xlsx-party-fields.js";
+import { tryFillBracketedContractTemplate } from "./word-bracket-fields.js";
 
 const architecturePdfHash = "72d9a684a94784ed813fac2b861556509f804de16acff141597eb3ab18685c04";
 const mrHiepAcceptanceDocxName = "bien ban nghiem thu mr hiep.docx";
@@ -295,6 +296,10 @@ function wordProducts(contract: Contract, record?: import("./types.js").Acceptan
 
 export async function renderContractFile(_db: Db, template: QuoteTemplate, contract: Contract, runAi: AiRunner = (work) => work()): Promise<{ bytes: Buffer; extension: "docx" | "xlsx" | "pdf"; fallback?: boolean }> {
   const mode = contractTemplateMode(template);
+  if (mode === "docx-ai") {
+    const prepared = tryFillBracketedContractTemplate(template, contractBindings(contract), wordProducts(contract));
+    if (prepared) { await inspectTemplate(prepared, "docx"); return { bytes: prepared, extension: "docx" }; }
+  }
   if (mode === "docx") {
     const prepared = prepareWordProductPlaceholders(template, contract.lines.length);
     if (prepared) return { bytes: renderContractWithTemplate(prepared, contract), extension: "docx" };

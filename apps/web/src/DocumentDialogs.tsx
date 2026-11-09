@@ -160,7 +160,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
         await createGeneratedExport(`/api/contracts/${contract._id}/file?background=1`);
         onCreated(contract._id);
       } catch (error) {
-        notify("Đã tạo hợp đồng nhưng AI chưa điền được file. Hãy kiểm tra mẫu hợp đồng rồi bấm tạo lại để thử lại.", "error");
+        onCreated(contract._id, userMessage(error, "Chưa tạo được file hợp đồng. Bạn có thể thử lại trong hồ sơ đã lưu."));
       }
     } catch (error) { notify(userMessage(error, "Không tạo được hợp đồng."), "error"); }
     finally { setBusy(false); }
