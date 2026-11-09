@@ -37,7 +37,7 @@ Yêu cầu Node.js 20.19+ và một MongoDB có thể truy cập từ máy chạ
 
    Mật khẩu cần dài từ 7 đến 200 ký tự; ứng dụng tự băm bằng scrypt rồi lưu tài khoản admin trong `users`, độc lập với hồ sơ doanh nghiệp. Tài khoản admin duy nhất dùng để đăng nhập `/quan-tri` và quản lý các tài khoản doanh nghiệp. Doanh nghiệp tự đăng ký tài khoản user và dùng tài khoản đó để quản lý toàn bộ dữ liệu của mình. Nếu email seed đã thuộc một tài khoản doanh nghiệp, ứng dụng giữ nguyên tài khoản đó, tạo admin với email dạng `ten+system-admin@domain` (in ra terminal khi khởi động) và vẫn dùng mật khẩu seed. Sau lần khởi động đầu tiên thành công, có thể xóa `SEED_ADMIN_EMAIL` và `SEED_ADMIN_PASSWORD`; tài khoản admin đã được lưu trong MongoDB.
 
-3. Cấu hình `PORT` (mặc định 3000) cho cả API và giao diện. Có thể đặt URI MongoDB trong `MONGODB_URI`; nếu URI không có tên database, ứng dụng dùng `MONGODB_DATABASE` hoặc `bao_gia_pilot`. Để kết nối MongoDB local không xác thực, để trống user và password. `SESSION_SECRET` cần là chuỗi ngẫu nhiên dài ít nhất 32 ký tự. Nếu muốn gọi AI, thêm khóa vào `OPENROUTER_API_KEY`; có thể chọn model qua `OPENROUTER_MODEL`.
+3. Cấu hình `PORT` (mặc định 3000) cho cả API và giao diện. Có thể đặt URI MongoDB trong `MONGODB_URI`; nếu URI không có tên database, ứng dụng dùng `MONGODB_DATABASE` hoặc `bao_gia_pilot`. Để kết nối MongoDB local không xác thực, để trống user và password. `SESSION_SECRET` cần là chuỗi ngẫu nhiên dài ít nhất 32 ký tự. Nếu muốn gọi AI, thêm khóa vào `OPENROUTER_API_KEY`. Phân tích yêu cầu, đọc file và sửa tài liệu đều dùng cố định GPT-6 Luna (`openai/gpt-6-luna`), không lấy model từ biến môi trường.
 
 4. Chạy ứng dụng:
 
