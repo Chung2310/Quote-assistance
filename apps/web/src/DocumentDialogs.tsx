@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { api, createGeneratedExport, formatMoney } from "./api";
 import { formatVndInputValue, parseVndInputValue, updateVndInput } from "./money-input";
@@ -30,7 +31,7 @@ export function ApprovedEstimatePickerDialog({ contracts, onClose, onSelect, not
       .then(({ quotes: items }) => {
         if (live) setQuotes(items.filter((quote) => !contracts.some((contract) => contract.quoteId === quote._id)));
       })
-      .catch((error) => { if (live) notify(error instanceof Error ? error.message : "Không tải được dự toán đã duyệt.", "error"); })
+      .catch((error) => { if (live) notify(userMessage(error, "Không tải được dự toán đã duyệt."), "error"); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [contracts, notify]);
@@ -114,7 +115,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
     let live = true;
     api<{ company: CompanyPrefill }>("/api/contracts/prefill")
       .then(({ company: value }) => { if (live) setCompany(value); })
-      .catch((error) => { if (live) notify(error instanceof Error ? error.message : "Không tải được hồ sơ doanh nghiệp.", "error"); })
+      .catch((error) => { if (live) notify(userMessage(error, "Không tải được hồ sơ doanh nghiệp."), "error"); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
   }, [notify]);
@@ -124,7 +125,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
       if (!live) return;
       setTemplates(items);
       setTemplateId(items[0]?.id ?? "");
-    }).catch((error) => { if (live) setTemplateError(error instanceof Error ? error.message : "Không tải được mẫu hợp đồng."); })
+    }).catch((error) => { if (live) setTemplateError(userMessage(error, "Không tải được mẫu hợp đồng.")); })
       .finally(() => { if (live) setTemplatesLoading(false); });
     return () => { live = false; };
   }, []);
@@ -157,7 +158,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
       } catch (error) {
         notify("Đã tạo hợp đồng nhưng AI chưa điền được file. Hãy kiểm tra mẫu hợp đồng rồi bấm tạo lại để thử lại.", "error");
       }
-    } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được hợp đồng.", "error"); }
+    } catch (error) { notify(userMessage(error, "Không tạo được hợp đồng."), "error"); }
     finally { setBusy(false); }
   };
   return <div className="document-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
@@ -234,7 +235,7 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
         setContractLines(quote.lines);
         setQuantities(quote.lines.map(() => 0));
       })
-      .catch((error) => { if (live) setContractLinesError(error instanceof Error ? error.message : "Không tải được sản phẩm từ dự toán gốc."); })
+      .catch((error) => { if (live) setContractLinesError(userMessage(error, "Không tải được sản phẩm từ dự toán gốc.")); })
       .finally(() => { if (live) setContractLinesLoading(false); });
     return () => { live = false; };
   }, [contract._id, contract.quoteId, contractLines.length]);
@@ -246,7 +247,7 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
         setTemplates(items);
         setTemplateId(items[0]?.id ?? "");
       })
-      .catch((error) => { if (live) setTemplateError(error instanceof Error ? error.message : "Không tải được mẫu nghiệm thu."); })
+      .catch((error) => { if (live) setTemplateError(userMessage(error, "Không tải được mẫu nghiệm thu.")); })
       .finally(() => { if (live) setTemplatesLoading(false); });
     return () => { live = false; };
   }, []);
@@ -270,7 +271,7 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
       } catch {
         notify("Đã tạo biên bản nhưng AI chưa điền được file. Hãy kiểm tra mẫu nghiệm thu rồi bấm tạo lại để thử lại.", "error");
       }
-    } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được nghiệm thu.", "error"); }
+    } catch (error) { notify(userMessage(error, "Không tạo được nghiệm thu."), "error"); }
     finally { setBusy(false); }
   };
   return <div className="document-dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>

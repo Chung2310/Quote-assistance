@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { userMessage } from "./user-message";
 
 export type NotificationType = "success" | "error" | "info";
 export type Notify = (message: string, type?: NotificationType) => void;
@@ -27,7 +28,7 @@ export function useNotification() {
   const nextId = useRef(0);
   const notify = useCallback<Notify>((message, type = "success") => {
     nextId.current += 1;
-    setNotification({ id: nextId.current, message, type });
+    setNotification({ id: nextId.current, message: type === "error" ? userMessage(message) : message, type });
   }, []);
   const dismiss = useCallback(() => setNotification(null), []);
 

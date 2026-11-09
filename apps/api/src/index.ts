@@ -6,7 +6,8 @@ import { Binary, ObjectId, type Db, type Document, type Filter } from "mongodb";
 import PdfPrinter from "pdfmake";
 import { config } from "./config.js";
 import { directDocumentEditorEnabled } from "./document-edit-ai.js";
-import { logger } from "./logger.js";
+import { logger, safeLogText } from "./logger.js";
+import { publicErrorMessage } from "./public-errors.js";
 import { connectDatabase, closeDatabase } from "./db.js";
 import { databaseConnectionDiagnostics } from "./database-diagnostics.js";
 import { login, logout, requireAuth, requireSystemAdmin, requireRole } from "./auth.js";
@@ -23,6 +24,7 @@ import { estimateFromCustomerQuote } from "./quote-from-customer.js";
 import { makeDocumentWord } from "./document-word.js";
 import { contractTemplateMode, renderAcceptanceFile, renderContractFile } from "./contract-template.js";
 import { adjustEstimateWithRequirements } from "./quote-estimate-adjustment.js";
+import { acceptanceFinancials, settlementContractContext } from "./acceptance-export.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { budgetPlanAsQuote, makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
@@ -274,7 +276,9 @@ function asId(value: string | string[] | undefined) {
 }
 
 function fail(response: express.Response, message: string, status = 400) {
-  response.status(status).json({ error: message });
+  const displayed = publicErrorMessage(message);
+  if (displayed !== message) logger.warn("request.error_details", { requestId: response.locals.requestId, statusCode: status, detail: safeLogText(message) });
+  response.status(status).json({ error: displayed });
 }
 
 function validText(value: unknown, maximum: number) {
@@ -708,6 +712,7 @@ async function queueGeneratedExport(
       });
     } catch (error) {
       const message = error instanceof Error ? error.message.slice(0, 3_000) : "Không thể tạo tệp xuất.";
+      logger.error("export.failed", { jobId: insertedId.toHexString(), kind, detail: safeLogText(message) });
       await jobs.updateOne({ _id: insertedId, companyId: user.companyId }, {
         $set: { status: "failed", error: message, updatedAt: new Date() },
       }).catch(() => undefined);
@@ -1470,12 +1475,12 @@ app.put("/api/admin/settings/sepay", requireSystemAdmin, async (request, respons
   const accountName = typeof body.accountName === "string" ? body.accountName.trim() : "";
   const paymentPrefix = typeof body.paymentPrefix === "string" ? body.paymentPrefix.trim().toUpperCase() : "";
   const webhookApiKey = typeof body.webhookApiKey === "string" ? body.webhookApiKey.trim() : "";
-  if (!/^[A-Za-z0-9_-]{2,30}$/.test(bankCode)) return fail(response, "Mã ngân hàng SePay không hợp lệ.");
+  if (!/^[A-Za-z0-9_-]{2,30}$/.test(bankCode)) return fail(response, "Mã ngân hàng không hợp lệ.");
   if (!/^[A-Za-z0-9]{1,19}$/.test(accountNumber)) return fail(response, "Số tài khoản phải gồm 1 đến 19 chữ số hoặc chữ cái.");
   if (accountName.length > 100) return fail(response, "Tên chủ tài khoản tối đa 100 ký tự.");
   if (!/^[A-Z]{2,5}$/.test(paymentPrefix)) return fail(response, "Mã thanh toán phải gồm 2 đến 5 chữ cái.");
-  if (typeof body.webhookApiKey !== "undefined" && typeof body.webhookApiKey !== "string") return fail(response, "API Key webhook không hợp lệ.");
-  if (webhookApiKey.length > 1024) return fail(response, "API Key webhook quá dài.");
+  if (typeof body.webhookApiKey !== "undefined" && typeof body.webhookApiKey !== "string") return fail(response, "Khóa xác thực thanh toán không hợp lệ.");
+  if (webhookApiKey.length > 1024) return fail(response, "Khóa xác thực thanh toán quá dài.");
 
   const db = await connectDatabase();
   const collection = db.collection<PlatformSepaySettingsDocument>("platformSettings");
@@ -1667,7 +1672,7 @@ app.get("/api/export-jobs/:id", requireRole("user"), async (request, response) =
     status: job.status,
     filename: job.filename,
     fileId: job.fileId,
-    error: job.error,
+    error: job.error ? publicErrorMessage(job.error) : undefined,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
   } });
@@ -1762,7 +1767,7 @@ app.get("/api/generated-export-files/latest", requireRole("user"), async (reques
   } : null, job: latestCustomerJob ? {
     id: latestCustomerJob._id?.toHexString(),
     status: latestCustomerJob.status,
-    error: latestCustomerJob.error,
+    error: latestCustomerJob.error ? publicErrorMessage(latestCustomerJob.error) : undefined,
     filename: latestCustomerJob.filename,
     createdAt: latestCustomerJob.createdAt,
     updatedAt: latestCustomerJob.updatedAt,
@@ -2434,7 +2439,7 @@ app.patch("/api/budget-plans/:id", requireRole("user"), async (request, response
       await writeAudit(db, user, "catalog_item_created", "catalogItem", item._id.toHexString(), { source: "budget_plan", planId: id.toHexString(), sku: item.sku });
     } else return fail(response, "Hãy chọn sản phẩm hoặc thêm sản phẩm mới.", 422);
     if (!result.lines.some((line) => line.catalogItemId === String(item._id))) {
-      result.lines.push({ catalogItemId: String(item._id), sku: item.sku, name: item.name, unit: item.unit, unitPrice: item.price, currency: item.currency, quantity: body.quantity ?? null, lineTotal: body.quantity ? Math.round((item.price * body.quantity + Number.EPSILON) * 100) / 100 : null, reason: `Bổ sung cho hạng mục: ${body.name}`, ...(body.quantity ? { quantityBasis: "measured" as const, quantityNote: "Số lượng do người dùng xác nhận" } : {}) });
+      result.lines.push({ catalogItemId: String(item._id), sku: item.sku, name: item.name, description: item.description, catalogAttributes: item.attributes ?? {}, unit: item.unit, unitPrice: item.price, currency: item.currency, quantity: body.quantity ?? null, lineTotal: body.quantity ? Math.round((item.price * body.quantity + Number.EPSILON) * 100) / 100 : null, reason: `Bổ sung cho hạng mục: ${body.name}`, ...(body.quantity ? { quantityBasis: "measured" as const, quantityNote: "Số lượng do người dùng xác nhận" } : {}) });
     }
     result.missingProducts = result.missingProducts.filter((name) => name !== body.name);
     result.resolvedMissingProducts = [...new Set([...(result.resolvedMissingProducts ?? []), body.name])];
@@ -2557,7 +2562,7 @@ app.post("/api/customer-quotes", requireRole("user"), async (request, response) 
       return {
         catalogItemId, source: "catalog" as const, sku: item.sku, name: item.name,
         description: item.description, quantity: 1, unit: item.unit, unitPrice: item.price,
-        currency: item.currency, catalogAttributes: {}, attributes: {}, lineTotal: 0,
+        currency: item.currency, catalogAttributes: item.attributes ?? {}, attributes: {}, lineTotal: 0,
       };
     }),
     subtotal: 0, taxRate: 0, taxAmount: 0, total: 0, currency: config.currency,
@@ -3465,10 +3470,11 @@ app.get(["/api/acceptance-records/:id/docx", "/api/acceptance-records/:id/file"]
         const exportQuote: Quote = {
           kind: "estimate", companyId: user.companyId, quoteNumber: record.acceptanceNumber, requestId: contract.quoteId,
           customerName: contract.customerName, customerEmail: contract.customerEmail, customerPhone: contract.customerPhone,
-          lines, subtotal: acceptedValue, taxRate: 0, taxAmount: 0, total: record.settlementAmount, currency: contract.currency,
+          lines, ...acceptanceFinancials(contract, record, acceptedValue), currency: contract.currency,
           informationNeeded: [], informationConfirmed: true, status: "approved", createdBy: user.id,
           createdAt: new Date(`${record.acceptedDate}T00:00:00Z`), updatedAt: record.updatedAt,
           settlement: {
+            contract: settlementContractContext(contract),
             contractLines: contract.lines.map((line) => ({ ...line })),
             contractNumber: contract.contractNumber, projectName: contract.projectName, projectAddress: contract.projectAddress,
             acceptanceNumber: record.acceptanceNumber, acceptedDate: record.acceptedDate,
@@ -3530,10 +3536,11 @@ app.get("/api/acceptance-records/:id/settlement.xlsx", requireRole("user"), asyn
   const exportQuote: Quote = {
     kind: "estimate", companyId: user.companyId, quoteNumber: record.acceptanceNumber, requestId: contract.quoteId,
     customerName: contract.customerName, customerEmail: contract.customerEmail, customerPhone: contract.customerPhone,
-    lines, subtotal: acceptedValue, taxRate: 0, taxAmount: 0, total: record.settlementAmount, currency: contract.currency,
+    lines, ...acceptanceFinancials(contract, record, acceptedValue), currency: contract.currency,
     informationNeeded: [], informationConfirmed: true, status: "approved", createdBy: user.id,
     createdAt: new Date(`${record.acceptedDate}T00:00:00Z`), updatedAt: record.updatedAt,
     settlement: {
+      contract: settlementContractContext(contract),
       contractLines: contract.lines.map((line) => ({ ...line })),
       contractNumber: contract.contractNumber, projectName: contract.projectName, projectAddress: contract.projectAddress,
       acceptanceNumber: record.acceptanceNumber, acceptedDate: record.acceptedDate,
@@ -3822,7 +3829,7 @@ app.use((error: unknown, _request: express.Request, response: express.Response, 
     return;
   }
   const message = error instanceof Error ? error.message : "Đã có lỗi xảy ra.";
-  response.status(500).json({ error: message.includes("Dịch vụ AI") || message.includes("AI trả về") ? message : "Đã có lỗi xảy ra. Vui lòng thử lại." });
+  response.status(500).json({ error: publicErrorMessage(message, "Đã có lỗi xảy ra. Vui lòng thử lại.") });
 });
 
 connectDatabase()

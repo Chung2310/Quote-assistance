@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { api, formatDate, formatMoney } from "./api";
@@ -240,7 +241,7 @@ export default function AdminApp() {
       .catch((error: unknown) => {
         if (!cancelled) {
           setLoadError("failed");
-          notify(error instanceof Error ? error.message : "Không thể tải dữ liệu quản trị.", "error");
+          notify(userMessage(error, "Không thể tải dữ liệu quản trị."), "error");
         }
       })
       .finally(() => { if (!cancelled) setLoadingUsers(false); });
@@ -427,7 +428,7 @@ function PlanContactRequestDialog({ request, onClose, onSaved }: { request: Plan
       const { request: updated } = await api<{ request: PlanContactRequest }>(`/api/admin/plan-contact-requests/${encodeURIComponent(request.id)}`, { method: "PATCH", body: JSON.stringify({ status, adminNote }) });
       onSaved(updated);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không lưu được thay đổi.");
+      setError(userMessage(cause, "Không lưu được thay đổi."));
     } finally {
       setBusy(false);
     }
@@ -464,7 +465,7 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
       setForm({ bankCode: saved.bankCode, accountNumber: saved.accountNumber, accountName: saved.accountName, paymentPrefix: saved.paymentPrefix, webhookApiKey: "" });
     } catch (cause) {
       setLoadFailed(true);
-      onToast(cause instanceof Error ? cause.message : "Không tải được cài đặt thanh toán.", "error");
+      onToast(userMessage(cause, "Không tải được cài đặt thanh toán."), "error");
     } finally {
       setLoading(false);
       setTaskProgress(null);
@@ -475,7 +476,7 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
-    setTaskProgress({ label: "Đang lưu tài khoản thanh toán", detail: "Đang cập nhật cấu hình SePay…" });
+    setTaskProgress({ label: "Đang lưu tài khoản thanh toán", detail: "Đang lưu cài đặt thanh toán…" });
     try {
       const { settings: saved } = await api<{ settings: AdminSepaySettings }>("/api/admin/settings/sepay", {
         method: "PUT",
@@ -483,9 +484,9 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
       });
       setSettings(saved);
       setForm((current) => ({ ...current, webhookApiKey: "" }));
-      onToast("Đã lưu tài khoản ngân hàng và cài đặt SePay.");
+      onToast("Đã lưu tài khoản ngân hàng và cài đặt thanh toán.");
     } catch (cause) {
-      onToast(cause instanceof Error ? cause.message : "Không lưu được cài đặt thanh toán.", "error");
+      onToast(userMessage(cause, "Không lưu được cài đặt thanh toán."), "error");
     } finally {
       setSaving(false);
       setTaskProgress(null);
@@ -496,16 +497,16 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
   const copyWebhookUrl = async () => {
     try {
       await navigator.clipboard.writeText(webhookUrl);
-      onToast("Đã sao chép địa chỉ webhook.");
+      onToast("Đã sao chép địa chỉ kết nối.");
     } catch {
-      onToast("Không sao chép được địa chỉ webhook trên trình duyệt này.", "error");
+      onToast("Không sao chép được địa chỉ kết nối. Vui lòng thử lại.", "error");
     }
   };
 
   if (loading) return <TaskProgress label="Đang tải cài đặt thanh toán" detail="Đang đọc tài khoản ngân hàng…" />;
   return <>
     <div className="admin-page-heading">
-      <div><span className="admin-eyebrow">THANH TOÁN</span><h1>Tài khoản ngân hàng</h1><p>Cấu hình tài khoản nhận tiền và webhook SePay cho đăng ký, nâng cấp gói.</p></div>
+      <div><span className="admin-eyebrow">THANH TOÁN</span><h1>Tài khoản ngân hàng</h1><p>Thiết lập tài khoản nhận tiền và tự động cập nhật thanh toán khi đăng ký, nâng cấp gói.</p></div>
     </div>
     {taskProgress && <TaskProgress {...taskProgress} />}
     {loadFailed && <button className="admin-button admin-button-secondary" onClick={() => void load()}>Tải lại cài đặt thanh toán</button>}
@@ -518,21 +519,22 @@ function AdminSepay({ onToast }: { onToast: Notify }) {
             <label>Số tài khoản<input value={form.accountNumber} onChange={(event) => setForm((current) => ({ ...current, accountNumber: event.target.value }))} maxLength={19} autoComplete="off" required /></label>
             <label className="admin-sepay-wide">Tên chủ tài khoản<input value={form.accountName} onChange={(event) => setForm((current) => ({ ...current, accountName: event.target.value }))} maxLength={100} autoComplete="off" /></label>
             <label>Mã nội dung chuyển khoản<input value={form.paymentPrefix} onChange={(event) => setForm((current) => ({ ...current, paymentPrefix: event.target.value.toUpperCase() }))} minLength={2} maxLength={5} pattern="[A-Za-z]{2,5}" required /></label>
-            <label className="admin-sepay-wide">API Key webhook SePay<input type="password" value={form.webhookApiKey} onChange={(event) => setForm((current) => ({ ...current, webhookApiKey: event.target.value }))} placeholder={settings?.webhookApiKeySet ? "Để trống để giữ khóa hiện tại" : "Nhập API Key đã cấu hình trên SePay"} maxLength={1024} autoComplete="new-password" /></label>
+            <label className="admin-sepay-wide">Khóa xác thực thanh toán<input type="password" value={form.webhookApiKey} onChange={(event) => setForm((current) => ({ ...current, webhookApiKey: event.target.value }))} placeholder={settings?.webhookApiKeySet ? "Để trống để giữ khóa hiện tại" : "Nhập khóa xác thực từ dịch vụ thanh toán"} maxLength={1024} autoComplete="new-password" /></label>
           </div>
-          <p className="admin-settings-hint">Khóa webhook được mã hóa khi lưu. {settings?.webhookApiKeySource === "environment" ? "Đang dùng khóa từ biến môi trường; nhập khóa mới để thay thế." : "Khóa lấy từ cấu hình SePay mục API Key."}</p>
+          <p className="admin-settings-hint">Khóa xác thực được bảo vệ khi lưu. {settings?.webhookApiKeySource === "environment" ? "Đang dùng khóa đã thiết lập; nhập khóa mới để thay thế." : "Sử dụng khóa xác thực trong phần cài đặt của dịch vụ thanh toán."}</p>
           <div className="admin-settings-actions"><button className="admin-button admin-button-primary" disabled={saving}>{saving ? "Đang lưu…" : "Lưu cài đặt"}</button></div>
         </form>
       </section>
 
       <section className="admin-users-card admin-settings-card admin-sepay-info-card">
-        <div className="admin-users-toolbar"><div><h2>Kết nối webhook</h2><span>SePay gọi địa chỉ này khi có tiền vào</span></div></div>
-        <div className="admin-sepay-info">
+        <div className="admin-users-toolbar"><div><h2>Kết nối thông báo thanh toán</h2><span>Dùng địa chỉ này để tự động nhận thông báo tiền vào</span></div></div>
+        <details className="admin-sepay-info">
+          <summary>Thiết lập kết nối thanh toán</summary>
           <div className="admin-sepay-endpoint"><code>{webhookUrl}</code><button type="button" className="admin-button admin-button-secondary" onClick={() => void copyWebhookUrl()}>Sao chép</button></div>
-          <p>Trong SePay, chọn webhook tiền vào, xác thực API Key và nhập cùng khóa ở đây.</p>
-          <p>Mã chuyển khoản bắt đầu bằng <strong>{form.paymentPrefix || "BG"}</strong>. Dùng tiền tố này trong cấu hình nhận diện giao dịch của SePay.</p>
-          <p>Ngân hàng, số tài khoản và API Key phải cùng thuộc cấu hình webhook đang sử dụng.</p>
-        </div>
+          <p>Trong dịch vụ thanh toán, thêm thông báo tiền vào và sử dụng cùng khóa xác thực đã nhập ở đây.</p>
+          <p>Mã chuyển khoản bắt đầu bằng <strong>{form.paymentPrefix || "BG"}</strong>. Dùng tiền tố này để nhận diện giao dịch thanh toán.</p>
+          <p>Ngân hàng, số tài khoản và khóa xác thực phải khớp với dịch vụ thanh toán đang sử dụng.</p>
+        </details>
       </section>
     </div>
   </>;
@@ -579,7 +581,7 @@ function AccountDialog({ user, plans, onClose, onSaved, confirm }: { user: Manag
       }
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể lưu tài khoản.");
+      setError(userMessage(cause, "Không thể lưu tài khoản."));
     } finally {
       setBusy(false);
     }
@@ -648,7 +650,7 @@ function PlanDialog({ plan, onClose, onSaved, confirm }: { plan: ServicePlan | n
       }
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không lưu được gói dịch vụ.");
+      setError(userMessage(cause, "Không lưu được gói dịch vụ."));
     } finally {
       setBusy(false);
     }
@@ -690,7 +692,7 @@ function PasswordDialog({ user, onClose, onSaved, confirm }: { user: ManagedUser
       await api(`/api/admin/businesses/${encodeURIComponent(user.id)}/password`, { method: "PUT", body: JSON.stringify({ password }) });
       onSaved();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể cập nhật mật khẩu.");
+      setError(userMessage(cause, "Không thể cập nhật mật khẩu."));
     } finally {
       setBusy(false);
     }

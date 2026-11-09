@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { api, apiUploadWithProgress, formatDate, formatMoney } from "./api";
 import MoneyInput from "./MoneyInput";
@@ -296,7 +297,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
       XLSX.writeFile(workbook, `bang-gia-${date}.xlsx`);
       onToast(`Đã xuất ${filteredProducts.length} sản phẩm ra Excel.`, "success");
     } catch (cause) {
-      onToast(cause instanceof Error ? cause.message : "Không thể xuất bảng giá ra Excel.", "error");
+      onToast(userMessage(cause, "Không thể xuất bảng giá ra Excel."), "error");
     } finally {
       setExporting(false);
     }
@@ -317,7 +318,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
     ]).then(([priceLists, catalog]) => {
       setFiles(priceLists.files);
       setProducts(catalog.items);
-    }).catch((cause) => onToast(cause instanceof Error ? cause.message : "Không thể tải bảng giá.", "error"))
+    }).catch((cause) => onToast(userMessage(cause, "Không thể tải bảng giá."), "error"))
       .finally(() => setLoading(false));
   }, [onToast]);
 
@@ -348,7 +349,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
               return { ...sheet, roles, included: roles.includes("name") && roles.includes("price") };
             })
           });
-        } catch (cause) { errors.push(`${selected.name}: ${cause instanceof Error ? cause.message : "Không đọc được file để xem trước."}`); }
+        } catch (cause) { errors.push(`${selected.name}: ${userMessage(cause, "Không đọc được file để xem trước.")}`); }
       }
       setPendingImports(previews);
       if (errors.length) onToast(errors.join(" "), "error");
@@ -405,7 +406,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
           updatedCount += result.imported.updated;
           skippedCount += result.imported.skippedRows;
         } catch (cause) {
-          errors.push(`${pending.file.name}: ${cause instanceof Error ? cause.message : "Không thể nhập bảng giá."}`);
+          errors.push(`${pending.file.name}: ${userMessage(cause, "Không thể nhập bảng giá.")}`);
           failed.push(pending);
         }
       }
@@ -419,7 +420,7 @@ export default function PriceListPanel({ onToast }: { onToast: Notify }) {
           const catalog = await api<{ items: CatalogItem[] }>("/api/catalog");
           setProducts(catalog.items);
         } catch (cause) {
-          errors.push(`Đã nạp bảng giá nhưng không tải được danh sách sản phẩm: ${cause instanceof Error ? cause.message : "Vui lòng tải lại trang."}`);
+          errors.push(`Đã nạp bảng giá nhưng không tải được danh sách sản phẩm: ${userMessage(cause, "Vui lòng tải lại trang.")}`);
         }
       }
       if (errors.length) onToast([summary, ...errors].filter(Boolean).join(" "), "error");
@@ -759,7 +760,7 @@ function EditCatalogProductDialog({ item, onClose, onSaved, onToast }: { item: C
       });
       onSaved(result.item);
     } catch (cause) {
-      onToast(cause instanceof Error ? cause.message : "Không thể cập nhật sản phẩm.", "error");
+      onToast(userMessage(cause, "Không thể cập nhật sản phẩm."), "error");
     } finally { setBusy(false); }
   };
 

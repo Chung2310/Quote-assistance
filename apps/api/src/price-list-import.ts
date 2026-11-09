@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { config } from "./config.js";
 import { extractPriceListRows, type PriceList, type PriceListAnalysisRow } from "./price-list.js";
-import { parseJsonResponse, requestStructuredAi, responseContent, type AiChatMessage } from "./structured-ai.js";
+import { chatSamplingParameters, parseJsonResponse, requestStructuredAi, responseContent, type AiChatMessage } from "./structured-ai.js";
 
 export interface ExtractedPriceProduct {
   sku: string;
@@ -281,7 +281,7 @@ async function readUnstructuredProducts(filename: string, rows: PriceListAnalysi
         headers: { Authorization: `Bearer ${config.openRouterApiKey}`, "Content-Type": "application/json", "HTTP-Referer": config.openRouterSiteUrl, "X-Title": config.openRouterAppName },
         body: JSON.stringify({
           model: config.openRouterFileModel,
-          temperature: 0,
+          ...chatSamplingParameters(config.openRouterFileModel),
           max_tokens: 10000,
           messages: retryMessages,
           response_format: { type: "json_schema", json_schema: { name: "price_list_products", strict: true, schema } },

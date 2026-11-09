@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useEffect, useRef, useState } from "react";
 import { api, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedExportStatus, type GeneratedFileRef } from "./api";
 import { TaskProgress, type ConfirmOptions, type Notify } from "./Feedback";
@@ -51,7 +52,7 @@ export default function CustomerProductListDetail({
         setQuote(value);
       })
       .catch((cause) => {
-        if (active) setError(cause instanceof Error ? cause.message : "Không mở được danh sách sản phẩm.");
+        if (active) setError(userMessage(cause, "Không mở được danh sách sản phẩm."));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -81,7 +82,7 @@ export default function CustomerProductListDetail({
         if (!active) return;
         setSavedExport(null);
         setLoadingSavedExport(false);
-        setError(cause instanceof Error ? cause.message : "Không kiểm tra được file báo giá đã lưu.");
+        setError(userMessage(cause, "Không kiểm tra được file báo giá đã lưu."));
       }
     };
     void poll();
@@ -97,7 +98,7 @@ export default function CustomerProductListDetail({
     try {
       await action();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể cập nhật danh sách sản phẩm.");
+      setError(userMessage(cause, "Không thể cập nhật danh sách sản phẩm."));
     } finally {
       setBusy(false);
     }
@@ -133,9 +134,9 @@ export default function CustomerProductListDetail({
     });
 
   const downloadSavedExport = () => void run(async () => {
-    if (!savedExport) throw new Error("Chưa có file báo giá được lưu trên Cloudinary.");
+    if (!savedExport) throw new Error("Chưa có file báo giá được lưu. Hãy tạo file trước khi tải.");
     await downloadGeneratedFile(savedExport.id);
-    onToast("Đã tải file báo giá đã lưu trên Cloudinary.", "success");
+    onToast("Đã tải file báo giá.", "success");
   });
 
   const createSavedExport = () => void run(async () => {
@@ -145,7 +146,7 @@ export default function CustomerProductListDetail({
       setSavedExport(null);
       setExportJob({ id: result.jobId, status: result.status });
       setExportRefresh((value) => value + 1);
-      onToast("AI đang điền mẫu và lưu file báo giá lên Cloudinary.", "success");
+      onToast("Đang tạo và lưu file báo giá theo mẫu đã chọn.", "success");
     } finally {
       setGeneratingFile(false);
     }
@@ -212,7 +213,7 @@ export default function CustomerProductListDetail({
         </div>
       )}
 
-      {exportIsRunning && <TaskProgress label="AI đang điền mẫu báo giá" detail="Đang gửi sản phẩm, thông tin khách hàng và mẫu đã chọn cho AI; file hoàn chỉnh sẽ được lưu lên Cloudinary." />}
+      {exportIsRunning && <TaskProgress label="AI đang điền mẫu báo giá" detail="Đang hoàn thiện báo giá theo mẫu bạn đã chọn. Bạn có thể tải file khi xử lý xong." />}
       {exportFailed && <div className="quote-setup-notice" role="alert" style={{ background: "#fef2f2", borderColor: "#fecaca", color: "#b91c1c", margin: 0 }}>
         {exportJob.error || "AI chưa tạo được file báo giá theo mẫu đã chọn."}
       </div>}

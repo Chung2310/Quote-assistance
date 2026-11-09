@@ -125,6 +125,7 @@ export function contractBindings(contract: Contract): Record<string, string> {
     values[`${prefix}index`] = String(index + 1);
     values[`${prefix}name`] = line.name;
     values[`${prefix}description`] = text(line.description);
+    values[`${prefix}details`] = [line.description, ...Object.entries(line.catalogAttributes ?? {}).map(([key, value]) => `${key}: ${value}`), ...Object.entries(line.attributes ?? {}).map(([key, value]) => `Yêu cầu ${key}: ${value}`)].filter(Boolean).join(" · ");
     values[`${prefix}unit`] = line.unit;
     values[`${prefix}quantity`] = number(line.quantity, false);
     values[`${prefix}unitPrice`] = number(line.unitPrice);
@@ -339,7 +340,7 @@ export async function renderContractFile(db: Db, template: QuoteTemplate, contra
           bytes: templateBytes(template), filename: template.originalFilename, extension, functionName: "Contract",
           data: {
             fields: contractBindings(contract),
-            products: contract.lines.map((line, index) => ({ index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", quantity: line.quantity, unit: line.unit, unitPrice: line.unitPrice, lineTotal: line.lineTotal, currency: line.currency })),
+            products: contract.lines.map((line, index) => ({ index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", quantity: line.quantity, unit: line.unit, unitPrice: line.unitPrice, lineTotal: line.lineTotal, currency: line.currency, attributes: line.attributes, catalogAttributes: line.catalogAttributes ?? {} })),
           },
         }));
         if (!bytes) throw new Error("Direct template editing is enabled but returned no edited file.");
@@ -458,7 +459,7 @@ export async function renderAcceptanceFile(db: Db, template: QuoteTemplate, cont
             fields: acceptanceBindings(contract, record),
             contractProducts: contract.lines.map((line, index) => {
               const acceptedQuantity = record.lines.find((entry) => entry.lineIndex === index)?.acceptedQuantity ?? 0;
-              return { index: index + 1, name: line.name, description: line.description ?? "", contractQuantity: line.quantity, acceptedQuantity, unit: line.unit, unitPrice: line.unitPrice, contractLineTotal: line.lineTotal };
+              return { index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", contractQuantity: line.quantity, acceptedQuantity, unit: line.unit, unitPrice: line.unitPrice, contractLineTotal: line.lineTotal, currency: line.currency, attributes: line.attributes, catalogAttributes: line.catalogAttributes ?? {} };
             }),
           },
         }));

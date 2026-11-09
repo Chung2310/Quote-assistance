@@ -26,7 +26,9 @@ MONGODB_URI=mongodb://database-host:27017/bao_gia
 SESSION_SECRET=replace-with-at-least-32-random-characters
 SESSION_COOKIE_SECURE=true
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=openai/gpt-4.1-mini
+OPENROUTER_MODEL=openai/gpt-6-luna
+OPENROUTER_FILE_MODEL=openai/gpt-6-luna
+OPENROUTER_DOCUMENT_MODEL=openai/gpt-6-luna
 ```
 
 Parser hỗ trợ dấu nháy, comment và xuống dòng CRLF của dotenv; không chạy nội dung như shell script. Giá trị nhiều dòng không được hỗ trợ bởi Docker env-file. Không in nội dung ENV_FILE trong log, commit hoặc đưa vào image. NODE_ENV được đặt thành production; PORT lấy từ ENV_FILE, mặc định 3013.

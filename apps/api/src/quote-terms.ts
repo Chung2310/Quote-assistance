@@ -59,3 +59,37 @@ export function extractQuoteTerms(requestText: string) {
     ...(completionDate ? { completionDate } : {}),
   };
 }
+
+export function extractQuoteCharges(requestText: string, currency = "VND"): { taxRate?: number; shippingFee?: number; taxQuestion?: string; shippingQuestion?: string } {
+  const text = normalizedText(requestText);
+  const result: { taxRate?: number; shippingFee?: number; taxQuestion?: string; shippingQuestion?: string } = {};
+  const taxClauses = [...text.matchAll(/\b(?:vat|thue(?:\s+(?:gtgt|gia tri gia tang))?)\b/g)]
+    .map((match) => text.slice(match.index, match.index! + 90).split(/[;\n]/)[0]!.split(/(?<=%)\s*[,.;]/)[0]!);
+  if (taxClauses.length) {
+    const rates = [...new Set(taxClauses.flatMap((clause) => [...clause.matchAll(/(\d+(?:[.,]\d+)?)\s*%/g)].map((match) => Number(match[1]!.replace(",", ".")) / 100)))];
+    const priceIncludesTax = /\b(?:don gia|gia)[^;\n]{0,45}\b(?:da (?:bao )?gom|bao gom|gom)[^;\n]{0,15}\b(?:vat|thue)\b/.test(text);
+    if (rates.length === 1 && rates[0]! >= 0 && rates[0]! <= 1 && !priceIncludesTax) result.taxRate = rates[0];
+    else result.taxQuestion = priceIncludesTax ? "VAT: cần xác nhận đơn giá trước thuế vì yêu cầu nêu giá đã bao gồm thuế." : "VAT: cần xác nhận một thuế suất cụ thể từ 0 đến 100%.";
+  }
+  const shipping = /\b(?:phi\s+van chuyen|van chuyen|phi\s+giao hang|shipping(?:\s+fee)?)\b/;
+  if (shipping.test(text)) {
+    const matches = [...text.matchAll(/\b(?:phi\s+van chuyen|van chuyen|phi\s+giao hang|shipping(?:\s+fee)?)\s*(?:(?:co dinh|la|:|=|tam tinh|khoang)\s*)*([+-]?\d[\d.,]*(?:\s+\d{3})*)(?:\s*(vnd|dong|trieu|nghin|ngan|usd|eur|k|d)(?![a-z]))?/g)];
+    const amounts = matches.map((match) => {
+      let value = match[1]!.replace(/\s/g, "");
+      const suffix = match[2];
+      if (["usd", "eur"].includes(suffix ?? "") && suffix!.toUpperCase() !== currency) return NaN;
+      if (["vnd", "dong", "d", "trieu", "nghin", "ngan", "k"].includes(suffix ?? "") && currency !== "VND") return NaN;
+      if (/^[+-]?\d{1,3}(?:[.,]\d{3})+$/.test(value)) value = value.replace(/[.,]/g, "");
+      else if (value.includes(".") && value.includes(",")) {
+        const decimal = value.lastIndexOf(",") > value.lastIndexOf(".") ? "," : ".";
+        value = value.replaceAll(decimal === "," ? "." : ",", "").replace(decimal, ".");
+      } else value = value.replace(",", ".");
+      return Number(value) * (suffix === "trieu" ? 1_000_000 : ["nghin", "ngan", "k"].includes(suffix ?? "") ? 1000 : 1);
+    });
+    if (/\b(?:mien phi (?:van chuyen|giao hang)|khong co phi van chuyen)\b/.test(text)) amounts.push(0);
+    const unique = [...new Set(amounts)];
+    if (unique.length === 1 && Number.isFinite(unique[0]) && unique[0]! >= 0 && unique[0]! <= 1e12) result.shippingFee = unique[0];
+    else result.shippingQuestion = "Phí vận chuyển: cần xác nhận một số tiền cụ thể theo đơn vị tiền tệ của dự toán.";
+  }
+  return result;
+}
