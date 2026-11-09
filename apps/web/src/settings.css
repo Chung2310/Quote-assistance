@@ -193,6 +193,7 @@
 .price-list-table td:nth-child(5) { min-width: 125px; }
 .price-list-table td:nth-child(6) { min-width: 75px; }
 .price-list-action .button { min-height: 31px; padding: 0 10px; font-size: 10px; }
+.price-list-action .button + .button { margin-left: 6px; }
 .price-list-status { display: inline-flex; align-items: center; padding: 5px 8px; border-radius: 20px; font-size: 10px; font-weight: 700; white-space: nowrap; }
 .price-list-status.active { background: #eaf4ed; color: #00ADFC; }
 .price-list-status.inactive, .price-list-status.expired { background: #f1f3f1; color: #748078; }

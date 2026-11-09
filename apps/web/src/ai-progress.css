@@ -1,0 +1,36 @@
+.ai-progress-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  margin: auto;
+  padding: 26px;
+  overflow: auto;
+  border: 1px solid #dce8df;
+  border-radius: 18px;
+  background: #fff;
+  color: #233d30;
+  box-shadow: 0 24px 80px #14312330;
+  font-family: inherit;
+}
+.ai-progress-dialog::backdrop { background: #10271c66; backdrop-filter: blur(3px); }
+.ai-progress-popup-heading { display: flex; align-items: center; gap: 14px; margin-bottom: 25px; }
+.ai-progress-popup-heading h2 { margin: 0 0 5px; font-size: 18px; font-weight: 750; line-height: 1.4; }
+.ai-progress-popup-heading p { margin: 0; color: #6a7b70; font-size: 12px; line-height: 1.6; }
+.ai-progress-popup-icon { display: grid; place-items: center; flex: none; width: 40px; height: 40px; border-radius: 50%; background: #eef6ef; color: #34775a; font-size: 24px; }
+.ai-progress-popup-icon.is-running { width: 28px; height: 28px; margin: 6px; border: 3px solid #dceadf; border-top-color: #34775a; animation: ai-progress-popup-spin .8s linear infinite; }
+.ai-progress-popup-tasks { display: grid; gap: 20px; }
+.ai-progress-popup-label { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+.ai-progress-popup-label strong { font-size: 13px; line-height: 1.5; }
+.ai-progress-popup-label > span { flex: none; color: #34775a; font-size: 24px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.ai-progress-popup-track { height: 9px; overflow: hidden; border-radius: 99px; background: #e8f0ea; }
+.ai-progress-popup-track > span { display: block; height: 100%; border-radius: inherit; background: #4c936d; transition: width .5s ease; }
+.ai-progress-popup-task p { margin: 10px 0 0; font-size: 12px; color: #6a7b70; line-height: 1.7; overflow-wrap: anywhere; }
+.ai-progress-popup-task.is-failed p, .ai-progress-popup-task.is-failed .ai-progress-popup-label > span { color: #a94339; }
+.ai-progress-popup-task.is-failed .ai-progress-popup-track > span { background: #b55a4e; }
+.ai-progress-popup-hint { display: block; margin-top: 20px; color: #819084; font-size: 11px; line-height: 1.7; }
+.ai-progress-popup-close { display: block; margin: 20px 0 0 auto; }
+@keyframes ai-progress-popup-spin { to { transform: rotate(360deg); } }
+@media (max-width: 480px) { .ai-progress-dialog { padding: 22px 18px; } .ai-progress-popup-heading h2 { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .ai-progress-popup-icon.is-running { animation-duration: 2s; } .ai-progress-popup-track > span { transition: none; } }

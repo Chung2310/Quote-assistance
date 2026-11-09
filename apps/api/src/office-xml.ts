@@ -94,6 +94,24 @@ export function prepareEditedOfficeFile(originalBytes: Buffer, editedBytes: Buff
   const restored = restoreOfficeXmlNamespaces(originalBytes, editedBytes);
   if (originalBytes.equals(editedBytes)) return restored;
   const zip = new PizZip(restored);
+  let cellsChanged = false;
+  // Excel requires formula elements before their cached values. Some editors append
+  // a new formula after <v>; many readers tolerate this, but Excel refuses to open it.
+  for (const part of zip.file(/^xl\/worksheets\/[^/]+\.xml$/)) {
+    const document = parsePart(part.asText(), part.name);
+    let changed = false;
+    for (const cell of Array.from(document.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "c"))) {
+      const children = Array.from(cell.childNodes).filter((node): node is Element => node.nodeType === 1);
+      const formulas = children.filter((node) => node.localName === "f");
+      if (formulas.length > 1) throw new Error("File Excel có công thức trùng trong cùng một ô. Hãy tạo lại file.");
+      const formula = formulas[0];
+      const value = children.find((node) => ["v", "is", "extLst"].includes(node.localName ?? ""));
+      if (formula && value && children.indexOf(formula) > children.indexOf(value)) {
+        cell.insertBefore(formula, value); changed = true;
+      }
+    }
+    if (changed) { zip.file(part.name, new XMLSerializer().serializeToString(document)); cellsChanged = true; }
+  }
   const contentTypes = parsePart(zip.file("[Content_Types].xml")!.asText(), "[Content_Types].xml");
   const chainParts = new Set<string>();
   for (const element of Array.from(contentTypes.getElementsByTagName("*"))) {
@@ -104,7 +122,7 @@ export function prepareEditedOfficeFile(originalBytes: Buffer, editedBytes: Buff
   }
   // A damaged editor result may retain the part without its content-type entry.
   if (zip.file("xl/calcChain.xml")) chainParts.add("xl/calcChain.xml");
-  if (!chainParts.size) return restored;
+  if (!chainParts.size) return cellsChanged ? zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) : restored;
   for (const part of chainParts) zip.remove(part);
   zip.file("[Content_Types].xml", new XMLSerializer().serializeToString(contentTypes));
   for (const [name, part] of Object.entries(zip.files)) {

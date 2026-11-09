@@ -6,9 +6,9 @@ import { DOMParser } from "@xmldom/xmldom";
 import { PDFDocument } from "pdf-lib";
 import { config } from "./config.js";
 import { makePdfReferenceContractWord } from "./contract-pdf-reference-word.js";
-import { contractTemplateMode, renderAcceptanceFile, renderContractFile, renderContractWithTemplate, validateContractFillPlan } from "./contract-template.js";
+import { contractBindings, contractTemplateMode, createContractFillPlan, renderAcceptanceFile, renderContractFile, renderContractWithTemplate, validateContractFillPlan } from "./contract-template.js";
 import type { AcceptanceRecord, Contract } from "./types.js";
-import type { QuoteTemplate } from "./quote-template.js";
+import { renderMappedTemplate, type QuoteTemplate } from "./quote-template.js";
 
 const contract = {
   companyName: "Công ty Mới", companyAddress: "Hà Nội", companyPhone: "0900000000", companyEmail: "office@example.com", companyTaxId: "123456789",
@@ -44,16 +44,12 @@ const acceptance = {
   lines: [{ lineIndex: 0, acceptedQuantity: 1 }],
 } as AcceptanceRecord;
 
-test("Acceptance AI failures export default Word with saved acceptance and settlement data", async () => {
+test("Acceptance AI failures reject without substituting a different template", async () => {
   const template = { extension: "docx", originalFilename: "acceptance.docx", data: new Binary(wordFixture("Mẫu nghiệm thu chưa điền").generate({ type: "nodebuffer" })) } as QuoteTemplate;
   for (const message of ["HTTP 402", "TimeoutError", "HTTP 503", "Invalid AI mapping", "AI quota exceeded"]) {
     let attempted = false;
-    const file = await renderAcceptanceFile({} as Db, template, contract, acceptance, async () => { attempted = true; throw new Error(message); });
+    await assert.rejects(renderAcceptanceFile({} as Db, template, contract, acceptance, async () => { attempted = true; throw new Error(message); }), { message });
     assert.equal(attempted, true);
-    assert.equal(file.fallback, true);
-    assert.equal(file.extension, "docx");
-    const document = new PizZip(file.bytes).file("word/document.xml")!.asText();
-    for (const value of ["NT-NEW", "HD-NEW", "Đạt yêu cầu", "23.920.000", "12.000.000", "11.920.000"]) assert.ok(document.includes(value), value);
   }
 });
 
@@ -62,7 +58,7 @@ test("Successful acceptance AI fill uses the selected template without fallback"
   config.openRouterApiKey = "test-key";
   t.after(() => { config.openRouterApiKey = previousKey; });
   const template = { extension: "docx", originalFilename: "acceptance.docx", data: new Binary(wordFixture("Mẫu riêng: OLD_DATA").generate({ type: "nodebuffer" })) } as QuoteTemplate;
-  const plan = { edits: [{ part: "word/document.xml", find: "OLD_DATA", replace: "[[acceptanceNumber]] [[customerName]] [[result]] [[settlementAmountFormatted]]" }], pdfEdits: [] };
+  const plan = { edits: [{ part: "word/document.xml", paragraph: 0, find: "OLD_DATA", replace: "[[acceptanceNumber]] [[customerName]] [[result]] [[settlementAmountFormatted]]" }], tables: [] };
   t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(plan) } }] }), { status: 200 }));
   const file = await renderAcceptanceFile({} as Db, template, contract, acceptance);
   assert.notEqual(file.fallback, true);
@@ -103,28 +99,21 @@ test("Word templates with only financial or payment placeholders are recognized 
   }
 });
 
-test("Insufficient AI credit falls back to editable Word with current contract data", async (t) => {
+test("Insufficient AI credit rejects instead of returning an unrelated Word file", async (t) => {
   const previousKey = config.openRouterApiKey;
   config.openRouterApiKey = "test-key";
   t.after(() => { config.openRouterApiKey = previousKey; });
   t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ error: { code: 402, message: "Insufficient credits" } }), { status: 402 }));
   const template = { extension: "docx", originalFilename: "contract.docx", data: new Binary(wordFixture("Mẫu hợp đồng chưa có trường dữ liệu").generate({ type: "nodebuffer" })) } as QuoteTemplate;
-  const file = await renderContractFile({} as Db, template, contract);
-  assert.equal(file.fallback, true);
-  assert.equal(file.extension, "docx");
-  const document = new PizZip(file.bytes).file("word/document.xml")!.asText();
-  for (const value of ["HD-NEW", "Ông Bình", "Công ty Mới", "23.920.000", "Điều khoản riêng"]) assert.ok(document.includes(value), value);
+  await assert.rejects(renderContractFile({} as Db, template, contract));
 });
 
-test("AI timeout, unavailable service, invalid mapping and quota failures still export Word", async () => {
+test("AI timeout, unavailable service, invalid mapping and quota failures do not publish a file", async () => {
   const template = { extension: "docx", originalFilename: "contract.docx", data: new Binary(wordFixture("Mẫu chưa điền").generate({ type: "nodebuffer" })) } as QuoteTemplate;
   for (const message of ["TimeoutError", "HTTP 503", "AI trả ánh xạ không hợp lệ", "AI quota exceeded"]) {
     let attempted = false;
-    const file = await renderContractFile({} as Db, template, contract, async () => { attempted = true; throw new Error(message); });
+    await assert.rejects(renderContractFile({} as Db, template, contract, async () => { attempted = true; throw new Error(message); }), { message });
     assert.equal(attempted, true);
-    assert.equal(file.fallback, true);
-    assert.equal(file.extension, "docx");
-    assert.match(new PizZip(file.bytes).file("word/document.xml")!.asText(), /HD-NEW/);
   }
 });
 
@@ -184,13 +173,13 @@ test("AI maps an unmarked Word contract to current data while preserving XML lay
   const template = { extension: "docx", originalFilename: "mau-khac.docx", data: new Binary(zip.generate({ type: "nodebuffer" })) } as QuoteTemplate;
   assert.equal(contractTemplateMode(template), "docx-ai");
   const plan = { edits: [
-    { part: "word/document.xml", find: "<w:t>Số cũ</w:t>", replace: "<w:t>[[contractNumber]]</w:t>" },
-    { part: "word/document.xml", find: "<w:t>Khách mẫu</w:t>", replace: "<w:t>[[customerName]]</w:t>" },
-    { part: "word/document.xml", find: "<w:t>Giá 100</w:t>", replace: "<w:t>[[total]]</w:t>" },
-  ], pdfEdits: [] };
+    { part: "word/document.xml", paragraph: 0, find: "Số cũ", replace: "[[contractNumber]]" },
+    { part: "word/document.xml", paragraph: 1, find: "Khách mẫu", replace: "[[customerName]]" },
+    { part: "word/document.xml", paragraph: 2, find: "Giá 100", replace: "[[total]]" },
+  ], tables: [] };
   t.mock.method(globalThis, "fetch", async (_url: string | URL | Request, init?: RequestInit) => {
     const request = JSON.parse(String(init?.body));
-    assert.match(request.messages[0].content, /hợp đồng/);
+    assert.match(request.messages[0].content, /mẫu Word/);
     return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(plan) } }] }), { status: 200 });
   });
   const file = await renderContractFile({} as Db, template, contract);
@@ -223,10 +212,10 @@ test("AI maps another PDF template and preserves its original page", async (t) =
     { page: 0, x: 30, y: 600, width: 180, height: 25, fontSize: 10, text: "[[total]]", erase: false },
   ] };
   t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(plan) } }] }), { status: 200 }));
-  const file = await renderContractFile({} as Db, template, contract);
-  assert.equal(file.extension, "pdf");
-  assert.equal((await PDFDocument.load(file.bytes)).getPageCount(), 1);
-  assert.equal(file.bytes.subarray(0, 4).toString(), "%PDF");
+  const mapped = await createContractFillPlan(template, contract);
+  const bytes = await renderMappedTemplate(template, contractBindings(contract), mapped);
+  assert.equal((await PDFDocument.load(bytes)).getPageCount(), 1);
+  assert.equal(bytes.subarray(0, 4).toString(), "%PDF");
 });
 
 test("AI contract mappings reject fields that the server did not provide", () => {

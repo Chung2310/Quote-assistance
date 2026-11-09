@@ -1,6 +1,6 @@
 import { userMessage } from "./user-message";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { api, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
+import { api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import { formatVndInputValue, parseVndInputValue, updateVndInput } from "./money-input";
 import type { AcceptanceRecord, Contract, Quote } from "./types";
 import { AcceptanceCreationDialog, ApprovedEstimatePickerDialog, ContractCreationDialog } from "./DocumentDialogs";
@@ -55,6 +55,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [generatingFile, setGeneratingFile] = useState(false);
   const [savedWordFile, setSavedWordFile] = useState<GeneratedFileRef | null>(null);
 
   const load = useCallback(async () => {
@@ -211,6 +212,23 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     finally { setDownloading(false); }
   };
 
+  const createContractFile = async () => {
+    if (!contract || busy || generatingFile) return;
+    setBusy(true);
+    setGeneratingFile(true);
+    setSavedWordFile(null);
+    try {
+      if (contract.status === "draft") {
+        const saved = await api<{ contract: Contract }>(`/api/contracts/${contract._id}`, { method: "PATCH", body: JSON.stringify(contractPayload()) });
+        setContract(saved.contract);
+      }
+      const file = await createGeneratedExport(`/api/contracts/${contract._id}/file?background=1`);
+      setSavedWordFile(file);
+      notify("Đã tạo và lưu file hợp đồng theo mẫu đã chọn.", "success");
+    } catch (error) { notify(`Hợp đồng vẫn được lưu. ${userMessage(error, "Chưa tạo được file. Vui lòng thử lại.")}`, "error"); }
+    finally { setBusy(false); setGeneratingFile(false); }
+  };
+
   if (loading) return <div className="workflow-page"><div className="workflow-loading"><span className="spinner spinner-dark" />Đang tải dữ liệu…</div></div>;
   const sectionHeader = <>
     <header className={`workflow-header${view === "contracts" && !id ? " workflow-contract-list-header" : ""}`}>
@@ -234,7 +252,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     {contractSourceQuote && <ContractCreationDialog quote={contractSourceQuote} notify={notify} onClose={() => setContractSourceQuote(null)} onCreated={(createdId, fileError) => {
       setContractSourceQuote(null);
       navigate("contracts", createdId);
-      notify(fileError ? `Đã tạo hợp đồng nhưng chưa tạo được file AI: ${fileError}` : "Đã tạo hợp đồng, AI đã điền mẫu và lưu file.", fileError ? "error" : "success");
+      notify(fileError ? `Hợp đồng đã lưu. ${fileError} Bấm “Tạo file hợp đồng” để thử lại.` : "Đã tạo hợp đồng và lưu file theo mẫu.", fileError ? "error" : "success");
     }} />}
   </div>;
 
@@ -264,7 +282,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       <div className="workflow-toolbar">
         <button className="button button-soft" onClick={() => navigate("contracts")}>← Danh sách hợp đồng</button>
         <div className="workflow-toolbar-actions">
-          <button className="button button-primary" type="button" disabled={downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>Tải file</button>
+          <button className="button button-soft" type="button" disabled={busy || downloading || generatingFile} onClick={() => void createContractFile()}>{generatingFile ? "Đang tạo file…" : savedWordFile ? "Tạo lại file" : "Tạo file hợp đồng"}</button>
+          <button className="button button-primary" type="button" disabled={busy || downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>Tải file</button>
           {contract.status === "signed" && <button className="button button-soft" disabled={busy} onClick={() => void createAcceptance(contract)}>Tạo nghiệm thu</button>}
         </div>
       </div>

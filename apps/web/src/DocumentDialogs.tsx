@@ -7,7 +7,11 @@ import "./document-dialogs.css";
 
 type CompanyPrefill = { name: string; address: string; taxId: string; representativeName: string; phone: string; email: string };
 type Notify = (message: string, kind?: "success" | "error") => void;
-type ContractTemplateOption = { id: string; name: string; originalFilename: string; extension: string; mode?: "pdf-reference" | "pdf-ai" | "docx" | "docx-ai" };
+type ContractTemplateOption = { id: string; name: string; originalFilename: string; extension: string };
+
+function templateFormat(extension: string) {
+  return extension === "docx" ? "Word" : extension === "xlsx" ? "Excel" : "PDF";
+}
 
 async function loadContractTemplates() {
   return (await api<{ templates: ContractTemplateOption[] }>("/api/contract-templates")).templates;
@@ -156,7 +160,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
         await createGeneratedExport(`/api/contracts/${contract._id}/file?background=1`);
         onCreated(contract._id);
       } catch (error) {
-        notify("Đã tạo hợp đồng nhưng AI chưa điền được file. Hãy kiểm tra mẫu hợp đồng rồi bấm tạo lại để thử lại.", "error");
+        onCreated(contract._id, userMessage(error, "Chưa tạo được file hợp đồng. Bạn có thể thử lại trong hồ sơ đã lưu."));
       }
     } catch (error) { notify(userMessage(error, "Không tạo được hợp đồng."), "error"); }
     finally { setBusy(false); }
@@ -167,7 +171,7 @@ export function ContractCreationDialog({ quote, onClose, onCreated, notify }: {
       <form onSubmit={(event) => void submit(event)}>
         <div className="document-dialog-body">
           <h3>Mẫu hợp đồng</h3>
-          {templatesLoading ? <p className="document-dialog-note">Đang tải mẫu hợp đồng…</p> : templateError ? <p className="document-dialog-note" role="alert">{templateError}</p> : <label>Chọn mẫu hợp đồng<select value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={busy || templates.length === 0}>{templates.length ? templates.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.mode === "pdf-reference" ? "Word dựng theo PDF" : item.mode === "pdf-ai" ? "AI điền PDF" : item.mode === "docx-ai" ? "AI điền Word" : "Word có trường dữ liệu"})</option>) : <option value="">Mẫu Word mặc định</option>}</select></label>}
+          {templatesLoading ? <p className="document-dialog-note">Đang tải mẫu hợp đồng…</p> : templateError ? <p className="document-dialog-note" role="alert">{templateError}</p> : <label>Chọn mẫu hợp đồng<select value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={busy || templates.length === 0}>{templates.length ? templates.map((item) => <option key={item.id} value={item.id}>{item.name} ({templateFormat(item.extension)})</option>) : <option value="">Mẫu Word mặc định</option>}</select></label>}
           {!!templates.length && <p className="document-dialog-note">Sau khi tạo, AI sẽ điền thông tin và hạng mục dự toán vào mẫu, rồi lưu file hợp đồng để tải lại trong hồ sơ.</p>}
           <h3>Bên A · Khách hàng</h3>
           <div className="document-dialog-grid"><label>Tên khách hàng *<input required maxLength={250} value={customerName} onChange={(event) => setCustomerName(event.target.value)} /></label><label>Người đại diện *<input required maxLength={250} value={customerRepresentative} onChange={(event) => setCustomerRepresentative(event.target.value)} /></label><label>Địa chỉ *<input required maxLength={250} value={customerAddress} onChange={(event) => setCustomerAddress(event.target.value)} /></label><label>Mã số thuế<input maxLength={250} value={customerTaxId} onChange={(event) => setCustomerTaxId(event.target.value)} /></label><label>Điện thoại<input maxLength={250} value={customerPhone} onChange={(event) => setCustomerPhone(event.target.value)} /></label><label>Email<input type="email" maxLength={250} value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} /></label></div>
@@ -279,8 +283,8 @@ export function AcceptanceCreationDialog({ contract, onClose, onCreated, notify 
       <div className="document-dialog-head"><div><h2 id="acceptance-create-title">Tạo biên bản nghiệm thu</h2><p>Từ hợp đồng {contract.contractNumber}</p></div><div className="document-dialog-head-actions"><button type="button" aria-label="Đóng" onClick={onClose} disabled={busy}>×</button></div></div>
       <form onSubmit={(event) => void submit(event)}><div className="document-dialog-body">
         <h3>Mẫu nghiệm thu</h3>
-        {templatesLoading ? <p className="document-dialog-note">Đang tải mẫu nghiệm thu và quyết toán…</p> : templateError ? <p className="document-dialog-note" role="alert">{templateError}</p> : <label>Chọn mẫu nghiệm thu / quyết toán<select value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={busy || templates.length === 0}>{templates.length ? templates.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.extension === "xlsx" ? "Excel" : item.mode === "pdf-ai" ? "AI đọc PDF → Word" : item.mode === "docx-ai" ? "AI điền Word" : item.mode === "docx" ? "Word có trường dữ liệu" : "Word dựng theo PDF"})</option>) : <option value="">Mẫu Word mặc định</option>}</select></label>}
-        {!!templates.length && <p className="document-dialog-note">AI sẽ tìm vị trí ngày nghiệm thu, kết quả, khối lượng và quyết toán trong mẫu. Mẫu PDF được điền rồi chuyển sang file Word.</p>}
+        {templatesLoading ? <p className="document-dialog-note">Đang tải mẫu nghiệm thu và quyết toán…</p> : templateError ? <p className="document-dialog-note" role="alert">{templateError}</p> : <label>Chọn mẫu nghiệm thu / quyết toán<select value={templateId} onChange={(event) => setTemplateId(event.target.value)} disabled={busy || templates.length === 0}>{templates.length ? templates.map((item) => <option key={item.id} value={item.id}>{item.name} ({templateFormat(item.extension)})</option>) : <option value="">Mẫu Word mặc định</option>}</select></label>}
+        {!!templates.length && <p className="document-dialog-note">Thông tin ngày nghiệm thu, kết quả, khối lượng và quyết toán được điền vào đúng mẫu đã chọn, giữ định dạng file ban đầu.</p>}
         <h3>Sản phẩm / hạng mục trong hợp đồng {!contractLinesLoading && `(${contractLines.length})`}</h3>
         <p className="document-dialog-note">Tích riêng từng sản phẩm đã nghiệm thu. Số lượng hợp đồng được giữ để đối chiếu; nhập số lượng nghiệm thu bên cạnh.</p>
         {contractLinesLoading ? <p className="document-dialog-note">Đang tải sản phẩm và số lượng từ hợp đồng…</p> : contractLinesError ? <p className="document-dialog-note" role="alert">{contractLinesError}</p> : contractLines.length ? <div className="document-dialog-acceptance-line-list">{contractLines.map((line, index) => <div className="document-dialog-acceptance-line" key={index}>
