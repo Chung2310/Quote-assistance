@@ -431,7 +431,7 @@ function UserApp() {
         : quoteId && section === "customerQuotes" ?
         <CustomerQuoteDetail key={quoteId} id={quoteId} onBack={closeQuote} onChanged={refresh} onToast={notify} onAiUsed={() => void loadUsage()} confirm={confirm} onDeleteQuote={removeQuote} onCreateEstimate={createEstimateFromCustomerQuote} />
         : quoteId ?
-          <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={closeQuote} onChanged={refresh} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} onCreateContract={createContract} />
+          <QuoteDetail key={quoteId} id={quoteId} user={user} onBack={closeQuote} onChanged={refresh} onAiUsed={() => void loadUsage()} onToast={notify} confirm={confirm} onDeleteQuote={removeQuote} onCreateContract={createContract} />
           : section === "home" ?
             <Dashboard key={refreshKey} canCreate={canCreateQuote} usage={usage} quoteUsageLabel={quoteUsageLabel} createBlockedMessage={quoteBlockedMessage} onRefreshUsage={() => void loadUsage()} showUsageError={Boolean(usageError)} canReview onOpen={openQuote} onCreate={createQuote} onNavigate={navigateSection} onDeleteQuote={(quote) => void removeQuote(quote)} />
             : section === "quotes" ?
@@ -1563,7 +1563,7 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
   );
 }
 
-function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQuote, onCreateContract }: { id: string; user: User; onBack: () => void; onChanged: () => void; onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean>; onDeleteQuote: (quote: Quote) => void; onCreateContract: (quote: Quote) => Promise<void> }) {
+function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, onDeleteQuote, onCreateContract }: { id: string; user: User; onBack: () => void; onChanged: () => void; onAiUsed: () => void; onToast: Notify; confirm: (options: ConfirmOptions) => Promise<boolean>; onDeleteQuote: (quote: Quote) => void; onCreateContract: (quote: Quote) => Promise<void> }) {
   const [quote, setQuote] = useState<Quote | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [taxRateText, setTaxRateText] = useState("0");
@@ -1572,6 +1572,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
   const [shippingFeeText, setShippingFeeText] = useState("");
   const [shippingMode, setShippingMode] = useState<ShippingMode>("unconfirmed");
   const [additionalInformation, setAdditionalInformation] = useState<Record<string, string>>({});
+  const [revisionRequirements, setRevisionRequirements] = useState("");
   const [supplementalProducts, setSupplementalProducts] = useState<SupplementalProductDraft[]>([]);
   const [validityDaysText, setValidityDaysText] = useState("");
   const [completionDateText, setCompletionDateText] = useState("");
@@ -1611,6 +1612,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       setShippingFeeText(loadedShippingFee === null ? "" : String(loadedShippingFee));
       setShippingMode(loadedShippingFee === null ? "unconfirmed" : loadedShippingFee === 0 ? "free" : "paid");
       setAdditionalInformation(value.additionalInformation ?? {});
+      setRevisionRequirements(value.revisionRequirements ?? "");
       const savedSupplemental = value.lines.filter((line) => line.source === "supplemental");
       const supplementalDrafts: SupplementalProductDraft[] = savedSupplemental.map((line) => ({
         id: line.catalogItemId,
@@ -1664,7 +1666,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       .catch(() => { if (active) setSavedEstimateFile(null); })
       .finally(() => { if (active) setLoadingSavedEstimateFile(false); });
     return () => { active = false; };
-  }, [quote?._id, quote?.status]);
+  }, [quote?._id, quote?.status, quote?.updatedAt]);
   const hasIncompleteSupplementalProduct = supplementalProducts.some((product) => {
     if (!hasSupplementalProductContent(product)) return false;
     const quantity = Number(product.quantity);
@@ -1675,7 +1677,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       || product.description.length > 2000;
   });
 
-  const editPayload = () => ({
+  const editPayload = (forAi = false) => ({
     items: quote?.lines.filter((line) => line.source !== "supplemental").map((line) => ({
       catalogItemId: line.catalogItemId,
       quantity: Number(quantities[line.catalogItemId]) || line.quantity,
@@ -1688,6 +1690,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       unit: product.unit,
       quantity: Number(product.quantity),
       unitPrice: Number(product.unitPrice),
+      ...(forAi && !product.unitPrice.trim() ? { priceUnavailable: true } : {}),
     })),
     taxRate: Number(taxRateText) / 100,
     taxRateConfirmed: taxMode !== "unconfirmed" && taxRateConfirmed && taxRateText.trim() !== "",
@@ -1696,6 +1699,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     validityDays: validityDaysText.trim() === "" ? null : Number(validityDaysText),
     completionDate: completionDateText || null,
     additionalInformation,
+    revisionRequirements,
     customerName,
     customerEmail,
     customerPhone,
@@ -1733,6 +1737,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       (completionDateText || null) !== (quote.completionDate ?? null) ||
       [...new Set([...Object.keys(quote.additionalInformation ?? {}), ...Object.keys(additionalInformation)])]
         .some((field) => (quote.additionalInformation?.[field] ?? "").trim() !== (additionalInformation[field] ?? "").trim()) ||
+      revisionRequirements.trim() !== (quote.revisionRequirements ?? "") ||
       customerName !== quote.customerName ||
       customerEmail !== quote.customerEmail ||
       customerPhone !== (quote.customerPhone ?? "")
@@ -1839,8 +1844,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     }
     return !canSupplementMissingInformation(field) || !additionalInformation[field]?.trim();
   });
-  const hasUnresolvedInformation = unresolvedInformation.length > 0 || !taxRateConfirmed || taxRateText.trim() === "" || !shippingFeeIsConfirmed;
-  const supplementalInformation = quote.informationNeeded.filter((field) => !isTaxMissingInformation(field) && !isShippingMissingInformation(field) && !isSupplementalProductInformation(field));
+  const needsAiRecalculation = quote.requiresAiRecalculation === true
+    || revisionRequirements.trim() !== (quote.revisionRequirements ?? "")
+    || Object.entries(additionalInformation).some(([field, answer]) => answer.trim() !== (quote.additionalInformation?.[field] ?? "").trim())
+    || Object.keys(quote.additionalInformation ?? {}).some((field) => !(field in additionalInformation));
+  const hasUnresolvedInformation = unresolvedInformation.length > 0 || !taxRateConfirmed || taxRateText.trim() === "" || !shippingFeeIsConfirmed || needsAiRecalculation;
+  const supplementalInformation = [...new Set([...quote.informationNeeded, ...Object.keys(quote.additionalInformation ?? {})])].filter((field) => !isTaxMissingInformation(field) && !isShippingMissingInformation(field) && !isSupplementalProductInformation(field));
   const unresolvedProductNeeds = unresolvedInformation.filter(isSupplementalProductInformation).map((field) => ({
     field,
     suggestion: quote.suggestedProducts?.find((product) => product.informationField === field),
@@ -1852,20 +1861,56 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     ...(!shippingFeeIsConfirmed ? ["Phí vận chuyển"] : []),
     ...(!taxRateConfirmed || taxRateText.trim() === "" ? ["VAT"] : []),
   ];
-  const unresolvedItemCount = unresolvedOtherInformation.length + missingSetupInformation.length + unresolvedProductNeeds.length;
+  const unresolvedItemCount = unresolvedOtherInformation.length + missingSetupInformation.length + unresolvedProductNeeds.length + (needsAiRecalculation ? 1 : 0);
   const catalogLines = quote.lines.filter((line) => line.source !== "supplemental");
   const displaySupplementalProducts = supplementalProducts.filter(hasSupplementalProductContent);
   const visibleLineCount = catalogLines.length + displaySupplementalProducts.length;
   const save = () => perform(`/api/quotes/${quote._id}`, editPayload(), "PATCH", "Đã lưu thay đổi và tính lại giá.");
 
+  const estimateFileOutdated = !savedEstimateFile?.createdAt || new Date(savedEstimateFile.createdAt).getTime() < new Date(quote.updatedAt).getTime();
+  const createEstimateFile = async () => ({
+    ...await createGeneratedExport(`/api/quotes/${quote._id}/export?background=1${quote.status === "approved" ? "" : "&draft=1"}`),
+    createdAt: new Date().toISOString(),
+  });
+  const recalculate = async () => {
+    if (busy) return;
+    const invalidProduct = supplementalProducts.some((product) => hasSupplementalProductContent(product) && (
+      !product.name.trim() || !product.unit.trim() || !product.quantity.trim() || !Number.isFinite(Number(product.quantity)) || Number(product.quantity) <= 0
+      || (product.unitPrice.trim() !== "" && (!Number.isFinite(Number(product.unitPrice)) || Number(product.unitPrice) < 0))
+    ));
+    if (invalidProduct) { setError("Hãy nhập tên, đơn vị và số lượng hợp lệ cho sản phẩm bổ sung. Có thể để trống đơn giá chưa biết."); return; }
+    setBusy(true);
+    setTaskProgress({ label: "AI đang tính lại dự toán", detail: "Đang xử lý yêu cầu, câu trả lời bổ sung và thông tin sản phẩm mới nhất…" });
+    try {
+      await api(`/api/quotes/${quote._id}`, { method: "PATCH", body: JSON.stringify({ ...editPayload(true), recalculateWithAi: true }) });
+      await load();
+      onChanged();
+      setTaskProgress({ label: "Đang tạo file dự toán mới", detail: "Đang điền dữ liệu đã cập nhật vào mẫu tài liệu…" });
+      try {
+        const file = await createEstimateFile();
+        setSavedEstimateFile(file);
+        onToast("Đã tính lại dự toán và tạo file mới theo thông tin bổ sung.", "success");
+      } catch (cause) {
+        setError(`Dự toán đã được tính lại. Chưa tạo được file mới: ${userMessage(cause, "Vui lòng bấm tạo lại file.")}`);
+      }
+    } catch (cause) { setError(userMessage(cause, "Chưa tính lại được dự toán. Nội dung đang nhập vẫn được giữ để thử lại.")); }
+    finally { setBusy(false); setTaskProgress(null); onChanged(); onAiUsed(); }
+  };
+
   const downloadSavedEstimate = async () => {
-    if (!savedEstimateFile || busy || loadingSavedEstimateFile) return;
+    if (busy || loadingSavedEstimateFile || hasUnsavedChanges || needsAiRecalculation) return;
     setBusy(true);
     try {
-      await downloadGeneratedFile(savedEstimateFile.id);
-      onToast("Đã tải file đã lưu.", "success");
+      let file = savedEstimateFile;
+      if (!file || estimateFileOutdated) {
+        setTaskProgress({ label: "Đang tạo file dự toán mới", detail: "Đang xuất theo dữ liệu đã lưu mới nhất…" });
+        file = await createEstimateFile();
+        setSavedEstimateFile(file);
+      }
+      await downloadGeneratedFile(file.id);
+      onToast("Đã tải file dự toán.", "success");
     } catch (cause) { setError(userMessage(cause, "Không tải được file đã lưu.")); }
-    finally { setBusy(false); }
+    finally { setBusy(false); setTaskProgress(null); onAiUsed(); }
   };
 
   return (
@@ -1944,12 +1989,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
           <button
             type="button"
             className="button button-primary"
-            disabled={busy || loadingSavedEstimateFile || !savedEstimateFile}
-            title={savedEstimateFile ? "Tải file đã lưu" : loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu" : "Chưa có file dự toán đã lưu"}
+            disabled={busy || loadingSavedEstimateFile || hasUnsavedChanges || needsAiRecalculation}
+            title={needsAiRecalculation ? "Chạy lại AI để cập nhật dự toán theo thông tin mới" : hasUnsavedChanges ? "Lưu thay đổi trước khi tải file" : estimateFileOutdated ? "Tạo file theo dữ liệu mới nhất" : "Tải file đã lưu"}
             onClick={() => void downloadSavedEstimate()}
           >
             <Icon name="download" size={16} />
-            <span>{loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu…" : savedEstimateFile ? `Tải file đã lưu (${savedEstimateFile.filename})` : "Chưa có file dự toán đã lưu"}</span>
+            <span>{loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu…" : !savedEstimateFile || estimateFileOutdated ? "Tạo và tải file mới" : `Tải file đã lưu (${savedEstimateFile.filename})`}</span>
           </button>
           {canApprove && (["draft", "needs_info", "pending_review"].includes(quote.status)) && (
             <>
@@ -2124,6 +2169,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
               <p>{[
                 ...unresolvedOtherInformation,
                 ...missingSetupInformation.map((field) => `${field}: chưa xác nhận`),
+                ...(needsAiRecalculation ? ["Có thông tin bổ sung mới; cần chạy lại AI để cập nhật dự toán"] : []),
               ].join(" · ") || "Cần hoàn tất các hạng mục bên dưới."}</p>
             </div>
           </div>
@@ -2176,6 +2222,14 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             ))}
           </div>}
 
+          {(editable || quote.revisionRequirements) && <div className="quote-supplement-field">
+            <label htmlFor={`revision-${quote._id}`}>Yêu cầu cập nhật dự toán</label>
+            <textarea id={`revision-${quote._id}`} rows={3} maxLength={10000} value={revisionRequirements} disabled={!editable || busy}
+              placeholder="Ví dụ: Diện tích thực tế là 50 m², chỉ tính số bao tối thiểu; bỏ hạng mục không còn sử dụng…"
+              onChange={(event) => setRevisionRequirements(event.target.value)} />
+            <small>AI dùng yêu cầu ban đầu, các câu trả lời bổ sung và dữ liệu hiện tại để tính lại. Thông tin mới được ưu tiên khi thay đổi yêu cầu cũ.</small>
+          </div>}
+
           <div className="quote-supplement-products">
             <div className="quote-supplement-products-heading">
               <div><strong>Sản phẩm / hạng mục bổ sung</strong><small>Tổng dòng hàng được tính từ số lượng × đơn giá.</small></div>
@@ -2209,9 +2263,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
               </table>
             </div> : <p className="quote-supplement-empty">Chưa có dòng bổ sung. Bấm “Thêm dòng” để nhập hạng mục mới.</p>}
           </div>
-          {editable && hasUnsavedChanges && <div className="quote-supplement-actions">
-            <button type="button" className="button button-primary" disabled={busy} onClick={() => void save()}>
+          {editable && <div className="quote-supplement-actions">
+            {hasUnsavedChanges && <button type="button" className="button button-soft" disabled={busy || hasIncompleteSupplementalProduct} onClick={() => void save()}>
               {busy ? "Đang lưu…" : "Lưu thông tin bổ sung"}
+            </button>}
+            <button type="button" className="button button-primary" disabled={busy} onClick={() => void recalculate()}>
+              <Icon name="spark" size={15} /> Lưu và chạy lại AI
             </button>
           </div>}
         </section>

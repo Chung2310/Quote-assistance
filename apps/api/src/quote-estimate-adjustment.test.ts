@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyAdjustment, validateAdjustment } from "./quote-estimate-adjustment.js";
+import { applyAdjustment, recalculateEstimateWithClarifications, validateAdjustment } from "./quote-estimate-adjustment.js";
 import { estimateFromCustomerQuote } from "./quote-from-customer.js";
 import type { Quote } from "./types.js";
 
@@ -105,4 +105,123 @@ test("không nhầm phần trăm đặt cọc với thuế suất VAT", () => {
   assert.equal(adjusted.taxRate, 0.08);
   assert.equal(adjusted.taxRateConfirmed, true);
   assert.equal(adjusted.total, 3_590_000);
+});
+
+test("tính lại dùng toàn bộ câu trả lời, thông số và dữ liệu mới mà không áp lại diện tích, VAT, vận chuyển cũ", async () => {
+  const estimate = base();
+  estimate.lines = [{ ...estimate.lines[0]!, name: "Vữa chống thấm", unit: "bao", description: "Bao 25kg", quantity: 29, unitPrice: 100_000,
+    catalogAttributes: { "Mật độ phủ": "2.5-3.5 m²", "Độ dày": "5-7mm" } }];
+  estimate.sourceRequirements = "Dùng cho 100 m²; VAT 10%; phí vận chuyển 350.000 VND.";
+  estimate.revisionRequirements = "Chỉ tính số bao tối thiểu, không cộng hao hụt.";
+  estimate.additionalInformation = { "Câu hỏi bổ sung: Diện tích thực tế?": "50 m²", "Câu hỏi bổ sung: VAT 8% hay 10%?": "8%", "Câu hỏi bổ sung: Phí vận chuyển?": "300.000 VND" };
+  estimate.informationNeeded = Object.keys(estimate.additionalInformation);
+  let calls = 0;
+  const result = await recalculateEstimateWithClarifications(estimate, estimate.sourceRequirements, async (messages) => {
+    calls++;
+    const payload = JSON.parse(messages.find((message) => message.role === "user")!.content);
+    assert.equal(payload.clarifications.length, 3);
+    assert.equal(payload.originalRequest, estimate.sourceRequirements);
+    assert.equal(payload.revisionRequirements, estimate.revisionRequirements);
+    assert.deepEqual(payload.lines[0].catalogAttributes, estimate.lines[0]!.catalogAttributes);
+    assert.equal(payload.lines[0].quantity, 29);
+    return { changes: [{ index: 0, quantity: 999, quantityRequirement: { quantity: 50, unit: "m²", evidence: "50 m²" } }], additions: [], questions: [] };
+  });
+  assert.equal(calls, 1);
+  assert.equal(result.lines[0]!.quantity, 15);
+  assert.equal(result.taxRate, 0.08);
+  assert.equal(result.shippingFee, 300_000);
+  assert.equal(result.total, 1_920_000);
+  assert.deepEqual(result.informationNeeded, []);
+  assert.deepEqual(result.additionalInformation, estimate.additionalInformation);
+  assert.equal(result.requiresAiRecalculation, false);
+  assert.equal(estimate.lines[0]!.quantity, 29);
+});
+
+test("sửa câu trả lời rồi chạy lại tiếp sẽ dùng diện tích mới và giữ điều khoản hiện tại", async () => {
+  const estimate = base();
+  estimate.lines = [{ ...estimate.lines[0]!, name: "Vữa chống thấm", unit: "bao", quantity: 15, unitPrice: 100_000, catalogAttributes: { "Độ phủ": "3.5 m²/bao" } }];
+  estimate.additionalInformation = { "Câu hỏi bổ sung: Diện tích?": "70 m²" };
+  estimate.taxRate = 0.08;
+  estimate.shippingFee = 300_000;
+  const result = await recalculateEstimateWithClarifications(estimate, "Ban đầu 100 m²; VAT 10%; phí vận chuyển 350.000 VND.", async () => ({ changes: [{ index: 0, quantity: 999, quantityRequirement: { quantity: 70, unit: "m²", evidence: "70 m²" } }], additions: [], questions: [] }));
+  assert.equal(result.lines[0]!.quantity, 20);
+  assert.equal(result.total, 2_460_000);
+});
+
+test("câu hỏi chưa trả lời và khoản chưa xác nhận vẫn cần bổ sung sau khi tính lại", async () => {
+  const estimate = base();
+  estimate.informationNeeded = ["Câu hỏi bổ sung: Diện tích?", "Câu hỏi bổ sung: Thời gian giao hàng?"];
+  estimate.additionalInformation = { "Câu hỏi bổ sung: Diện tích?": "50 m²" };
+  estimate.taxRateConfirmed = false;
+  estimate.shippingFeeConfirmed = false;
+  const result = await recalculateEstimateWithClarifications(estimate, "", async () => ({ changes: [], additions: [], questions: [] }));
+  assert.equal(result.status, "needs_info");
+  assert.equal(result.informationConfirmed, false);
+  assert.ok(result.informationNeeded.includes("Câu hỏi bổ sung: Thời gian giao hàng?"));
+  assert.ok(!result.informationNeeded.includes("Câu hỏi bổ sung: Diện tích?"));
+  assert.ok(result.informationNeeded.some((field) => field.startsWith("VAT:")));
+  assert.ok(result.informationNeeded.some((field) => field.startsWith("Phí vận chuyển:")));
+});
+
+test("chạy lại giữ nguyên mã dòng chưa biết giá, không biến giá trống thành miễn phí", async () => {
+  const estimate = base();
+  estimate.lines[0] = { ...estimate.lines[0]!, catalogItemId: "supplemental:pending", source: "supplemental", priceUnavailable: true, unitPrice: 0, lineTotal: 0, supplementalFor: "Sản phẩm cần bổ sung giá: Bàn" };
+  estimate.informationNeeded = [estimate.lines[0]!.supplementalFor!];
+  const result = await recalculateEstimateWithClarifications(estimate, "", async () => ({ changes: [{ index: 0, quantity: 4 }], additions: [], questions: [] }));
+  assert.equal(result.lines[0]!.catalogItemId, "supplemental:pending");
+  assert.equal(result.lines[0]!.priceUnavailable, true);
+  assert.equal(result.status, "needs_info");
+  assert.equal(result.lines[0]!.quantity, 4);
+});
+
+test("kết quả AI sai không sửa dữ liệu đang có, kể cả sau lần thử lại", async () => {
+  const estimate = base();
+  const before = structuredClone(estimate);
+  let calls = 0;
+  await assert.rejects(recalculateEstimateWithClarifications(estimate, "", async () => {
+    calls++;
+    return { changes: [{ index: 99, quantity: 4 }], additions: [], questions: [] };
+  }), /tham chiếu/);
+  assert.equal(calls, 2);
+  assert.deepEqual(estimate, before);
+});
+
+test("yêu cầu cập nhật tự do có thể trả lời câu hỏi bằng trích dẫn đúng nội dung mới", async () => {
+  const estimate = base();
+  const question = "Câu hỏi bổ sung: Thời gian giao hàng?";
+  estimate.informationNeeded = [question];
+  estimate.revisionRequirements = "Giao hàng vào sáng thứ hai.";
+  const result = await recalculateEstimateWithClarifications(estimate, "", async () => ({ changes: [], additions: [], questions: [], resolvedQuestions: [{ question, evidence: "sáng thứ hai" }] }));
+  assert.equal(result.additionalInformation?.[question], "sáng thứ hai");
+  assert.equal(result.status, "draft");
+  await assert.rejects(recalculateEstimateWithClarifications(estimate, "", async () => ({ changes: [], additions: [], questions: [], resolvedQuestions: [{ question, evidence: "thứ ba" }] })), /không nằm/);
+});
+
+test("lần chạy tiếp phân biệt lệnh mới với lệnh đã áp dụng, giữ VAT và vận chuyển người dùng sửa trực tiếp", async () => {
+  const estimate = base();
+  estimate.additionalInformation = { "Câu hỏi bổ sung: VAT?": "8%", "Câu hỏi bổ sung: Phí vận chuyển?": "300.000 VND" };
+  estimate.revisionRequirements = "Thêm 2 ghế.";
+  estimate.aiAppliedInputs = { revisionRequirements: estimate.revisionRequirements, additionalInformation: { ...estimate.additionalInformation } };
+  estimate.taxRate = 0.1;
+  estimate.shippingFee = 400_000;
+  const result = await recalculateEstimateWithClarifications(estimate, "VAT 5%", async (messages) => {
+    const payload = JSON.parse(messages.find((message) => message.role === "user")!.content);
+    assert.deepEqual(payload.newClarifications, []);
+    assert.equal(payload.newRevisionRequirements, "");
+    return { changes: [], additions: [], questions: [] };
+  });
+  assert.equal(result.lines.length, 1);
+  assert.equal(result.taxRate, 0.1);
+  assert.equal(result.shippingFee, 400_000);
+  assert.equal(result.total, 3_700_000);
+});
+
+test("câu trả lời miễn phí vận chuyển được hiểu là 0, không giữ phí cũ", async () => {
+  const estimate = base();
+  estimate.shippingFee = 350_000;
+  estimate.additionalInformation = { "Câu hỏi bổ sung: Phí vận chuyển?": "Miễn phí" };
+  const result = await recalculateEstimateWithClarifications(estimate, "", async () => ({ changes: [], additions: [], questions: [] }));
+  assert.equal(result.shippingFee, 0);
+  assert.equal(result.shippingFeeConfirmed, true);
+  assert.equal(result.total, 3_000_000);
 });

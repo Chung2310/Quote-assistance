@@ -23,7 +23,7 @@ import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
 import { estimateFromCustomerQuote } from "./quote-from-customer.js";
 import { makeDocumentWord } from "./document-word.js";
 import { contractTemplateMode, renderAcceptanceFile, renderContractFile } from "./contract-template.js";
-import { adjustEstimateWithRequirements } from "./quote-estimate-adjustment.js";
+import { adjustEstimateWithRequirements, recalculateEstimateWithClarifications } from "./quote-estimate-adjustment.js";
 import { acceptanceFinancials, settlementContractContext } from "./acceptance-export.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
 import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
@@ -75,7 +75,7 @@ function quoteForResponse(quote: Quote): Quote {
   );
   if (!taxRateConfirmed && !confirmedInformationNeeded.some(isTaxInformation)) confirmedInformationNeeded.push("VAT: cần xác nhận thuế suất.");
   if (!shippingFeeConfirmed && !confirmedInformationNeeded.some(isShippingInformation)) confirmedInformationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
-  const unresolved = confirmedInformationNeeded.some((field) => isSupplementalProductInformation(field)
+  const unresolved = quote.requiresAiRecalculation === true || confirmedInformationNeeded.some((field) => isSupplementalProductInformation(field)
     ? !quote.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field && !line.priceUnavailable)
     : !quote.additionalInformation?.[field]?.trim())
     || !taxRateConfirmed || !shippingFeeConfirmed;
@@ -117,13 +117,15 @@ async function customerQuoteWithPrices(db: Db, quote: Quote): Promise<Quote> {
 
 function quoteHasUnresolvedInformation(quote: Quote) {
   const normalized = quoteForResponse(quote);
-  return normalized.informationNeeded.some((field) => isSupplementalProductInformation(field)
+  return normalized.requiresAiRecalculation === true || normalized.informationNeeded.some((field) => isSupplementalProductInformation(field)
     ? !normalized.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field && !line.priceUnavailable)
     : !normalized.additionalInformation?.[field]?.trim())
     || !normalized.taxRateConfirmed || !normalized.shippingFeeConfirmed;
 }
 
 async function quoteInputContext(db: Db, quote: Quote) {
+  const sourceQuoteId = quote.sourceQuote?.id ? asId(quote.sourceQuote.id) : null;
+  const sourceQuote = sourceQuoteId ? await db.collection<Quote>("quotes").findOne({ _id: sourceQuoteId, companyId: quote.companyId }, { projection: { sourceRequirements: 1 } }) : null;
   const requestId = asId(quote.requestId);
   const source = requestId
     ? await db.collection<QuoteRequest>("quoteRequests").findOne({ _id: requestId, companyId: quote.companyId }, { projection: { requestText: 1, requestFile: 1, createdBy: 1, items: 1, suggestedProducts: 1 } })
@@ -142,6 +144,8 @@ async function quoteInputContext(db: Db, quote: Quote) {
   }
   return [
     quote.sourceRequirements ?? "",
+    sourceQuote?.sourceRequirements ?? "",
+    quote.revisionRequirements ?? "",
     source?.requestText ?? "",
     attachedText,
     ...(source?.items ?? []).flatMap((item) => Object.entries(item.attributes ?? {}).flat()),
@@ -2890,6 +2894,11 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
     return fail(response, "Danh sách sản phẩm trong báo giá đã thay đổi. Vui lòng tải lại trang rồi thử lại.");
   }
   const body = isRecord(request.body) ? request.body : {};
+  if (body.recalculateWithAi !== undefined && typeof body.recalculateWithAi !== "boolean") return fail(response, "Yêu cầu tính lại dự toán không hợp lệ.", 422);
+  const recalculateWithAi = body.recalculateWithAi === true;
+  if (recalculateWithAi && (quote.kind === "customer" || quote.kind === "budget")) return fail(response, "Chức năng tính lại này chỉ áp dụng cho dự toán.", 422);
+  const revisionRequirements = Object.prototype.hasOwnProperty.call(body, "revisionRequirements") ? body.revisionRequirements : quote.revisionRequirements ?? "";
+  if (typeof revisionRequirements !== "string" || revisionRequirements.length > 10_000) return fail(response, "Yêu cầu cập nhật không được vượt quá 10.000 ký tự.", 422);
   const currentQuote = quoteForResponse(quote);
   let additionalInformation = { ...(currentQuote.additionalInformation ?? {}) };
   if (Object.prototype.hasOwnProperty.call(body, "additionalInformation")) {
@@ -2926,6 +2935,8 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
     const unit = typeof rawProduct.unit === "string" ? rawProduct.unit.trim() : "";
     const quantity = rawProduct.quantity;
     const unitPrice = rawProduct.unitPrice;
+    const priceUnavailable = recalculateWithAi && rawProduct.priceUnavailable === true;
+    if (rawProduct.priceUnavailable !== undefined && (typeof rawProduct.priceUnavailable !== "boolean" || (rawProduct.priceUnavailable && !recalculateWithAi))) return fail(response, "Hãy nhập đơn giá trước khi lưu sản phẩm bổ sung.", 422);
     if (!validText(name, 250) || description.length > 2000 || !validText(unit, 50)) return fail(response, "Mỗi dòng bổ sung cần có tên sản phẩm và đơn vị tính hợp lệ.");
     if (typeof quantity !== "number" || !Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) return fail(response, "Số lượng sản phẩm bổ sung phải lớn hơn 0 và không vượt quá 1.000.000.");
     if (typeof unitPrice !== "number" || !Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 1e12) return fail(response, "Đơn giá sản phẩm bổ sung phải là số tiền không âm.");
@@ -2938,13 +2949,15 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
     usedSupplementalIds.add(id);
     if (rawProduct.informationField !== undefined && typeof rawProduct.informationField !== "string") return fail(response, "Mục thiếu thông tin không hợp lệ.");
     const informationField = typeof rawProduct.informationField === "string" ? rawProduct.informationField : existingLine?.supplementalFor;
-    if (informationField && (!currentQuote.informationNeeded.includes(informationField) || !isSupplementalProductInformation(informationField))) {
+    if (informationField && existingLine?.supplementalFor !== informationField && (!currentQuote.informationNeeded.includes(informationField) || !isSupplementalProductInformation(informationField))) {
       return fail(response, "Mục thông tin cần bổ sung không khớp với sản phẩm.");
     }
     supplementalLines.push({
       catalogItemId: id, source: "supplemental", ...(informationField ? { supplementalFor: informationField } : {}),
-      sku: "", name, description, quantity, unit, unitPrice, currency: quote.currency, catalogAttributes: {}, attributes: {},
-      lineTotal: roundMoney(quantity * unitPrice),
+      sku: "", name, description, quantity, unit, unitPrice: priceUnavailable ? 0 : unitPrice, currency: quote.currency,
+      catalogAttributes: existingLine?.catalogAttributes ?? {}, attributes: existingLine?.attributes ?? {},
+      ...(priceUnavailable ? { priceUnavailable: true, supplementalFor: informationField ?? `Sản phẩm cần bổ sung giá: ${name}` } : {}),
+      lineTotal: priceUnavailable ? 0 : roundMoney(quantity * unitPrice),
     });
   }
   const taxRate = Object.prototype.hasOwnProperty.call(body, "taxRate") ? Number(body.taxRate) : quote.taxRate;
@@ -3006,21 +3019,40 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   if (typeof customerPhone !== "string" || customerPhone.length > 50) return fail(response, "Số điện thoại không hợp lệ (tối đa 50 ký tự).");
   if (!validText(customerName, 250) || typeof customerEmail !== "string" || customerEmail.length > 250 || (customerEmail.trim() && !validEmail(customerEmail.trim()))) return fail(response, "Vui lòng nhập tên khách hàng và email hợp lệ (nếu có).");
   const customer = { customerName: customerName.trim(), customerEmail: customerEmail.trim(), customerPhone: customerPhone.trim() };
-  const hadAdditionalInformation = Object.values(currentQuote.additionalInformation ?? {}).some((answer) => answer.trim());
-  const hasAdditionalInformation = Object.values(additionalInformation).some((answer) => answer.trim());
-  const additionalInformationBindingChanged = hadAdditionalInformation !== hasAdditionalInformation;
-  const updatedQuote = {
+  const additionalInformationBindingChanged = [...new Set([...Object.keys(currentQuote.additionalInformation ?? {}), ...Object.keys(additionalInformation)])]
+    .some((field) => (currentQuote.additionalInformation?.[field] ?? "").trim() !== (additionalInformation[field] ?? "").trim())
+    || revisionRequirements.trim() !== (quote.revisionRequirements ?? "");
+  let updatedQuote: Quote = {
     ...quote, ...totals, ...customer, informationNeeded, additionalInformation, validityDays, completionDate,
+    revisionRequirements: revisionRequirements.trim(), informationConfirmed, status: nextStatus,
     ...(additionalInformationBindingChanged ? { templateFillPlan: undefined, xlsxTemplateFillPlan: undefined } : {}),
   };
-  const unsetFillPlans: Record<string, ""> = {};
-  if (!updatedQuote.templateFillPlan) unsetFillPlans.templateFillPlan = "";
-  if (!updatedQuote.xlsxTemplateFillPlan) unsetFillPlans.xlsxTemplateFillPlan = "";
-  await quotes.updateOne({ _id: id, companyId: user.companyId }, {
-    $set: { ...totals, ...customer, informationNeeded, additionalInformation, validityDays, completionDate, ...(updatedQuote.templateFillPlan ? { templateFillPlan: updatedQuote.templateFillPlan } : {}), ...(updatedQuote.xlsxTemplateFillPlan ? { xlsxTemplateFillPlan: updatedQuote.xlsxTemplateFillPlan } : {}), informationConfirmed, status: nextStatus, updatedAt: new Date() },
-    ...(Object.keys(unsetFillPlans).length ? { $unset: unsetFillPlans } : {}),
-  });
-  await writeAudit(db, user, "quote_recalculated", "quote", id.toHexString(), { total: totals.total });
+  if (quote.kind !== "customer" && quote.kind !== "budget" && additionalInformationBindingChanged) updatedQuote.requiresAiRecalculation = true;
+  if (updatedQuote.requiresAiRecalculation) { updatedQuote.status = "needs_info"; updatedQuote.informationConfirmed = false; }
+  const persist = async () => {
+    const { _id: _quoteId, templateFillPlan, xlsxTemplateFillPlan, ...fields } = updatedQuote;
+    const unsetFillPlans: Record<string, ""> = {};
+    if (!templateFillPlan) unsetFillPlans.templateFillPlan = "";
+    if (!xlsxTemplateFillPlan) unsetFillPlans.xlsxTemplateFillPlan = "";
+    const result = await quotes.updateOne({ _id: id, companyId: user.companyId, updatedAt: quote.updatedAt, status: quote.status }, {
+      $set: { ...fields, ...(templateFillPlan ? { templateFillPlan } : {}), ...(xlsxTemplateFillPlan ? { xlsxTemplateFillPlan } : {}), updatedAt: new Date() },
+      ...(Object.keys(unsetFillPlans).length ? { $unset: unsetFillPlans } : {}),
+    });
+    if (!result.matchedCount) throw new Error("Dự toán đã thay đổi trong lúc xử lý. Vui lòng tải lại trang rồi thử lại.");
+  };
+  try {
+    if (recalculateWithAi) {
+      await withAiUsage(db, user, "estimate_recalculate", async () => {
+        updatedQuote = await recalculateEstimateWithClarifications(updatedQuote, await quoteInputContext(db, updatedQuote));
+        updatedQuote.templateFillPlan = undefined;
+        updatedQuote.xlsxTemplateFillPlan = undefined;
+        await persist();
+      });
+    } else await persist();
+  } catch (error) {
+    return fail(response, error instanceof Error ? error.message : "Không thể tính lại dự toán.", error instanceof AiQuotaExceededError ? 429 : 422);
+  }
+  await writeAudit(db, user, recalculateWithAi ? "estimate_recalculated_with_ai" : "quote_recalculated", "quote", id.toHexString(), { total: updatedQuote.total, productCount: updatedQuote.lines.length });
   const updated = await quotes.findOne({ _id: id, companyId: user.companyId });
   response.json({ quote: updated ? quoteForResponse(updated) : null });
 });
