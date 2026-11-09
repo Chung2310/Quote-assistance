@@ -52,7 +52,9 @@ export function recalculateSnapshot(lines: QuoteLine[], requested: Array<{ catal
     if (!Number.isFinite(quantity) || quantity <= 0 || quantity > 1_000_000) {
       throw new Error("Số lượng phải lớn hơn 0 và không vượt quá 1.000.000.");
     }
-    return { ...previous, quantity, lineTotal: roundMoney(previous.unitPrice * quantity) };
+    const attributes = { ...previous.attributes };
+    if (quantity !== previous.quantity) delete attributes["Cách tính số lượng"];
+    return { ...previous, quantity, attributes, lineTotal: roundMoney(previous.unitPrice * quantity) };
   });
   if (updatedLines.length === 0) throw new Error("Báo giá cần có ít nhất một mặt hàng.");
   const subtotal = roundMoney(updatedLines.reduce((sum, line) => sum + line.lineTotal, 0));

@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { api, formatMoney } from "./api";
@@ -198,7 +199,7 @@ export default function LandingPage() {
         if (!cancelled && activePlans.length) setPlans(activePlans);
       })
       .catch((cause) => {
-        if (!cancelled) notify(cause instanceof Error ? cause.message : "Không tải được các gói dịch vụ.", "error");
+        if (!cancelled) notify(userMessage(cause, "Không tải được các gói dịch vụ."), "error");
       });
     return () => {
       cancelled = true;
@@ -252,7 +253,7 @@ export default function LandingPage() {
       setContactOpen(false);
       notify("Đã gửi yêu cầu tư vấn thành công.", "success");
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : "Không gửi được yêu cầu. Vui lòng thử lại.", "error");
+      notify(userMessage(cause, "Không gửi được yêu cầu. Vui lòng thử lại."), "error");
     } finally {
       setContactBusy(false);
     }

@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, api, apiUploadWithProgress, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import MoneyInput from "./MoneyInput";
@@ -195,10 +196,10 @@ async function confirmSession(expectedUser: User) {
   try {
     ({ user: sessionUser } = await api<{ user: User }>("/api/auth/me"));
   } catch {
-    throw new Error("Đăng nhập thành công nhưng phiên chưa được lưu. Hãy kiểm tra cookie và cấu hình HTTPS trên máy chủ.");
+    throw new Error("Phiên đăng nhập chưa được lưu. Vui lòng đăng nhập lại.");
   }
   if (sessionUser.id !== expectedUser.id || sessionUser.role !== expectedUser.role) {
-    throw new Error("Máy chủ chưa xác nhận đúng phiên đăng nhập. Vui lòng thử lại.");
+    throw new Error("Chưa xác nhận được phiên đăng nhập. Vui lòng đăng nhập lại.");
   }
   return sessionUser;
 }
@@ -291,7 +292,7 @@ function UserApp() {
       setUser((current) => current ? { ...current, plan: result.plan } : current);
       setUsageError(null);
     } catch (cause) {
-      setUsageError(cause instanceof Error ? cause.message : "Không thể kiểm tra hạn mức gói.");
+      setUsageError(userMessage(cause, "Không thể kiểm tra hạn mức gói."));
     } finally {
       setUsageLoading(false);
     }
@@ -384,7 +385,7 @@ function UserApp() {
       const existing = contracts.find((contract) => contract.quoteId === quote._id);
       if (existing) openWorkflow("contracts", existing._id);
       else setCreatingContractFromQuote(quote);
-    } catch (cause) { notify(cause instanceof Error ? cause.message : "Không tạo được hợp đồng.", "error"); }
+    } catch (cause) { notify(userMessage(cause, "Không tạo được hợp đồng."), "error"); }
   };
   const removeQuote = async (quote: Quote) => {
     if (deletingQuoteRef.current) return;
@@ -401,7 +402,7 @@ function UserApp() {
       refresh();
       notify(`Đã xóa báo giá ${quote.quoteNumber}.`, "success");
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : "Không thể xóa báo giá. Vui lòng thử lại.", "error");
+      notify(userMessage(cause, "Không thể xóa báo giá. Vui lòng thử lại."), "error");
     } finally {
       deletingQuoteRef.current = false;
     }
@@ -445,9 +446,9 @@ function UserApp() {
                       <PriceListPanel key={refreshKey} onToast={notify} />
                       : <AccountProfile user={user} onToast={notify} onSignOut={() => void signOut()} confirm={confirm} usage={usage} subscriptionExpiresAt={usage?.subscriptionExpiresAt ?? null} requestedPlanCode={requestedPlanCode} onInitialPlanHandled={() => setRequestedPlanCode(null)} onBillingPaid={handleBillingPaid} />}</main>
     </div>
-    {creatingQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); openQuote(id); }} />}
+    {creatingQuote && <NewQuoteDialog canManageTemplate onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingQuote(false)} onManageTemplate={() => { setCreatingQuote(false); navigateSection("templates"); setTemplateCategoryToOpen("estimate"); }} onCreated={(id, fileError) => { setCreatingQuote(false); refresh(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file.", fileError ? "error" : "success"); openQuote(id); }} />}
     {creatingContractFromQuote && <ContractCreationDialog quote={creatingContractFromQuote} onClose={() => setCreatingContractFromQuote(null)} onCreated={(id, fileError) => { setCreatingContractFromQuote(null); openWorkflow("contracts", id); notify(fileError ? `Đã tạo hợp đồng nhưng chưa tạo được file AI: ${fileError}` : "Đã tạo hợp đồng, AI đã điền mẫu và lưu file.", fileError ? "error" : "success"); }} notify={notify} />}
-    {creatingEstimateFromQuote && <CreateEstimateFromQuoteDialog sourceQuote={creatingEstimateFromQuote} onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingEstimateFromQuote(null)} onCreated={(id, fileError) => { setCreatingEstimateFromQuote(null); refresh(); openQuote(id); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); }} />}
+    {creatingEstimateFromQuote && <CreateEstimateFromQuoteDialog sourceQuote={creatingEstimateFromQuote} onQuotaExceeded={() => void loadUsage()} onAiUsed={() => void loadUsage()} onClose={() => setCreatingEstimateFromQuote(null)} onCreated={(id, fileError) => { setCreatingEstimateFromQuote(null); refresh(); openQuote(id); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file.", fileError ? "error" : "success"); }} />}
     {notification && <NotificationToast notification={notification} onDismiss={dismiss} />}
     {confirmationDialog}
   </div></NotificationProvider>;
@@ -485,7 +486,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
       onLogin(sessionUser, requestedPlanCode);
       onNotify("Đăng nhập thành công.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể đăng nhập. Vui lòng thử lại.");
+      setError(userMessage(cause, "Không thể đăng nhập. Vui lòng thử lại."));
     } finally {
       setBusy(false);
     }
@@ -501,7 +502,7 @@ function Login({ onLogin, onNotify }: { onLogin: (user: User, requestedPlanCode?
       onLogin(await confirmSession(user), requestedPlanCode);
       onNotify("Tài khoản doanh nghiệp đã được tạo và đăng nhập.");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể tạo tài khoản doanh nghiệp.");
+      setError(userMessage(cause, "Không thể tạo tài khoản doanh nghiệp."));
     } finally {
       setBusy(false);
     }
@@ -784,7 +785,7 @@ function QuoteUsageWidget({
 function Dashboard({ onOpen, onCreate, onNavigate, canCreate, usage, quoteUsageLabel, createBlockedMessage, onRefreshUsage, showUsageError, canReview, onDeleteQuote }: { onOpen: (id: string) => void; onCreate: () => void; onNavigate: (section: Section) => void; canCreate: boolean; usage?: SubscriptionUsage | null; quoteUsageLabel: string; createBlockedMessage: string; onRefreshUsage: () => void; showUsageError: boolean; canReview: boolean; onDeleteQuote: (quote: Quote) => void }) {
   const [data, setData] = useState<{ counts: { total: number; drafts: number; pending: number; approved: number }; recent: Quote[] } | null>(null);
   const notify = useAppNotification();
-  useEffect(() => { api<typeof data>("/api/dashboard").then((value) => setData(value)).catch((cause) => notify(cause instanceof Error ? cause.message : "Không thể tải tổng quan báo giá.", "error")); }, [notify]);
+  useEffect(() => { api<typeof data>("/api/dashboard").then((value) => setData(value)).catch((cause) => notify(userMessage(cause, "Không thể tải tổng quan báo giá."), "error")); }, [notify]);
   return <div className="page-stack dashboard-page">
     <section className="dashboard-banners" aria-label="Tạo và theo dõi báo giá">
       <article className="dashboard-banner dashboard-banner-primary">
@@ -888,7 +889,7 @@ function QuoteWorkspace({
       .catch((cause) => {
         if (cancelled) return;
         setLoadFailed(true);
-        notify(cause instanceof Error ? cause.message : "Không thể tải danh sách báo giá.", "error");
+        notify(userMessage(cause, "Không thể tải danh sách báo giá."), "error");
       })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -948,7 +949,7 @@ function QuoteWorkspace({
           </button>
         </div>
       </section>
-      {creatingFromQuote && <CreateEstimateFromQuoteDialog onClose={() => setCreatingFromQuote(false)} onAiUsed={onRefreshUsage} onCreated={(id, fileError) => { setCreatingFromQuote(false); onRefreshUsage(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file AI lên Cloudinary.", fileError ? "error" : "success"); onOpen(id); }} />}
+      {creatingFromQuote && <CreateEstimateFromQuoteDialog onClose={() => setCreatingFromQuote(false)} onAiUsed={onRefreshUsage} onCreated={(id, fileError) => { setCreatingFromQuote(false); onRefreshUsage(); notify(fileError ? `Đã tạo dự toán nhưng chưa lưu được file AI: ${fileError}` : "Đã tạo dự toán và lưu file.", fileError ? "error" : "success"); onOpen(id); }} />}
       <QuoteUsageWidget usage={usage} quoteUsageLabel={quoteUsageLabel} canCreate={canCreate} createBlockedMessage={createBlockedMessage} onRefreshUsage={onRefreshUsage} showUsageError={showUsageError} onNavigate={onNavigate} variant="workspace" />
 
       {/* QUICK KPI MINI STRIP */}
@@ -1146,7 +1147,7 @@ function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuot
       if (!live) return;
       setTemplates(options.templates);
       setTemplateId(options.templates.find((entry) => entry.id === options.defaultTemplateId)?.id ?? options.templates[0]?.id ?? "");
-    }).catch((cause) => { if (live) setError(cause instanceof Error ? cause.message : "Không tải được mẫu dự toán."); })
+    }).catch((cause) => { if (live) setError(userMessage(cause, "Không tải được mẫu dự toán.")); })
       .finally(() => { if (live) setTemplatesLoading(false); });
     return () => { live = false; };
   }, []);
@@ -1162,7 +1163,7 @@ function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuot
       if (!live) return;
       setSourceQuotes(result.quotes);
       setTotalPages(result.totalPages);
-    }).catch((cause) => { if (live) setError(cause instanceof Error ? cause.message : "Không tải được báo giá khách."); })
+    }).catch((cause) => { if (live) setError(userMessage(cause, "Không tải được báo giá khách.")); })
       .finally(() => { if (live) setSourcesLoading(false); });
     return () => { live = false; };
   }, [page, debouncedSearch, sourceQuote?._id]);
@@ -1178,12 +1179,12 @@ function CreateEstimateFromQuoteDialog({ sourceQuote, onClose, onCreated, onQuot
         method: "POST",
         body: JSON.stringify({ sourceQuoteId: currentSource._id, templateId, sourceRequirements, idempotencyKey }),
       });
-      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang hoàn thiện và lưu file theo mẫu đã chọn…" }));
       onAiUsed?.();
       onCreated(quote._id);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded?.();
-      setError(cause instanceof Error ? cause.message : "Không thể tạo dự toán từ báo giá khách.");
+      setError(userMessage(cause, "Không thể tạo dự toán từ báo giá khách."));
     } finally {
       setBusy(false);
       setTaskProgress(null);
@@ -1286,21 +1287,14 @@ async function createSavedDraftEstimateFile(quoteId: string, onProgress: () => v
   try {
     await createGeneratedExport(`/api/quotes/${encodeURIComponent(quoteId)}/export?draft=1&background=1`);
   } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : "";
+    const detail = userMessage(cause, "Không tạo hoặc lưu được file dự toán. Vui lòng thử lại.");
     const normalized = detail.toLocaleLowerCase("vi");
     const stillProcessing = normalized.includes("vẫn đang xử lý") || normalized.includes("still processing");
     if (!stillProcessing) {
       const savedFile = await getLatestGeneratedFile(quoteId, "estimate_draft").then(({ file }) => file).catch(() => null);
       if (!savedFile) await api(`/api/quotes/${encodeURIComponent(quoteId)}`, { method: "DELETE" }).catch(() => undefined);
     }
-    if (normalized.includes("credit") || normalized.includes("insufficient funds")) {
-      throw new Error("AI chưa tạo được file dự toán vì tài khoản OpenRouter không đủ credit khả dụng. Dự toán chưa được lưu thành công.");
-    }
-    if (normalized.includes("requested format") || normalized.includes("edited file") || normalized.includes("worksheet") || normalized.includes("trang tính")) {
-      throw new Error("AI chưa tạo được file dự toán vì chưa xác định được trang tính phù hợp trong mẫu. Hãy chọn sheet có bảng hạng mục, số lượng và đơn giá.");
-    }
-    if (normalized.includes("openrouter")) throw new Error("AI chưa tạo được file dự toán. Vui lòng thử lại sau.");
-    throw new Error(detail || "Không tạo hoặc lưu được file dự toán bằng AI.");
+    throw new Error(detail);
   }
 }
 
@@ -1343,7 +1337,7 @@ function NewQuoteDialog({ onClose, onCreated, canManageTemplate, onManageTemplat
   useEffect(() => {
     let active = true;
     setLoading(true); setLoadFailed(false);
-    loadQuoteOptions().then((value) => { if (active) setOptions(value); }).catch((cause) => { if (active) { setLoadFailed(true); setError(cause instanceof Error ? cause.message : "Không tải được mẫu dự toán và danh mục sản phẩm."); } }).finally(() => { if (active) setLoading(false); });
+    loadQuoteOptions().then((value) => { if (active) setOptions(value); }).catch((cause) => { if (active) { setLoadFailed(true); setError(userMessage(cause, "Không tải được mẫu dự toán và danh mục sản phẩm.")); } }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [reloadKey, setError]);
   return <dialog ref={dialog} className="template-dialog quote-creation-dialog" aria-labelledby="new-quote-title" onCancel={(event) => {
@@ -1446,12 +1440,12 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           items: result.items.map(({ catalogItemId, quantity, unit, attributes }) => ({ catalogItemId, quantity, unit, attributes })),
         }),
       });
-      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu dự toán vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang hoàn thiện và lưu file dự toán…" }));
       onAiUsed();
       onCreated(quote._id);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded();
-      setError(cause instanceof Error ? cause.message : analysisCompleted ? "Không thể tạo bản nháp." : "Không thể phân tích yêu cầu.");
+      setError(userMessage(cause, analysisCompleted ? "Không thể tạo bản nháp." : "Không thể phân tích yêu cầu."));
     } finally {
       setBusy(false);
       setTaskProgress(null);
@@ -1480,12 +1474,12 @@ function NewQuote({ options, onCreated, canManageTemplate, onManageTemplate, onB
           items: selected.map(({ catalogItemId, quantity, unit, attributes }) => ({ catalogItemId, quantity, unit, attributes })),
         }),
       });
-      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang đưa dữ liệu dự toán vào mẫu và lưu file kết quả lên Cloudinary…" }));
+      await createSavedDraftEstimateFile(quote._id, () => setTaskProgress({ label: "AI đang điền file dự toán", detail: "Đang hoàn thiện và lưu file dự toán…" }));
       onAiUsed();
       onCreated(quote._id);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded();
-      setError(cause instanceof Error ? cause.message : "Không thể tạo báo giá.");
+      setError(userMessage(cause, "Không thể tạo báo giá."));
     } finally {
       setBusy(false);
       setTaskProgress(null);
@@ -1648,7 +1642,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       setValidityDaysText(value.validityDays == null ? "" : String(value.validityDays));
       setCompletionDateText(value.completionDate ?? "");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể mở dự toán.");
+      setError(userMessage(cause, "Không thể mở dự toán."));
     } finally {
       setLoading(false);
     }
@@ -1812,7 +1806,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     setBusy(true);
     setError("");
     const taskLabel = url.endsWith("/approve") ? "Đang duyệt dự toán" : "Đang lưu dự toán";
-    setTaskProgress({ label: taskLabel, detail: "Đang cập nhật dữ liệu trên máy chủ…" });
+    setTaskProgress({ label: taskLabel, detail: "Đang lưu thay đổi…" });
     const saveBeforeApprove = url.endsWith("/approve") && editable && hasUnsavedChanges && !hasIncompleteSupplementalProduct;
     try {
       if (saveBeforeApprove && quote) {
@@ -1823,7 +1817,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
       onChanged();
       onToast(saveBeforeApprove ? "Đã lưu thay đổi và duyệt dự toán." : success);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không thể cập nhật dự toán.");
+      setError(userMessage(cause, "Không thể cập nhật dự toán."));
     } finally {
       setBusy(false);
       setTaskProgress(null);
@@ -1869,8 +1863,8 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
     setBusy(true);
     try {
       await downloadGeneratedFile(savedEstimateFile.id);
-      onToast("Đã tải file đã lưu trên Cloudinary.", "success");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Không tải được file đã lưu."); }
+      onToast("Đã tải file đã lưu.", "success");
+    } catch (cause) { setError(userMessage(cause, "Không tải được file đã lưu.")); }
     finally { setBusy(false); }
   };
 
@@ -1951,7 +1945,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onToast, confirm, onDeleteQu
             type="button"
             className="button button-primary"
             disabled={busy || loadingSavedEstimateFile || !savedEstimateFile}
-            title={savedEstimateFile ? "Tải file đã lưu trên Cloudinary" : loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu" : "Chưa có file dự toán đã lưu trên Cloudinary"}
+            title={savedEstimateFile ? "Tải file đã lưu" : loadingSavedEstimateFile ? "Đang kiểm tra file đã lưu" : "Chưa có file dự toán đã lưu"}
             onClick={() => void downloadSavedEstimate()}
           >
             <Icon name="download" size={16} />
@@ -2723,7 +2717,7 @@ function SubscriptionBillingPanel({
         if (active) setPlans(available.filter((plan) => plan.monthlyPrice !== null && plan.monthlyPrice > 0));
       })
       .catch((cause) => {
-        if (active) showToast(cause instanceof Error ? cause.message : "Không tải được các gói dịch vụ.", "error");
+        if (active) showToast(userMessage(cause, "Không tải được các gói dịch vụ."), "error");
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -2736,7 +2730,7 @@ function SubscriptionBillingPanel({
   const beginCheckout = useCallback(
     async (planCode: string) => {
       setBusyPlan(planCode);
-      setTaskProgress({ label: "Đang tạo mã thanh toán", detail: "Đang chuẩn bị QR SePay cho gói đã chọn…" });
+      setTaskProgress({ label: "Đang tạo mã thanh toán", detail: "Đang chuẩn bị mã QR thanh toán cho gói đã chọn…" });
       try {
         const { payment: nextPayment } = await api<{ payment: BillingPayment }>("/api/billing/payments", {
           method: "POST",
@@ -2745,7 +2739,7 @@ function SubscriptionBillingPanel({
         setPayment(nextPayment);
         showToast("Đã tạo mã thanh toán. Quét QR để hoàn tất đăng ký gói.", "info");
       } catch (cause) {
-        showToast(cause instanceof Error ? cause.message : "Không thể tạo yêu cầu thanh toán.", "error");
+        showToast(userMessage(cause, "Không thể tạo yêu cầu thanh toán."), "error");
       } finally {
         setBusyPlan(null);
         setTaskProgress(null);
@@ -2830,7 +2824,7 @@ function SubscriptionBillingPanel({
         showToast("Chưa nhận được thanh toán. Hệ thống sẽ tự kiểm tra lại.", "info");
       }
     } catch (cause) {
-      showToast(cause instanceof Error ? cause.message : "Không kiểm tra được trạng thái thanh toán.", "error");
+      showToast(userMessage(cause, "Không kiểm tra được trạng thái thanh toán."), "error");
     } finally {
       setCheckingPayment(false);
     }

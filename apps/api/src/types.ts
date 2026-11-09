@@ -228,6 +228,7 @@ export interface Quote {
   informationNeeded: string[];
   additionalInformation?: Record<string, string>;
   settlement?: {
+    contract?: Pick<Contract, "contractNumber" | "signedDate" | "customerName" | "customerAddress" | "customerRepresentative" | "customerTaxId" | "customerEmail" | "customerPhone" | "companyName" | "companyAddress" | "companyRepresentative" | "companyTaxId" | "companyEmail" | "companyPhone" | "scope" | "deliverables" | "paymentTerms" | "deliveryTerms" | "subtotal" | "taxRate" | "taxAmount" | "shippingFee" | "total" | "currency" | "depositAmount">;
     contractLines?: QuoteLine[];
     contractNumber: string;
     projectName: string;

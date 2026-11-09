@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ApiError, api, createGeneratedExport, downloadGeneratedFile, getLatestGeneratedFile, formatMoney, type GeneratedFileRef } from "./api";
 import MoneyInput from "./MoneyInput";
@@ -182,7 +183,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
         }
       })
       .catch((cause) => {
-        if (live) setHistoryError(cause instanceof Error ? cause.message : "Không tải được lịch sử phương án.");
+        if (live) setHistoryError(userMessage(cause, "Không tải được lịch sử phương án."));
       });
     return () => {
       live = false;
@@ -231,7 +232,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
       setDialogMode("view");
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onAiUsed();
-      setError(cause instanceof Error ? cause.message : "Không thể tạo phương án sơ bộ.");
+      setError(userMessage(cause, "Không thể tạo phương án sơ bộ."));
     } finally {
       setBusy(false);
     }
@@ -244,9 +245,9 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
     try {
       const file = await createGeneratedExport(`/api/budget-plans/${selectedId}/export?background=1`);
       setSavedExport(file);
-      setUpdateNotice(`Đã tạo và lưu ${file.filename} lên Cloudinary.`);
+      setUpdateNotice(`Đã tạo và lưu ${file.filename}.`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Không xuất được phương án Excel.");
+      setError(userMessage(cause, "Không xuất được phương án Excel."));
     } finally {
       setExporting(false);
     }
@@ -272,7 +273,7 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
       }
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onAiUsed();
-      setError(cause instanceof Error ? cause.message : "Không lưu được thay đổi.");
+      setError(userMessage(cause, "Không lưu được thay đổi."));
     } finally {
       setSaving("");
     }
@@ -727,18 +728,18 @@ export default function BudgetPlanner({ onAiUsed }: { onAiUsed: () => void }) {
                 <section className="bp-export-panel" aria-label="Xuất phương án Excel">
                   <div className="bp-export-panel-heading">
                     <strong>Tạo file phương án</strong>
-                    <span>AI điền dữ liệu phương án vào file Excel và lưu lên Cloudinary; nút tải lấy file đã lưu.</span>
+                    <span>Tạo file Excel theo mẫu đã chọn, sau đó tải file đã hoàn thiện.</span>
                   </div>
                   <div className="bp-export-panel-controls">
                     <button type="button" className="button button-soft button-compact" disabled={!selectedId || exporting || Boolean(saving)} onClick={() => void exportExcel()}>
                       {exporting ? "Đang tạo file…" : "Tạo file mới bằng AI"}
                     </button>
-                    <button type="button" className="button button-primary button-compact" disabled={exporting || !savedExport} onClick={() => void (savedExport && downloadGeneratedFile(savedExport.id).catch((cause) => setError(cause instanceof Error ? cause.message : "Không tải được file đã lưu.")))}>
+                    <button type="button" className="button button-primary button-compact" disabled={exporting || !savedExport} onClick={() => void (savedExport && downloadGeneratedFile(savedExport.id).catch((cause) => setError(userMessage(cause, "Không tải được file đã lưu."))))}>
                       {savedExport ? `Tải file đã lưu (${savedExport.filename})` : "Chưa có file đã lưu"}
                     </button>
                   </div>
                   {savedExport && <p className="bp-export-status">File lưu gần nhất: {savedExport.filename}</p>}
-                  {exporting && <TaskProgress label="AI đang tạo Excel phương án" detail="Đang điền dữ liệu và lưu file kết quả lên Cloudinary…" />}
+                  {exporting && <TaskProgress label="AI đang tạo Excel phương án" detail="Đang hoàn thiện và lưu file phương án…" />}
                 </section>
 
                 {/* Financial KPI Strip */}

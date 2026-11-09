@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { ObjectId } from "mongodb";
 import { buildBudgetPlan, clarificationInput, mergeBudgetPlanAfterClarification, recalculationInput, recomputeBudgetPlanTotals, validMissingProducts } from "./budget-planner.js";
 import type { CatalogItem } from "./types.js";
+import { budgetPlanAsQuote } from "./quote-excel.js";
 
 const tile: CatalogItem = {
   _id: new ObjectId(), companyId: "example", sku: "GACH-01", name: "Gạch lát nền", description: "", unit: "m²", price: 200_000,
@@ -57,13 +58,41 @@ test("rejects generic or already priced missing products", () => {
 
 test("calculates estimated quantities using catalog prices and records assumptions", () => {
   const result = buildBudgetPlan({ description: "Xây tòa nhà với ngân sách 8 tỷ", budget: 8_000_000_000 }, [tile],
-    { assumedArea: 100, assumedFloors: 4, items: [{ sku: tile.sku, basis: "estimated", quantity: 420, quantityNote: "400 m² sàn và 5% hao hụt vật tư" }] }, []);
-  assert.equal(result.lines[0]?.quantity, 420);
-  assert.equal(result.lines[0]?.lineTotal, 84_000_000);
-  assert.equal(result.total, 84_000_000);
+    { assumedArea: 100, assumedFloors: 4, items: [{ sku: tile.sku, basis: "floor_area" }] }, []);
+  assert.equal(result.lines[0]?.quantity, 400);
+  assert.equal(result.lines[0]?.lineTotal, 80_000_000);
+  assert.equal(result.total, 80_000_000);
   assert.equal(result.provisional, true);
   assert.deepEqual(result.scenario, { area: 100, floors: 4 });
   assert.match(result.assumptions[0] ?? "", /100 m²/);
+});
+
+test("converts coverage to minimum bags and retains specifications for export", () => {
+  const mortar = { ...tile, sku: "VUA-25", name: "Vữa chống thấm", unit: "bao", description: "Bao 25kg", attributes: { "Mật độ phủ": "2.5-3.5 m²", "Định mức": "Độ dày 5-7mm" }, price: 100_000 };
+  const input = { description: "Chống thấm 100 m²", budget: 10_000_000 };
+  const result = buildBudgetPlan(input, [mortar], { items: [{ sku: mortar.sku, basis: "estimated", quantity: 100, quantityNote: "AI nhầm diện tích với số bao" }] }, []);
+  assert.equal(result.lines[0]?.quantity, 29);
+  assert.equal(result.total, 2_900_000);
+  assert.match(result.lines[0]?.quantityNote ?? "", /không cộng hao hụt/);
+  const exported = budgetPlanAsQuote({ input, result, companyId: "example", createdBy: "owner", createdAt: new Date() });
+  assert.deepEqual(exported.lines[0]?.catalogAttributes, mortar.attributes);
+  assert.match(exported.lines[0]?.description ?? "", /Bao 25kg/);
+  assert.match(exported.lines[0]?.attributes["Cách tính số lượng"] ?? "", /29 bao/);
+});
+
+test("does not reduce multi-floor requirements to a single floor", () => {
+  const input = { description: "Lát nền diện tích 100 m² mỗi tầng, 2 tầng", area: 100, floors: 2, budget: 100_000_000 };
+  assert.equal(buildBudgetPlan(input, [tile], { items: [{ sku: tile.sku, basis: "floor_area" }] }, []).lines[0]?.quantity, 200);
+  const boxed = { ...tile, unit: "hộp", attributes: { "Độ phủ": "2 m²/hộp" } };
+  assert.equal(buildBudgetPlan(input, [boxed], { items: [{ sku: boxed.sku, basis: "floor_area" }] }, []).lines[0]?.quantity, 100);
+});
+
+test("rejects an AI estimate that adds waste", () => {
+  const result = buildBudgetPlan({ description: "Xây nhà", budget: 100_000_000 }, [tile], {
+    items: [{ sku: tile.sku, basis: "estimated", quantity: 105, quantityNote: "100 m² và 5% hao hụt" }],
+  }, []);
+  assert.equal(result.lines[0]?.quantity, null);
+  assert.match(result.questions.join(" "), /không cộng hao hụt/);
 });
 
 test("rejects ungrounded estimates and conflicting area inputs", () => {

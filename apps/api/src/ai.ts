@@ -2,7 +2,8 @@ import { ObjectId } from "mongodb";
 import { config } from "./config.js";
 import { logAiProviderFailure, logger } from "./logger.js";
 import { extractAttachedRequest } from "./price-list.js";
-import { parseJsonResponse, requestStructuredAi, responseContent, type AiChatMessage } from "./structured-ai.js";
+import { minimumQuantityInstructions, resolveMinimumQuantity } from "./product-quantity.js";
+import { chatSamplingParameters, parseJsonResponse, requestStructuredAi, responseContent, type AiChatMessage } from "./structured-ai.js";
 import type { AnalyzedItem, CatalogItem, MatchStatus, SuggestedProduct } from "./types.js";
 
 interface AnalysisResult {
@@ -23,13 +24,21 @@ const schema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["catalogItemId", "quantity", "unit", "attributes", "evidence"],
+        required: ["catalogItemId", "quantity", "unit", "attributes", "evidence", "quantityRequirement"],
         properties: {
           catalogItemId: { type: "string" },
           quantity: { type: "number", exclusiveMinimum: 0, maximum: 1000000 },
           unit: { type: "string" },
           attributes: { type: "object", additionalProperties: { type: "string" } },
           evidence: { type: "string" },
+          quantityRequirement: {
+            anyOf: [
+              { type: "null" },
+              { type: "object", additionalProperties: false, required: ["quantity", "unit", "evidence"], properties: {
+                quantity: { type: "number", exclusiveMinimum: 0 }, unit: { type: "string" }, evidence: { type: "string" },
+              } },
+            ],
+          },
         },
       },
     },
@@ -48,7 +57,7 @@ const schema = {
   },
 } as const;
 
-function validateResult(raw: unknown, candidates: CatalogItem[]): AnalysisResult {
+function validateResult(raw: unknown, candidates: CatalogItem[], requestText: string): AnalysisResult {
   if (!raw || typeof raw !== "object") throw new Error("Kết quả AI không đúng cấu trúc.");
   const candidateIds = new Set(candidates.map((item) => String(item._id)));
   const value = raw as Record<string, unknown>;
@@ -59,6 +68,7 @@ function validateResult(raw: unknown, candidates: CatalogItem[]): AnalysisResult
     throw new Error("Danh sách mặt hàng hoặc thông tin thiếu không hợp lệ.");
   }
   const mismatchedCitations: string[] = [];
+  const quantityQuestions: string[] = [];
   const items = value.items.flatMap((entry) => {
     if (!entry || typeof entry !== "object") throw new Error("Mặt hàng AI trả về không hợp lệ.");
     const item = entry as Record<string, unknown>;
@@ -83,15 +93,21 @@ function validateResult(raw: unknown, candidates: CatalogItem[]): AnalysisResult
       throw new Error("AI trả về thông số sản phẩm không hợp lệ.");
     }
     const attributes = Object.fromEntries(rawAttributes.map(([key, attribute]) => [key.trim(), (attribute as string).trim()]));
+    const minimum = resolveMinimumQuantity(catalogItem, requestText, item.quantityRequirement);
+    if (minimum.status === "unresolved") {
+      quantityQuestions.push(minimum.question);
+      return [];
+    }
+    if (minimum.status === "resolved") attributes["Cách tính số lượng"] = minimum.note;
     return [{
       catalogItemId: item.catalogItemId,
-      quantity: item.quantity,
+      quantity: minimum.status === "resolved" ? minimum.quantity : item.quantity,
       unit: catalogItem.unit,
       attributes,
       evidence: evidence.slice(0, 500),
     }];
   });
-  const missingFields = [...value.missingFields.filter((field): field is string => typeof field === "string"), ...mismatchedCitations].slice(0, 30);
+  const missingFields = [...value.missingFields.filter((field): field is string => typeof field === "string"), ...mismatchedCitations, ...quantityQuestions].slice(0, 30);
   const suggestedProducts = (Array.isArray(value.suggestedProducts) ? value.suggestedProducts : []).map((entry) => {
     if (!entry || typeof entry !== "object") throw new Error("Sản phẩm cần bổ sung không hợp lệ.");
     const product = entry as Record<string, unknown>;
@@ -104,7 +120,7 @@ function validateResult(raw: unknown, candidates: CatalogItem[]): AnalysisResult
     }
     return { name, description, unit, quantity };
   });
-  const status: MatchStatus = mismatchedCitations.length ? "ambiguous" : value.status as MatchStatus;
+  const status: MatchStatus = mismatchedCitations.length || quantityQuestions.length ? "ambiguous" : value.status as MatchStatus;
   if (status === "matched" && items.length === 0) throw new Error("AI báo đã ghép nhưng không có mặt hàng.");
   if (status === "ambiguous" && !missingFields.length) missingFields.push("xác nhận lựa chọn sản phẩm");
   if (status === "not_found" && !items.length && !missingFields.some((field) => field.toLocaleLowerCase("vi").includes("mặt hàng"))) {
@@ -267,7 +283,9 @@ export async function analyzeRequest(requestText: string, items: CatalogItem[], 
   const promptCandidates = candidates.map((item) => ({
     id: String(item._id), sku: item.sku, name: item.name, description: item.description, attributes: item.attributes ?? {}, unit: item.unit,
   }));
+  const quantityRequestText = [analyzedRequest, ...analyzedRequestContent.map((part) => typeof part.text === "string" ? part.text : "")].join("\n");
   const messages: AiChatMessage[] = [
+    { role: "system", content: minimumQuantityInstructions },
     {
       role: "system",
       content: "Bạn hỗ trợ người dùng doanh nghiệp lập báo giá. Chỉ chọn mã hàng trong danh sách ứng viên. Không tự suy đoán giá. Nếu evidence ghi mã SKU, mã đó phải khớp chính xác với sản phẩm được chọn bằng catalogItemId. Dùng thuộc tính ứng viên làm thông tin nhận diện và thông số sản phẩm; trường attributes của kết quả chỉ chứa thông tin khách hàng yêu cầu thêm, không lặp lại thuộc tính có sẵn của sản phẩm, ngoại trừ kích thước được khách nêu rõ. Nếu yêu cầu mâu thuẫn với thông số ứng viên, cần ghi rõ trong missingFields hoặc chọn ambiguous. Nếu có nhiều khả năng, trả ambiguous; nếu không phù hợp, trả not_found. Với từng dòng yêu cầu có tên hoặc SKU khớp nguyên cụm với ứng viên, luôn đưa mặt hàng đó vào items, giữ đúng số lượng trong dòng đó; không trả not_found chỉ vì một dòng khác chưa tìm được. Trạng thái matched khi các mặt hàng yêu cầu đã ghép được; ambiguous khi còn dòng cần xác nhận; chỉ trả not_found khi không ghép được dòng nào. Trích số lượng và thuộc tính khách yêu cầu chỉ khi có trong yêu cầu. Nếu yêu cầu nêu chiều rộng, chiều cao hoặc chiều dài, luôn thêm từng kích thước vào attributes với đúng tên thuộc tính, giá trị và đơn vị như khách nêu, kể cả khi kích thước khớp thuộc tính danh mục; không tự suy ra kích thước. Với mỗi sản phẩm hoặc hạng mục có thật trong yêu cầu nhưng không được ghép vào items một cách chắc chắn, thêm một suggestedProducts tương ứng: giữ nguyên tên và quy cách theo yêu cầu, quantity lấy theo yêu cầu hoặc dùng 1 nếu không ghi số lượng, unit chỉ điền nếu yêu cầu có nêu rõ, description chứa quy cách đã nêu. Không thêm sản phẩm, quy cách hay số lượng không có căn cứ; tuyệt đối không thêm giá. Không đưa vào suggestedProducts mục đã được đưa vào items.",
@@ -288,7 +306,7 @@ export async function analyzeRequest(requestText: string, items: CatalogItem[], 
         },
         body: JSON.stringify({
           model: config.openRouterModel,
-          temperature: 0,
+          ...chatSamplingParameters(config.openRouterModel),
           max_tokens: 4000,
           messages: retryMessages,
           response_format: { type: "json_schema", json_schema: { name: "quote_analysis", strict: true, schema } },
@@ -296,7 +314,7 @@ export async function analyzeRequest(requestText: string, items: CatalogItem[], 
         }),
         signal: AbortSignal.timeout(90_000),
       }),
-      decode: async (response) => validateResult(parseJsonResponse(responseContent(await response.json())), candidates),
+      decode: async (response) => validateResult(parseJsonResponse(responseContent(await response.json())), candidates, quantityRequestText),
       onHttpError: async (response) => {
         const safeStatus = response.status;
         await logAiProviderFailure(response, {
@@ -433,7 +451,7 @@ export async function requestTemplatePlan<T = unknown>(content: Record<string, u
             headers: { Authorization: `Bearer ${config.openRouterApiKey}`, "Content-Type": "application/json", "HTTP-Referer": config.openRouterSiteUrl, "X-Title": config.openRouterAppName },
             body: JSON.stringify({
               model: attempt.model,
-              temperature: 0,
+              ...chatSamplingParameters(attempt.model),
               max_tokens: options.xlsxSemanticMap ? 6000 : options.maxTokens ?? 16000,
               messages: retryMessages,
               response_format: { type: "json_schema", json_schema: { name: "quote_template_fill", strict: true, schema } },

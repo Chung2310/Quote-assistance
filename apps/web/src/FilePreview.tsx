@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useEffect, useRef, useState } from "react";
 import { useAppNotification } from "./Feedback";
 
@@ -52,7 +53,7 @@ export default function FilePreview({ file, onClose }: { file: PreviewFile | nul
           objectUrl = URL.createObjectURL(blob);
           if (!cancelled) setContent({ url: objectUrl });
         }
-      } catch (cause) { if (!cancelled) { setFailed(true); notify(cause instanceof Error ? cause.message : "Không xem trước được file.", "error"); } }
+      } catch (cause) { if (!cancelled) { setFailed(true); notify(userMessage(cause, "Không xem trước được file."), "error"); } }
       finally { if (!cancelled) setBusy(false); }
     };
     void load();
