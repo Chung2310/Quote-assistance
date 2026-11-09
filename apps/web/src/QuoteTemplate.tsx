@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { ApiError, api, apiUploadWithProgress, formatDate } from "./api";
 import FilePreview, { type PreviewFile } from "./FilePreview";
@@ -104,7 +105,7 @@ export function QuoteTemplatePanel({
     } catch (cause) {
       if (version !== loadVersion.current) return;
       setLoadFailed(true);
-      notify(cause instanceof Error ? cause.message : `Không tải được ${categoryLabel.toLowerCase()}.`, "error");
+      notify(userMessage(cause, `Không tải được ${categoryLabel.toLowerCase()}.`), "error");
     } finally {
       if (version === loadVersion.current) setLoading(false);
     }
@@ -129,7 +130,7 @@ export function QuoteTemplatePanel({
       setNextCursor(result.nextCursor);
     } catch (cause) {
       if (version !== loadVersion.current) return;
-      notify(cause instanceof Error ? cause.message : `Không tải thêm được ${categoryLabel.toLowerCase()}.`, "error");
+      notify(userMessage(cause, `Không tải thêm được ${categoryLabel.toLowerCase()}.`), "error");
     } finally {
       if (version === loadVersion.current) setLoadingMore(false);
     }
@@ -154,7 +155,7 @@ export function QuoteTemplatePanel({
       onUsageChanged?.();
       notify(`Đã xóa ${categoryLabel.toLowerCase()} thành công.`, "success");
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : `Không xóa được ${categoryLabel.toLowerCase()}.`, "error");
+      notify(userMessage(cause, `Không xóa được ${categoryLabel.toLowerCase()}.`), "error");
     } finally {
       setDeletingId(null);
     }
@@ -168,7 +169,7 @@ export function QuoteTemplatePanel({
       await load();
       notify(`Đã chuyển mẫu sang ${templateTabs.find((tab) => tab.id === nextCategory)!.label.toLowerCase()}.`, "success");
     } catch (cause) {
-      notify(cause instanceof Error ? cause.message : "Không chuyển được nhóm mẫu.", "error");
+      notify(userMessage(cause, "Không chuyển được nhóm mẫu."), "error");
     } finally {
       setMovingId(null);
     }
@@ -721,14 +722,14 @@ function CreateTemplateDialog({
         (progress) =>
           setTaskProgress(
             progress >= 100
-              ? { label: "Đang kiểm tra và lưu mẫu", detail: "Đang xử lý file trên máy chủ…" }
+              ? { label: "Đang kiểm tra và lưu mẫu", detail: "Đang hoàn thiện file mẫu…" }
               : { label: `Đang tải ${categoryLabel.toLowerCase()} lên`, progress, detail: "Tiến độ gửi file" }
           )
       );
       onSaved(result.template);
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 429) onQuotaExceeded?.();
-      setError(cause instanceof Error ? cause.message : `Không lưu được ${categoryLabel.toLowerCase()}.`);
+      setError(userMessage(cause, `Không lưu được ${categoryLabel.toLowerCase()}.`));
     } finally {
       setBusy(false);
       setTaskProgress(null);

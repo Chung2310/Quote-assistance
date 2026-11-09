@@ -41,7 +41,7 @@ function providerErrorMessage(value: unknown): string | undefined {
   return undefined;
 }
 
-function safeLogText(value: unknown) {
+export function safeLogText(value: unknown) {
   if (typeof value !== "string") return undefined;
   return value.replace(/[\r\n\t]+/g, " ").replace(/Bearer\s+\S+/gi, "Bearer [redacted]").replace(/\bsk-[A-Za-z0-9_-]{10,}\b/g, "[redacted]").slice(0, 800);
 }

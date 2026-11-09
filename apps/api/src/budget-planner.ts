@@ -1,6 +1,7 @@
 import { askCustomerQuoteAi, parseCustomerQuotePrompt, shortlistCatalog } from "./customer-quote-ai.js";
 import type { CatalogItem } from "./types.js";
 import type { ObjectId } from "mongodb";
+import { minimumQuantityInstructions, resolveMinimumQuantity } from "./product-quantity.js";
 
 export interface BudgetPlanInput { description: string; budget: number; area?: number; floors?: number }
 const isConstructionRequest = (description: string) => /\b(xay (?:nha|toa|cong trinh)|sua(?: chua)? (?:\d+ )?(?:phong|nha|can ho)|cai tao|thi cong|lat|op lat|son tuong|chong tham|toa nha|nha pho|can ho|cong trinh|phong ngu|san nha)\b/.test(normalize(description));
@@ -8,6 +9,7 @@ export interface BudgetPlanLine {
   catalogItemId: string; sku: string; name: string; unit: string; unitPrice: number; currency: string;
   quantity: number | null; lineTotal: number | null; reason: string;
   quantityBasis?: "measured" | "estimated"; quantityNote?: string;
+  description?: string; catalogAttributes?: Record<string, string>;
 }
 export interface BudgetPlanResult {
   scope: string; budget: number; currency: string; lines: BudgetPlanLine[];
@@ -135,6 +137,7 @@ export function buildBudgetPlan(input: BudgetPlanInput, catalog: CatalogItem[], 
   const provisionalScenario = Boolean((!input.area && !parsed.area && assumedArea) || (!input.floors && !parsed.floors && assumedFloors));
   const selected = Array.isArray(raw.items) ? raw.items.slice(0, 30) : [];
   const lines: BudgetPlanLine[] = [];
+  const quantityQuestions: string[] = [];
   for (const entry of selected) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
     const row = entry as Record<string, unknown>;
@@ -165,8 +168,29 @@ export function buildBudgetPlan(input: BudgetPlanInput, catalog: CatalogItem[], 
       quantityBasis = "estimated";
       quantityNote = estimateNote;
     }
+    if (!areaConflict && !(basis === "floor_area" && quantity !== null)) {
+      const floorRequirement = basis === "floor_area" && construction && area
+        ? `Tổng diện tích áp dụng: ${area * (floors ?? 1)} m²` : undefined;
+      const requestText = [input.description, ...(input.area ? [`Diện tích: ${input.area} m²`] : []), floorRequirement ?? ""].join("\n");
+      const minimum = resolveMinimumQuantity(item, requestText, floorRequirement ? { quantity: area! * (floors ?? 1), unit: "m²", evidence: floorRequirement } : row.quantityRequirement);
+      if (minimum.status === "resolved") {
+        quantity = minimum.quantity;
+        quantityBasis = floorRequirement && provisionalScenario ? "estimated" : "measured";
+        quantityNote = minimum.note;
+      } else if (minimum.status === "unresolved") {
+        quantity = null;
+        quantityNote = undefined;
+        quantityQuestions.push(minimum.question);
+      }
+    }
+    if (quantityNote && /\b(hao hut|du phong|waste|wastage)\b/.test(normalize(quantityNote))
+      && !/\b(khong (?:cong |tinh |bao gom )?hao hut|chua (?:cong |tinh |bao gom )?hao hut|no wast)/.test(normalize(quantityNote))) {
+      quantity = null;
+      quantityQuestions.push(`${item.name}: cần số lượng tối thiểu theo nhu cầu, không cộng hao hụt hoặc dự phòng.`);
+    }
     const reason = typeof row.reason === "string" ? row.reason.trim().slice(0, 240) : "Phù hợp với phạm vi công việc";
     lines.push({ catalogItemId: String(item._id), sku: item.sku, name: item.name, unit: item.unit, unitPrice: item.price, currency: item.currency,
+      description: item.description, catalogAttributes: item.attributes ?? {},
       quantity, lineTotal: quantity === null ? null : Math.round(item.price * quantity * 100) / 100, reason,
       ...(quantityBasis ? { quantityBasis } : {}), ...(quantityNote ? { quantityNote } : {}) });
   }
@@ -176,6 +200,7 @@ export function buildBudgetPlan(input: BudgetPlanInput, catalog: CatalogItem[], 
   const missingProducts = validMissingProducts([...new Set([...missing, ...strings(raw.missingProducts, 20)])], catalog).slice(0, 20);
   const requiresClarification = lines.some((line) => line.quantity === null) || missingProducts.length > 0 || areaConflict;
   const questions = requiresClarification ? strings(raw.questions, 6) : [];
+  questions.push(...quantityQuestions);
   if (areaConflict) questions.push("Diện tích trong mô tả khác với ô diện tích; hãy xác nhận số đúng.");
   if (lines.some((line) => line.quantity === null) && !questions.length) questions.push("Cần xác nhận số lượng hoặc kích thước cho các hạng mục chưa tính được.");
   if (currencies.size > 1) questions.push("Bảng giá chứa nhiều loại tiền tệ; cần chọn một loại trước khi tính tổng.");
@@ -209,7 +234,8 @@ export async function suggestBudgetPlan(input: BudgetPlanInput, catalog: Catalog
   const candidates = catalog.length <= 150 ? catalog : shortlist.available;
   const raw = await askCustomerQuoteAi([
     { role: "system", content: "Lập phương án sản phẩm/dịch vụ và ước tính số lượng từ bảng giá cho đúng lĩnh vực khách yêu cầu. Trả JSON {scope:string,assumedArea:number|null,assumedFloors:number|null,items:[{sku:string,basis:string,quantity:number|null,evidence:string,quantityNote:string,reason:string}],missingProducts:string[],questions:string[],assumptions:string[]}. Chỉ chọn SKU có trong catalog, dùng đúng đơn vị và giá catalog. Nếu lắp PC, chọn các linh kiện tương thích: CPU và socket mainboard, chuẩn RAM, công suất nguồn, kích thước vỏ; đọc thông số nguồn đề xuất trong mô tả GPU và chọn nguồn có công suất ít nhất bằng mức đó. Nếu CPU không ghi có tản nhiệt kèm theo, chọn tản nhiệt phù hợp trong catalog hoặc hỏi xác nhận. Mỗi linh kiện chính thường có số lượng 1 trừ khi yêu cầu khác. Không chọn màn hình/phụ kiện nếu khách không yêu cầu. Nếu là xây dựng, chọn vật tư và nhân công đúng phạm vi; chỉ ngành xây dựng mới dùng assumedArea, assumedFloors hoặc basis=floor_area khi thiếu quy mô và cần một kịch bản giả định rõ ràng. Mọi ngành có thể dùng basis=explicit nếu số lượng có nguyên văn trong mô tả (evidence chép đúng), hoặc basis=estimated với quantity dương và quantityNote giải thích căn cứ. Không lấy ngân sách chia đơn giá để ép số lượng. Nếu chưa thể ước tính có trách nhiệm, dùng basis=unknown, quantity=null và đặt câu hỏi. missingProducts chỉ gồm sản phẩm/dịch vụ thiết yếu cụ thể không có trong catalog. Nêu mọi giả định; đây là tư vấn sơ bộ. Chỉ trả JSON." },
-    { role: "user", content: JSON.stringify({ request: input, scope: plan.scope, needs, planningQuestions: strings(plan.questions, 6), catalog: candidates.map((item) => ({ sku: item.sku, name: item.name, description: item.description?.slice(0, 120), unit: item.unit, price: item.price, currency: item.currency })) }) },
+    { role: "system", content: `${minimumQuantityInstructions} Bổ sung trường quantityRequirement vào từng phần tử items khi cần quy đổi.` },
+    { role: "user", content: JSON.stringify({ request: input, scope: plan.scope, needs, planningQuestions: strings(plan.questions, 6), catalog: candidates.map((item) => ({ sku: item.sku, name: item.name, description: item.description, attributes: item.attributes ?? {}, unit: item.unit, price: item.price, currency: item.currency })) }) },
   ], true);
   let result = buildBudgetPlan(input, candidates, raw, catalog.length <= 150 ? [] : shortlist.missing);
   const unresolved = result.lines.filter((line) => line.quantity === null);
@@ -217,7 +243,8 @@ export async function suggestBudgetPlan(input: BudgetPlanInput, catalog: Catalog
     try {
     const estimates = await askCustomerQuoteAi([
       { role: "system", content: "Ước tính số lượng cho các SKU còn thiếu theo đúng ngành hàng, mô tả và đơn vị của catalog. Trả JSON {items:[{sku:string,quantity:number,quantityNote:string}]}. quantity phải dương; quantityNote giải thích căn cứ bằng ít nhất một câu. Với bộ PC, linh kiện chính thường là 1 chiếc mỗi loại trừ khi yêu cầu khác; bảo đảm cấu hình tương thích. Với công trình, vật tư và nhân công cùng việc phải nhất quán. Không lấy ngân sách chia đơn giá để ép số lượng và không tạo SKU. Nếu không đủ căn cứ, bỏ dòng đó khỏi items. Chỉ trả JSON." },
-      { role: "user", content: JSON.stringify({ description: input.description, scenario: result.scenario, missingQuantities: unresolved.map((line) => ({ sku: line.sku, name: line.name, unit: line.unit, unitPrice: line.unitPrice })), alreadyEstimated: result.lines.filter((line) => line.quantity !== null).map((line) => ({ sku: line.sku, name: line.name, quantity: line.quantity, unit: line.unit })) }) },
+      { role: "system", content: `${minimumQuantityInstructions} Bổ sung trường quantityRequirement vào từng phần tử items khi cần quy đổi.` },
+      { role: "user", content: JSON.stringify({ description: input.description, scenario: result.scenario, missingQuantities: unresolved.map((line) => ({ sku: line.sku, name: line.name, description: line.description, attributes: line.catalogAttributes, unit: line.unit, unitPrice: line.unitPrice })), alreadyEstimated: result.lines.filter((line) => line.quantity !== null).map((line) => ({ sku: line.sku, name: line.name, quantity: line.quantity, unit: line.unit })) }) },
     ], true);
     const bySku = new Map((Array.isArray(estimates.items) ? estimates.items : []).flatMap((entry) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
@@ -228,7 +255,7 @@ export async function suggestBudgetPlan(input: BudgetPlanInput, catalog: Catalog
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
       const item = entry as Record<string, unknown>;
       const estimate = typeof item.sku === "string" ? bySku.get(item.sku) : undefined;
-      return estimate ? { ...item, basis: "estimated", quantity: estimate.quantity, quantityNote: estimate.quantityNote } : entry;
+      return estimate ? { ...item, basis: "estimated", quantity: estimate.quantity, quantityNote: estimate.quantityNote, quantityRequirement: estimate.quantityRequirement ?? item.quantityRequirement } : entry;
     }) };
     result = buildBudgetPlan(input, candidates, expanded, catalog.length <= 150 ? [] : shortlist.missing);
     } catch {

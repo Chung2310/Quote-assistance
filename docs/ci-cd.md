@@ -15,7 +15,7 @@ Tại **Settings → Secrets and variables → Actions**, chỉ cần:
 | Secret | ENV_FILE | Toàn bộ nội dung file .env cho develop, không phải đường dẫn |
 | Secret | ENV_FILE_PROD | Toàn bộ nội dung file .env cho production |
 
-ENV_FILE chứa cấu hình ứng dụng, gồm MONGODB_URI và SESSION_SECRET ít nhất 32 ký tự. Các giá trị OPENROUTER_API_KEY, model, storage hoặc cấu hình khác của ứng dụng cũng đặt trong file này theo .env.example. Chỉ lưu ENV_FILE và ENV_FILE_PROD trong Actions Secrets, không lưu trong Variables: giá trị Variables không được tự động che trong log. Production sử dụng SSH_HOST_PROD, SSH_USER_PROD, SSH_KEY_PROD và SSH_PORT_PROD tương ứng.
+ENV_FILE chứa cấu hình ứng dụng, gồm MONGODB_URI và SESSION_SECRET ít nhất 32 ký tự. Khóa OPENROUTER_API_KEY, storage hoặc cấu hình khác của ứng dụng cũng đặt trong file này theo .env.example. Model AI được cố định trong mã nguồn là `openai/gpt-6-luna` cho cả phân tích, đọc file và sửa tài liệu; các biến `OPENROUTER_MODEL`, `OPENROUTER_FILE_MODEL`, `OPENROUTER_DOCUMENT_MODEL` không được sử dụng. Chỉ lưu ENV_FILE và ENV_FILE_PROD trong Actions Secrets, không lưu trong Variables: giá trị Variables không được tự động che trong log. Production sử dụng SSH_HOST_PROD, SSH_USER_PROD, SSH_KEY_PROD và SSH_PORT_PROD tương ứng.
 
 Nếu trước đây đã lưu file môi trường trong Variables, vô hiệu hóa khóa API cũ, thay các thông tin bí mật có thể đã lộ, tạo Secrets tương ứng rồi xóa Variables cũ. Kiểm tra log Actions của bước deploy trước khi xóa log chứa bí mật. Workflow không còn đọc cấu hình từ Variables; cần tạo Secrets trước khi triển khai bản này.
 
@@ -26,7 +26,6 @@ MONGODB_URI=mongodb://database-host:27017/bao_gia
 SESSION_SECRET=replace-with-at-least-32-random-characters
 SESSION_COOKIE_SECURE=true
 OPENROUTER_API_KEY=
-OPENROUTER_MODEL=openai/gpt-4.1-mini
 ```
 
 Parser hỗ trợ dấu nháy, comment và xuống dòng CRLF của dotenv; không chạy nội dung như shell script. Giá trị nhiều dòng không được hỗ trợ bởi Docker env-file. Không in nội dung ENV_FILE trong log, commit hoặc đưa vào image. NODE_ENV được đặt thành production; PORT lấy từ ENV_FILE, mặc định 3013.

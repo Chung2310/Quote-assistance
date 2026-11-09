@@ -1,3 +1,4 @@
+import { userMessage } from "./user-message";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { api, downloadGeneratedFile, getLatestGeneratedFile, formatDate, formatMoney, type GeneratedFileRef } from "./api";
 import { formatVndInputValue, parseVndInputValue, updateVndInput } from "./money-input";
@@ -99,7 +100,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
         setQuantities(data.record.lines.map((line) => line.acceptedQuantity));
       }
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Không tải được dữ liệu.", "error");
+      notify(userMessage(error, "Không tải được dữ liệu."), "error");
     } finally { setLoading(false); }
   }, [view, id, notify]);
   useEffect(() => { void load(); }, [load]);
@@ -134,7 +135,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       });
       setContract(data.contract);
       notify("Đã lưu hợp đồng.", "success");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được hợp đồng.", "error"); }
+    } catch (error) { notify(userMessage(error, "Không lưu được hợp đồng."), "error"); }
     finally { setBusy(false); }
   };
 
@@ -147,7 +148,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       const data = await api<{ contract: Contract }>(`/api/contracts/${contract._id}/sign`, { method: "POST", body: JSON.stringify({ signedDate }) });
       setContract(data.contract);
       notify("Đã xác nhận hợp đồng.", "success");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không xác nhận được hợp đồng.", "error"); }
+    } catch (error) { notify(userMessage(error, "Không xác nhận được hợp đồng."), "error"); }
     finally { setBusy(false); }
   };
 
@@ -163,7 +164,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
         setContract(latest);
         setShowAcceptanceDialog(true);
       }
-    } catch (error) { notify(error instanceof Error ? error.message : "Không tạo được nghiệm thu.", "error"); }
+    } catch (error) { notify(userMessage(error, "Không tạo được nghiệm thu."), "error"); }
     finally { setBusy(false); }
   };
 
@@ -181,7 +182,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       setRecord(next);
       notify("Đã lưu biên bản nghiệm thu.", "success");
       return true;
-    } catch (error) { notify(error instanceof Error ? error.message : "Không lưu được nghiệm thu.", "error"); return false; }
+    } catch (error) { notify(userMessage(error, "Không lưu được nghiệm thu."), "error"); return false; }
     finally { setBusy(false); }
   };
 
@@ -195,7 +196,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       const { record: next } = await api<{ record: AcceptanceRecord }>(`/api/acceptance-records/${record._id}/complete`, { method: "POST" });
       setRecord(next);
       notify("Đã hoàn tất nghiệm thu.", "success");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không hoàn tất được nghiệm thu.", "error"); }
+    } catch (error) { notify(userMessage(error, "Không hoàn tất được nghiệm thu."), "error"); }
     finally { setBusy(false); }
   };
 
@@ -205,8 +206,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     setDownloading(true);
     try {
       await downloadGeneratedFile(file.id);
-      notify("Đã tải file đã lưu từ Cloudinary.", "success");
-    } catch (error) { notify(error instanceof Error ? error.message : "Không tải được file đã lưu.", "error"); }
+      notify("Đã tải file đã lưu.", "success");
+    } catch (error) { notify(userMessage(error, "Không tải được file đã lưu."), "error"); }
     finally { setDownloading(false); }
   };
 

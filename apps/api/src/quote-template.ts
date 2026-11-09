@@ -7,6 +7,7 @@ import { PDFDocument, PDFTextField, rgb } from "pdf-lib";
 import { DOMParser, XMLSerializer, type Document, type Element, type Node } from "@xmldom/xmldom";
 import { requestTemplatePlan } from "./ai.js";
 import { directDocumentEditorEnabled, editDocumentFileDirectly } from "./document-edit-ai.js";
+import { words } from "./contract-pdf-reference-word.js";
 import fontkit from "@pdf-lib/fontkit";
 import type { Company, Quote, QuoteTemplateSnapshot, TemplateFillPlan, XlsxTemplateFillPlan } from "./types.js";
 
@@ -936,7 +937,10 @@ function xlsxQuoteValues(quote: Quote): Record<string, string | number> {
   const values: Record<string, string | number> = {
     quoteNumber: quote.quoteNumber, customerName: quote.customerName, customerEmail: quote.customerEmail, customerPhone: quote.customerPhone ?? "",
     createdAt: new Date(quote.createdAt).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
-    subtotal: quote.subtotalUnknown ? "" : quote.subtotal, shippingFee: quote.shippingFee ?? 0, taxRate: quote.taxRate, taxAmount: quote.taxAmount, total: quote.totalUnknown ? "" : quote.total, currency: quote.currency,
+    subtotal: quote.subtotalUnknown ? "" : quote.subtotal, shippingFee: quote.shippingFeeConfirmed === false ? "" : quote.shippingFee ?? 0,
+    taxRate: quote.taxRateConfirmed === false ? "" : quote.taxRate, taxAmount: quote.taxRateConfirmed === false ? "" : quote.taxAmount,
+    total: quote.totalUnknown ? "" : quote.total, currency: quote.currency,
+    totalInWords: quote.totalUnknown ? "" : words(quote.total, quote.currency),
     validityDays: quote.validityDays ?? "",
     completionDate: quote.completionDate ? new Date(`${quote.completionDate}T00:00:00Z`).toLocaleDateString("vi-VN", { timeZone: "UTC" }) : "",
     ...(additionalInformation ? { additionalInformation } : {}),
@@ -955,8 +959,11 @@ function xlsxQuoteValues(quote: Quote): Record<string, string | number> {
     qualityAssessment: quote.settlement.qualityAssessment,
     contractValue: quote.settlement.contractValue,
     settlementAmount: quote.settlement.settlementAmount,
+    settlementAmountInWords: words(quote.settlement.settlementAmount, quote.currency),
     amountPaid: quote.settlement.amountPaid,
+    amountPaidInWords: words(quote.settlement.amountPaid, quote.currency),
     settlementBalance: quote.settlement.balance,
+    settlementBalanceInWords: words(quote.settlement.balance, quote.currency),
     paymentDueDays: quote.settlement.paymentDueDays ?? "",
     acceptanceNotes: quote.settlement.notes,
   });
@@ -965,8 +972,9 @@ function xlsxQuoteValues(quote: Quote): Record<string, string | number> {
       index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "", details: quoteLineDetails(line),
       width: lineDimension(line, "width"), height: lineDimension(line, "height"), length: lineDimension(line, "length"), quantity: line.quantityUnknown ? "" : line.quantity,
       unit: line.unit, unitPrice: line.priceUnavailable ? "" : line.unitPrice, lineTotal: line.lineTotalUnknown ? "" : line.lineTotal,
-      lineTaxRate: quote.taxRate, lineTaxAmount: line.lineTotalUnknown ? "" : Math.round(line.lineTotal * quote.taxRate * 100) / 100,
-      lineTotalAfterTax: line.lineTotalUnknown ? "" : Math.round(line.lineTotal * (1 + quote.taxRate)),
+      lineTaxRate: quote.taxRateConfirmed === false ? "" : quote.taxRate,
+      lineTaxAmount: line.lineTotalUnknown || quote.taxRateConfirmed === false ? "" : Math.round(line.lineTotal * quote.taxRate * 100) / 100,
+      lineTotalAfterTax: line.lineTotalUnknown || quote.taxRateConfirmed === false ? "" : Math.round(line.lineTotal * (1 + quote.taxRate)),
     };
     for (const [key, value] of Object.entries(lineValues)) values[`line_${index + 1}_${key}`] = value;
   });
@@ -976,7 +984,7 @@ function xlsxQuoteValues(quote: Quote): Record<string, string | number> {
 function directDocumentData(quote: Quote, documentKind: string) {
   const businessFields = xlsxQuoteValues(quote);
   if (quote.kind === "customer") {
-    for (const key of ["subtotal", "shippingFee", "taxRate", "taxAmount", "total"]) delete businessFields[key];
+    for (const key of ["subtotal", "shippingFee", "taxRate", "taxAmount", "total", "totalInWords"]) delete businessFields[key];
     for (const key of Object.keys(businessFields)) {
       if (/^line_\d+_(?:quantity|lineTotal|lineTaxRate|lineTaxAmount|lineTotalAfterTax)$/.test(key)) delete businessFields[key];
     }
@@ -999,9 +1007,11 @@ function directDocumentData(quote: Quote, documentKind: string) {
     })),
     additionalInformation: quoteAdditionalInformation(quote),
     settlement: quote.settlement ?? null,
+    contract: quote.settlement?.contract ?? null,
     contractProducts: quote.settlement?.contractLines?.map((line, index) => ({
       index: index + 1, sku: line.sku, name: line.name, description: line.description ?? "",
       quantity: line.quantity, unit: line.unit, unitPrice: line.unitPrice, lineTotal: line.lineTotal,
+      currency: line.currency, attributes: line.attributes, catalogAttributes: line.catalogAttributes ?? {},
     })) ?? null,
     missingProducts: quote.missingProducts ?? [],
   };

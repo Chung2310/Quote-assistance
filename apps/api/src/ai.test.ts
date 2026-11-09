@@ -4,6 +4,13 @@ import { ObjectId } from "mongodb";
 import { analyzeRequest } from "./ai.js";
 import { config } from "./config.js";
 import type { CatalogItem } from "./types.js";
+import { chatSamplingParameters } from "./structured-ai.js";
+
+test("GPT-6 requests omit unsupported sampling parameters while other models retain temperature", () => {
+  assert.deepEqual(chatSamplingParameters("openai/gpt-6-luna"), {});
+  assert.deepEqual(chatSamplingParameters("openai/gpt-6-astra"), {});
+  assert.deepEqual(chatSamplingParameters("deepseek/deepseek-v4-flash-0731"), { temperature: 0 });
+});
 
 function catalogItem(id: string, sku: string, name: string, unit: string): CatalogItem {
   const now = new Date("2026-10-19T00:00:00.000Z");
@@ -99,4 +106,20 @@ Vui lòng báo riêng phí vận chuyển và VAT nếu có đơn giá trong b�
   ]);
   assert.equal(result.items.some((item) => item.catalogItemId === String(candidates[14]!._id)), false);
   assert.deepEqual(result.missingFields, ["Xác nhận phí vận chuyển", "Xác nhận mức VAT áp dụng"]);
+});
+
+test("corrects AI bag quantities from coverage and the actual requested area", async (t) => {
+  const previousKey = config.openRouterApiKey;
+  config.openRouterApiKey = "test-only";
+  t.after(() => { config.openRouterApiKey = previousKey; });
+  const mortar = { ...catalogItem("6ad2d3294b41809344e1baaf", "VUA-25", "Vữa chống thấm", "bao"), description: "Bao 25kg", attributes: { "Mật độ phủ": "2.5-3.5 m²", "Định mức": "Độ dày 5-7mm" } };
+  const request = "Dùng Vữa chống thấm cho 100 m²";
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+    status: "matched", items: [{ catalogItemId: String(mortar._id), quantity: 100, unit: "bao", attributes: {}, evidence: request,
+      quantityRequirement: { quantity: 100, unit: "m²", evidence: "100 m²" } }], missingFields: [], suggestedProducts: [],
+  }) } }] }), { status: 200 }));
+  const result = await analyzeRequest(request, [mortar]);
+  assert.equal(result.status, "matched");
+  assert.equal(result.items[0]?.quantity, 29);
+  assert.match(result.items[0]?.attributes["Cách tính số lượng"] ?? "", /không cộng hao hụt/);
 });

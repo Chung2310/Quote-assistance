@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { parseJsonResponse, responseContent } from "./structured-ai.js";
+import { chatSamplingParameters, parseJsonResponse, responseContent } from "./structured-ai.js";
 import type { CatalogItem } from "./types.js";
 
 export interface CustomerQuoteInputs {
@@ -97,7 +97,7 @@ export async function askCustomerQuoteAi(messages: Array<{ role: string; content
           "HTTP-Referer": config.openRouterSiteUrl,
           "X-Title": config.openRouterAppName,
         },
-        body: JSON.stringify({ model, temperature: 0, max_tokens: 4000, response_format: { type: "json_object" }, messages }),
+        body: JSON.stringify({ model, ...chatSamplingParameters(model), max_tokens: 4000, response_format: { type: "json_object" }, messages }),
         signal: AbortSignal.timeout(45_000),
       });
       if (!response.ok) throw new Error(`Dịch vụ AI tạm thời không khả dụng (HTTP ${response.status}).`);

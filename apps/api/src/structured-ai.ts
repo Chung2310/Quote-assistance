@@ -3,6 +3,11 @@ export interface AiChatMessage {
   content: unknown;
 }
 
+/** GPT-6 providers reject temperature; strict routing otherwise excludes every endpoint. */
+export function chatSamplingParameters(model: string): { temperature?: number } {
+  return /^openai\/gpt-6(?:[.-]|$)/.test(model) ? {} : { temperature: 0 };
+}
+
 interface StructuredAiOptions<T> {
   messages: AiChatMessage[];
   send: (messages: AiChatMessage[]) => Promise<Response>;

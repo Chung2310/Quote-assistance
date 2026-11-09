@@ -49,6 +49,7 @@ const mongoUri = required("MONGODB_URI", "mongodb://localhost:27017/bao_gia_pilo
 const mongoUser = process.env.MONGODB_USER ?? "";
 const mongoPassword = process.env.MONGODB_PASSWORD ?? "";
 const port = Number(process.env.PORT ?? 3000);
+const openRouterModel = "openai/gpt-6-luna";
 const configuredSepayPaymentPrefix = (process.env.SEPAY_PAYMENT_PREFIX ?? "BG").trim().toUpperCase();
 const sepayPaymentPrefix = configuredSepayPaymentPrefix === "GQ" ? "BG" : configuredSepayPaymentPrefix;
 if (!/^[A-Z]{2,5}$/.test(sepayPaymentPrefix)) {
@@ -67,9 +68,9 @@ export const config = {
   sessionSecret: required("SESSION_SECRET", "development-only-change-me-before-deploy"),
   secureCookie: process.env.SESSION_COOKIE_SECURE === "true",
   openRouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
-  openRouterModel: process.env.OPENROUTER_MODEL ?? "deepseek/deepseek-v4-flash-0731",
-  openRouterFileModel: process.env.OPENROUTER_FILE_MODEL ?? "openai/gpt-4o-mini",
-  openRouterDocumentModel: process.env.OPENROUTER_DOCUMENT_MODEL?.trim() || "openai/gpt-6-astra",
+  openRouterModel,
+  openRouterFileModel: openRouterModel,
+  openRouterDocumentModel: openRouterModel,
   openRouterSiteUrl: "http://localhost:3000",
   openRouterAppName: "AI Bao Gia Pilot",
   cloudinary: {

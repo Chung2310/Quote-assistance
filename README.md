@@ -37,7 +37,7 @@ Yêu cầu Node.js 20.19+ và một MongoDB có thể truy cập từ máy chạ
 
    Mật khẩu cần dài từ 7 đến 200 ký tự; ứng dụng tự băm bằng scrypt rồi lưu tài khoản admin trong `users`, độc lập với hồ sơ doanh nghiệp. Tài khoản admin duy nhất dùng để đăng nhập `/quan-tri` và quản lý các tài khoản doanh nghiệp. Doanh nghiệp tự đăng ký tài khoản user và dùng tài khoản đó để quản lý toàn bộ dữ liệu của mình. Nếu email seed đã thuộc một tài khoản doanh nghiệp, ứng dụng giữ nguyên tài khoản đó, tạo admin với email dạng `ten+system-admin@domain` (in ra terminal khi khởi động) và vẫn dùng mật khẩu seed. Sau lần khởi động đầu tiên thành công, có thể xóa `SEED_ADMIN_EMAIL` và `SEED_ADMIN_PASSWORD`; tài khoản admin đã được lưu trong MongoDB.
 
-3. Cấu hình `PORT` (mặc định 3000) cho cả API và giao diện. Có thể đặt URI MongoDB trong `MONGODB_URI`; nếu URI không có tên database, ứng dụng dùng `MONGODB_DATABASE` hoặc `bao_gia_pilot`. Để kết nối MongoDB local không xác thực, để trống user và password. `SESSION_SECRET` cần là chuỗi ngẫu nhiên dài ít nhất 32 ký tự. Nếu muốn gọi AI, thêm khóa vào `OPENROUTER_API_KEY`; có thể chọn model qua `OPENROUTER_MODEL`.
+3. Cấu hình `PORT` (mặc định 3000) cho cả API và giao diện. Có thể đặt URI MongoDB trong `MONGODB_URI`; nếu URI không có tên database, ứng dụng dùng `MONGODB_DATABASE` hoặc `bao_gia_pilot`. Để kết nối MongoDB local không xác thực, để trống user và password. `SESSION_SECRET` cần là chuỗi ngẫu nhiên dài ít nhất 32 ký tự. Nếu muốn gọi AI, thêm khóa vào `OPENROUTER_API_KEY`. Phân tích yêu cầu, đọc file và sửa tài liệu đều dùng cố định GPT-6 Luna (`openai/gpt-6-luna`), không lấy model từ biến môi trường.
 
 4. Chạy ứng dụng:
 
@@ -68,6 +68,14 @@ Khi tạo báo giá, hệ thống chụp các thuộc tính sản phẩm vào t�
 3. Máy chủ đọc giá hiệu lực trong danh mục, chụp tên/mã/đơn vị/đơn giá và tính tạm tính, thuế, tổng tiền.
 4. Tài khoản doanh nghiệp chỉnh số lượng, chuyển báo giá sang chờ duyệt, rồi duyệt hoặc trả lại với lý do.
 5. Sau khi duyệt, tài khoản doanh nghiệp tải file báo giá theo đúng định dạng mẫu. Có thể gửi file bằng ứng dụng email bên ngoài. Báo giá cũ chưa gắn mẫu vẫn xuất PDF như trước.
+
+## Số lượng tối thiểu theo quy cách sản phẩm
+
+Luồng phân tích yêu cầu, điều chỉnh dự toán từ báo giá khách và lập phương án dùng chung phép quy đổi số lượng ở máy chủ. AI nhận đầy đủ mô tả, thuộc tính danh mục và yêu cầu; khi cần quy đổi, AI trích nhu cầu kèm nguyên văn làm căn cứ. Máy chủ đọc quy cách/định mức của đúng sản phẩm, không cộng hao hụt hay dự phòng. Khi định mức là một khoảng, phép tính chọn mức phủ cao nhất hoặc tiêu hao thấp nhất để cho số lượng tối thiểu.
+
+Ví dụ một bao 25 kg phủ 2,5–3,5 m²: nhu cầu 100 m² cần tối thiểu `ceil(100 / 3.5) = 29 bao`. Cùng nguyên tắc đó áp dụng cho mét/cuộn, cái/hộp, diện tích/tấm, khối lượng/gói và định mức tiêu hao theo diện tích. Sản phẩm bán nguyên bao, thùng, hộp, cuộn, tấm… được làm tròn lên; sản phẩm bán theo mét, m², kg… giữ số lượng lẻ. Số lượng người dùng đã chỉ rõ theo đơn vị bán được ưu tiên.
+
+Nếu thiếu định mức, có nhiều số đo hoặc quy cách mâu thuẫn, hệ thống yêu cầu xác nhận thay vì dùng số lượng AI đoán. Thuộc tính sản phẩm và căn cứ tính được giữ cùng dữ liệu dự toán để chuyển sang hợp đồng, nghiệm thu và file xuất; AI sửa file phải dùng số lượng đã cung cấp, không quy đổi hoặc cộng hao hụt lần nữa. Báo giá cũ đã lưu thiếu thuộc tính không được tự suy ra quy cách lịch sử từ bảng giá hiện tại.
 
 ## Mẫu báo giá theo doanh nghiệp
 
