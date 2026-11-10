@@ -38,6 +38,21 @@ export function isShippingInformation(value: string) {
   return /\b(van chuyen|shipping|delivery fee|phi giao hang)\b/.test(text);
 }
 
+/** A confirmed charge answers amount/rate questions, not questions about its scope or tax-inclusive prices. */
+export function isAnsweredQuoteChargeQuestion(value: string, terms: { taxRate: number; taxRateConfirmed?: boolean; shippingFee?: number | null; shippingFeeConfirmed?: boolean }) {
+  if (!isSupplementalQuestion(value)) return false;
+  const question = normalizedText(value).trim().replace(/^cau hoi bo sung:\s*/, "");
+  const tax = isTaxInformation(question);
+  const shipping = isShippingInformation(question);
+  if (!tax && !shipping) return false;
+  const asksAmount = /\b(xac nhan|chot|thue suat|ty le|muc|bao nhieu|so tien|rate|amount|confirm)\b|\d\s*%/.test(question);
+  const bareCharge = /^(?:(?:muc|thue suat)\s+)?(?:vat|thue(?:\s+gtgt)?|tax(?:\s+rate)?|(?:phi\s+)?van chuyen|phi giao hang|shipping(?:\s+fee)?|delivery fee)(?:\s+ap dung)?\s*[?.!:]*$/.test(question);
+  if (!asksAmount && !bareCharge) return false;
+  if (/\b(don gia|gia ban|gia san pham|bao gom|da gom|chua gom|truoc thue|sau thue|hoa don|ma so thue|khau tru|tung san pham|tung hang muc|thoi gian|thoi diem|ngay|gio|dia chi|dia diem|khu vuc|dia ban|dia hinh|khoang cach|quang duong|phuong thuc|hinh thuc|phuong tien|don vi van chuyen|ben nao|ai chiu|boc xep|van chuyen len|so luong|khoi luong|dinh muc|mau sac|vat lieu|kich thuoc|dien tich|chiet khau|giam gia|bao hanh|bao tri|dat coc|tam ung|thanh toan|tien do|unit price|inclusive|including|included|excluding|excluded|gross|net|invoice|address|location|when|time|date|distance|who|unloading|quantity|coverage|color|dimensions|size|discount|warranty|deposit|payment)\b/.test(question)) return false;
+  return (!tax || terms.taxRateConfirmed === true && Number.isFinite(terms.taxRate) && terms.taxRate >= 0 && terms.taxRate <= 1)
+    && (!shipping || terms.shippingFeeConfirmed === true && typeof terms.shippingFee === "number" && Number.isFinite(terms.shippingFee) && terms.shippingFee >= 0);
+}
+
 export function isSupplementalProductInformation(value: string) {
   const text = normalizedText(value);
   if (text.startsWith("cau hoi bo sung:")) return false;
