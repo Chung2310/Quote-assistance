@@ -95,7 +95,9 @@ File đầu ra giữ định dạng gốc. Word/Excel áp dụng các thay đổ
 
 Mẫu hợp đồng Word có nhãn rõ ràng như `[Số hợp đồng]`, `[Tên khách hàng]`, `[Hạng mục]` được điền trực tiếp từ hồ sơ, gồm các dòng sản phẩm và từng khoản tiền. Nhãn hoặc bảng chưa xác định rõ tiếp tục được AI phân tích. Nếu tạo file thất bại sau khi lưu hợp đồng, ứng dụng mở hồ sơ đã tạo; dùng “Tạo file hợp đồng” để thử lại, không cần lập hợp đồng mới. Nút “Tạo lại file” lưu các điều khoản đang sửa của bản nháp trước khi xuất lại.
 
-Kiểm thử xử lý mẫu: `node --import tsx --test apps/api/src/arbitrary-template.test.ts apps/api/src/word-template-fill.test.ts apps/api/src/word-bracket-fields.test.ts apps/api/src/pdf-product-rows.test.ts apps/api/src/template-upload.test.ts`.
+Báo giá Word kiểm tra đủ đơn giá khi mẫu có cột giá và không chấp nhận bỏ sót sản phẩm mẫu cũ ở các bảng nối tiếp. Danh sách mới được điền một lần; dòng sản phẩm mẫu hoặc dòng trống đã xác định được xóa khỏi các bảng còn lại. File Excel loại bỏ vùng gộp ô trùng nhau sau khi chỉnh sửa/xóa dòng, vì Excel có thể từ chối mở file dù XML vẫn hợp lệ. Bấm lại nhóm mẫu đang chọn giữ nguyên danh sách và trạng thái tải lên.
+
+Kiểm thử xử lý mẫu: `node --import tsx --test apps/api/src/arbitrary-template.test.ts apps/api/src/word-template-fill.test.ts apps/api/src/word-bracket-fields.test.ts apps/api/src/quotation-word-tables.test.ts apps/api/src/office-xml.test.ts apps/api/src/pdf-product-rows.test.ts apps/api/src/template-upload.test.ts`.
 
 ## Tài khoản doanh nghiệp
 

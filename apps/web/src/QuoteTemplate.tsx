@@ -204,7 +204,7 @@ export function QuoteTemplatePanel({
   return (
     <div className="templates-page">
       {!selecting && <nav className="qt-category-tabs" aria-label="Loại mẫu tài liệu">
-        {templateTabs.map((tab) => <button key={tab.id} type="button" className={category === tab.id ? "active" : ""} aria-current={category === tab.id ? "page" : undefined} onClick={() => { loadVersion.current += 1; setCategory(tab.id); setSearch(""); setFilterFormat("all"); setTemplates([]); setNextCursor(null); setLoadingMore(false); }}>{tab.label}</button>)}
+        {templateTabs.map((tab) => <button key={tab.id} type="button" className={category === tab.id ? "active" : ""} aria-current={category === tab.id ? "page" : undefined} onClick={() => { if (category === tab.id) return; loadVersion.current += 1; setCategory(tab.id); setSearch(""); setFilterFormat("all"); setTemplates([]); setNextCursor(null); setLoadingMore(false); }}>{tab.label}</button>)}
       </nav>}
       {/* Header Hero Banner */}
       <section className="qt-header-banner">

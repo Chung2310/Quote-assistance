@@ -94,7 +94,7 @@ export function prepareEditedOfficeFile(originalBytes: Buffer, editedBytes: Buff
   const restored = restoreOfficeXmlNamespaces(originalBytes, editedBytes);
   if (originalBytes.equals(editedBytes)) return restored;
   const zip = new PizZip(restored);
-  let cellsChanged = false;
+  let worksheetsChanged = false;
   // Excel requires formula elements before their cached values. Some editors append
   // a new formula after <v>; many readers tolerate this, but Excel refuses to open it.
   for (const part of zip.file(/^xl\/worksheets\/[^/]+\.xml$/)) {
@@ -110,7 +110,18 @@ export function prepareEditedOfficeFile(originalBytes: Buffer, editedBytes: Buff
         cell.insertBefore(formula, value); changed = true;
       }
     }
-    if (changed) { zip.file(part.name, new XMLSerializer().serializeToString(document)); cellsChanged = true; }
+    // Row deletion can collapse two merged ranges onto the same cells. Excel
+    // refuses these packages even though their XML still passes schema validation.
+    for (const group of Array.from(document.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "mergeCells"))) {
+      const seen = new Set<string>();
+      for (const merge of Array.from(group.getElementsByTagNameNS("http://schemas.openxmlformats.org/spreadsheetml/2006/main", "mergeCell"))) {
+        const ref = (merge.getAttribute("ref") ?? "").replace(/\$/g, "").trim().toUpperCase();
+        if (seen.has(ref)) { group.removeChild(merge); changed = true; }
+        else seen.add(ref);
+      }
+      if (group.hasAttribute("count") && group.getAttribute("count") !== String(seen.size)) { group.setAttribute("count", String(seen.size)); changed = true; }
+    }
+    if (changed) { zip.file(part.name, new XMLSerializer().serializeToString(document)); worksheetsChanged = true; }
   }
   const contentTypes = parsePart(zip.file("[Content_Types].xml")!.asText(), "[Content_Types].xml");
   const chainParts = new Set<string>();
@@ -122,7 +133,7 @@ export function prepareEditedOfficeFile(originalBytes: Buffer, editedBytes: Buff
   }
   // A damaged editor result may retain the part without its content-type entry.
   if (zip.file("xl/calcChain.xml")) chainParts.add("xl/calcChain.xml");
-  if (!chainParts.size) return cellsChanged ? zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) : restored;
+  if (!chainParts.size) return worksheetsChanged ? zip.generate({ type: "nodebuffer", compression: "DEFLATE" }) : restored;
   for (const part of chainParts) zip.remove(part);
   zip.file("[Content_Types].xml", new XMLSerializer().serializeToString(contentTypes));
   for (const [name, part] of Object.entries(zip.files)) {
