@@ -14,6 +14,23 @@ const elements = (parent: Element | Document, name: string) => Array.from(parent
 const children = (parent: Element, name: string) => Array.from(parent.childNodes).filter((node): node is Element => node.nodeType === 1 && (node as Element).namespaceURI === ns && (node as Element).localName === name);
 const text = (element: Element) => elements(element, "t").map((node) => node.textContent ?? "").join("");
 const fold = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase();
+const hasNonTextContent = (node: Element) => Array.from(node.getElementsByTagName("*")).some((element) => /^(?:drawing|pict|object|fldChar|instrText|sdt|sym|oMath|altChunk)$/.test(element.localName ?? ""));
+const isProductSection = (row: Element) => {
+  const cells = children(row, "tc");
+  return cells.length === 2 && /^[IVXLCDM]+[.)]?$/i.test(text(cells[0]!).trim()) && Boolean(text(cells[1]!).trim()) && !hasNonTextContent(row);
+};
+
+function consecutiveTables(previous: Element, current: Element) {
+  if (previous.parentNode !== current.parentNode) return false;
+  for (let node = previous.nextSibling; node && node !== current; node = node.nextSibling) {
+    if (node.nodeType === 3 && node.textContent?.trim()) return false;
+    if (node.nodeType === 1) {
+      const element = node as Element;
+      if (element.namespaceURI !== ns || element.localName !== "p" || text(element).trim() || hasNonTextContent(element)) return false;
+    }
+  }
+  return true;
+}
 
 /** Fixed placeholders are safe only when they can represent every requested product. */
 export function prepareWordProductPlaceholders(template: QuoteTemplate, productCount: number): QuoteTemplate | null {
@@ -28,11 +45,15 @@ export function prepareWordProductPlaceholders(template: QuoteTemplate, productC
     return labels.some((label)=>/^(?:ten (?:san pham|hang muc|hang hoa)|san pham|product(?: name)?|item|description)$/.test(label)) && labels.some((label)=>/^(?:so luong|khoi luong|don gia|thanh tien|qty|quantity|price|amount)$/.test(label));
   })))) return null;
   let changed = false;
+  const blankRows = quotationProductRows(parts).blankRows;
   for(const part of parts){
     let edited=false;
     for(const table of part.tables)for(const row of children(table,"tr")){
       const indices=[...text(row).matchAll(/\{line_(\d+)_\w+\}/g)].map((match)=>Number(match[1]));
       if(indices.length&&indices.every((index)=>index>productCount)){table.removeChild(row);edited=true;}
+    }
+    for (const blank of blankRows.filter((row) => row.part === part.name)) {
+      if (blank.node.parentNode) { blank.node.parentNode.removeChild(blank.node); edited = true; }
     }
     if(edited){zip.file(part.name,new XMLSerializer().serializeToString(part.document));changed=true;}
   }
@@ -96,8 +117,9 @@ export function applyWordFillPlan(template: QuoteTemplate, fields: Record<string
   if (!plan || !Array.isArray(plan.edits) || !Array.isArray(plan.tables) || !plan.edits.length && !plan.tables.length || plan.edits.length > 1000 || plan.tables.length > 30) throw new Error("Chưa xác định được vị trí điền dữ liệu trong mẫu Word.");
   const zip = new PizZip(Buffer.from(template.data.buffer));
   const parts = new Map(partsOf(zip).map((part) => [part.name, part]));
-  const sampleRows = quotationProductRows([...parts.values()]).samples;
+  const { samples: sampleRows, blankRows } = quotationProductRows([...parts.values()], plan.tables);
   const touched = new Set<string>();
+  const resizedTables = new Set<Element>();
   for (const edit of plan.edits) {
     const part = parts.get(edit.part);
     const paragraph = Number.isInteger(edit.paragraph) ? part?.paragraphs[edit.paragraph] : undefined;
@@ -123,6 +145,7 @@ export function applyWordFillPlan(template: QuoteTemplate, fields: Record<string
     const identity = `${edit.part}:${edit.table}`;
     if (!table || seenTables.has(identity) || !Array.isArray(edit.productRows) || !edit.productRows.length || !Array.isArray(edit.columns) || edit.clearOnly !== undefined && typeof edit.clearOnly !== "boolean") throw new Error("Bảng sản phẩm trong mẫu Word không hợp lệ.");
     seenTables.add(identity);
+    resizedTables.add(table);
     const rows = children(table, "tr");
     const indices = edit.productRows;
     if (indices.some((index, position) => !Number.isInteger(index) || index < 0 || !rows[index] || position > 0 && index <= indices[position - 1]!)) throw new Error("Dòng sản phẩm trong mẫu Word không hợp lệ.");
@@ -159,6 +182,19 @@ export function applyWordFillPlan(template: QuoteTemplate, fields: Record<string
     if (!children(table, "tr").length) table.parentNode!.removeChild(table);
     touched.add(edit.part);
   }
+  // Remove proven empty product slots even when the AI omits them from its mapping.
+  // These are source nodes, so cloned rows with intentionally empty optional cells stay intact.
+  for (const blank of blankRows) {
+    const table = blank.node.parentNode as Element | null;
+    if (!table?.parentNode) continue;
+    table.removeChild(blank.node);
+    resizedTables.add(table);
+    touched.add(blank.part);
+  }
+  for (const table of resizedTables) {
+    const rows = children(table, "tr");
+    if (table.parentNode && (!rows.length || rows.every(isProductSection))) table.parentNode.removeChild(table);
+  }
   for (const [name, part] of parts) if (touched.has(name)) zip.file(name, new XMLSerializer().serializeToString(part.document));
   return zip.generate({ type: "nodebuffer", compression: "DEFLATE" });
 }
@@ -173,46 +209,63 @@ const schema = {
   },
 };
 
-function quotationProductRows(parts: WordPart[]) {
+function quotationProductRows(parts: WordPart[], mappedTables: TableEdit[] = []) {
   const samples: Array<{ part: string; table: number; row: number }> = [];
+  const blankRows: Array<{ part: string; node: Element; table: number; row: number }> = [];
   let hasPriceColumn = false;
   const label = (cell: Element) => fold(text(cell)).replace(/[^a-z0-9]/g, "");
   for (const part of parts) {
-    let layout: { count: number; name: number; index: number; sku: number } | undefined;
+    let layout: { count: number; name: number; index: number; sku: number; table: Element } | undefined;
     for (const [table, node] of part.tables.entries()) {
-      let followsProduct = false;
-      for (const [row, nodeRow] of children(node, "tr").entries()) {
+      if (layout && !consecutiveTables(layout.table, node) && !mappedTables.some((mapped) => mapped.part === part.name && mapped.table === table)) layout = undefined;
+      const rows = children(node, "tr");
+      let inProducts = Boolean(layout && rows.some((row) => children(row, "tc").length === layout!.count));
+      if (!inProducts) layout = undefined;
+      if (layout) layout.table = node;
+      for (const [row, nodeRow] of rows.entries()) {
         const cells = children(nodeRow, "tc");
         const labels = cells.map(label);
         const name = labels.findIndex((value) => /^(?:ten(?:sanpham|hangmuc|hanghoa|vattu|vatlieu)?|chungloai|noidung(?:congviec)?|hangmuc|sanpham|product(?:name)?|item(?:description)?|description)$/.test(value));
         const price = labels.findIndex((value) => /^(?:dongia|unitprice|price)/.test(value));
         if (name >= 0 && price >= 0) {
           hasPriceColumn = true;
-          layout = { count: cells.length, name, index: labels.findIndex((value) => /^(?:stt|sothutu|no|index)$/.test(value)), sku: labels.findIndex((value) => /^(?:mahang|masanpham|sku|code)$/.test(value)) };
-          followsProduct = false;
+          layout = { count: cells.length, name, index: labels.findIndex((value) => /^(?:stt|sothutu|no|index)$/.test(value)), sku: labels.findIndex((value) => /^(?:mahang|masanpham|sku|code)$/.test(value)), table: node };
+          inProducts = true;
           continue;
         }
         // Word can split a single product list into several physical tables.
         // Carry the proven column layout into a continuation with the same width.
-        if (!layout || cells.length !== layout.count) { followsProduct = false; continue; }
+        if (!layout) continue;
+        const empty = cells.length > 0 && cells.every((cell) => !text(cell).trim()) && !hasNonTextContent(nodeRow);
+        if (inProducts && empty) {
+          samples.push({ part: part.name, table, row });
+          blankRows.push({ part: part.name, node: nodeRow, table, row });
+          continue;
+        }
+        if (inProducts && isProductSection(nodeRow)) continue;
+        if (cells.length !== layout.count) { inProducts = false; continue; }
         const numbered = layout.index >= 0 && /^\s*\d+(?:[.,]\d+)?\s*$/.test(text(cells[layout.index]!));
         const coded = layout.sku >= 0 && /\d/.test(text(cells[layout.sku]!));
         const hasName = Boolean(text(cells[layout.name]!).trim());
-        const blankExceptNumber = cells.every((cell, index) => index === layout!.index && numbered || !text(cell).trim());
-        const product: boolean = hasName && (numbered || coded) || blankExceptNumber && (numbered || followsProduct);
+        const blankExceptNumber = !hasNonTextContent(nodeRow) && cells.every((cell, index) => index === layout!.index && numbered || !text(cell).trim());
+        const placeholder = cells.some((cell) => /\{line_\d+_(?:name|sku)\}/.test(text(cell)));
+        const product: boolean = hasName && (numbered || coded || placeholder) || blankExceptNumber && (numbered || inProducts);
         if (product) samples.push({ part: part.name, table, row });
-        followsProduct = product;
+        if (product && blankExceptNumber) blankRows.push({ part: part.name, node: nodeRow, table, row });
+        inProducts = product;
       }
+      if (!inProducts) layout = undefined;
     }
   }
-  return { samples, hasPriceColumn };
+  return { samples, blankRows, hasPriceColumn };
 }
 
 function validateQuotationTables(parts: WordPart[], products: Product[], plan: WordFillPlan) {
   if (!products.length) return;
-  const { samples, hasPriceColumn } = quotationProductRows(parts);
+  const { samples, blankRows, hasPriceColumn } = quotationProductRows(parts);
+  const requiredSamples = samples.filter((sample) => !blankRows.some((blank) => blank.part === sample.part && blank.table === sample.table && blank.row === sample.row));
   const filled = plan.tables.filter((table) => !table.clearOnly);
-  if (samples.length && (filled.length !== 1 || samples.some((sample) => !plan.tables.some((table) => table.part === sample.part && table.table === sample.table && table.productRows.includes(sample.row))))) {
+  if (samples.length && (filled.length !== 1 || requiredSamples.some((sample) => !plan.tables.some((table) => table.part === sample.part && table.table === sample.table && table.productRows.includes(sample.row))))) {
     throw new Error("Chưa thay hết các dòng sản phẩm mẫu cũ trong file Word. Hãy ánh xạ đủ các bảng và chỉ điền danh sách sản phẩm mới một lần.");
   }
   const hasKnownPrices = products.some((product) => [product.unitPrice, product.unitPriceFormatted].some((value) => typeof value === "string" && value.trim()));

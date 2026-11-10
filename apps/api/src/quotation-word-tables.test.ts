@@ -86,3 +86,60 @@ test("an overbroad clear-only selection removes proven products while preserving
   assert.match(xml, /Chủng loại/);
   assert.doesNotMatch(xml, /OLD[123]/);
 });
+
+test("quotation deletes omitted empty slots across merged gaps and removes an empty continuation section", async (t) => {
+  const previous = config.openRouterApiKey; config.openRouterApiKey = "test-key"; t.after(() => { config.openRouterApiKey = previous; });
+  const input = template(); const zip = new PizZip(Buffer.from(input.data.buffer));
+  const mergedEmpty = `<w:tr><w:tc><w:tcPr><w:gridSpan w:val="4"/></w:tcPr>${paragraph("")}</w:tc></w:tr>`;
+  const verticallyMergedEmpty = row(["", "", "", ""]).replaceAll("<w:tc>", '<w:tc><w:tcPr><w:vMerge/></w:tcPr>');
+  zip.file("word/document.xml", zip.file("word/document.xml")!.asText().replace(
+    row(["3", "OLD3", "Sản phẩm cũ 3", "300"]),
+    row(["3", "OLD3", "Sản phẩm cũ 3", "300"]) + row(["II", "Nhóm sản phẩm cũ"]) + row(["4", "OLD4", "Hàng cũ 4", "400"]) + verticallyMergedEmpty + mergedEmpty + verticallyMergedEmpty + mergedEmpty,
+  ));
+  input.data = new Binary(zip.generate({ type: "nodebuffer" }));
+  const plan = validPlan(); plan.tables[1]!.productRows = [0, 2]; plan.tables[1]!.columns = [];
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async () => { calls++; return Response.json({ choices: [{ message: { content: JSON.stringify(plan) } }] }); });
+  const result = await fillWordBusinessTemplate(input, {}, products.slice(0, 1), "quotation");
+  const xml = new PizZip(result).file("word/document.xml")!.asText();
+  const document = new DOMParser().parseFromString(xml, "application/xml");
+  assert.equal(calls, 1, "blank rows are removed by the server without another AI mapping");
+  assert.equal(document.getElementsByTagNameNS(ns, "tbl").length, 1);
+  assert.equal(document.getElementsByTagNameNS(ns, "tr").length, 2, "only the header and one current product remain");
+  assert.doesNotMatch(xml, /OLD[1234]|Nhóm sản phẩm cũ/);
+  assert.match(xml, /Điều khoản và logo giữ nguyên/);
+});
+
+test("an already-cleared template shrinks blank product rows even when the AI maps only one slot", () => {
+  const input = template(); const zip = new PizZip(Buffer.from(input.data.buffer));
+  const header = row(["STT", "Mã hàng", "Chủng loại", "Đơn giá"]);
+  zip.file("word/document.xml", `<w:document xmlns:w="${ns}"><w:body><w:tbl>${header}${row(["", "", "", ""])}${row(["", "", "", ""])}</w:tbl>${paragraph("")}<w:tbl>${row(["II", "Nhóm cũ"])}${row(["", "", "", ""])}${row(["", "", "", ""])}</w:tbl>${paragraph("Ghi chú giữ nguyên.")}</w:body></w:document>`);
+  input.data = new Binary(zip.generate({ type: "nodebuffer" }));
+  const plan = validPlan(); plan.tables = [{ ...plan.tables[0]!, productRows: [1] }];
+  const result = new PizZip(applyWordFillPlan(input, {}, products, plan)).file("word/document.xml")!.asText();
+  const document = new DOMParser().parseFromString(result, "application/xml");
+  assert.equal(document.getElementsByTagNameNS(ns, "tbl").length, 1);
+  assert.equal(document.getElementsByTagNameNS(ns, "tr").length, products.length + 1);
+  assert.match(result, /Ghi chú giữ nguyên/);
+});
+
+test("empty rows outside the product region, signature spaces and rows containing images are preserved", () => {
+  const input = template(); const zip = new PizZip(Buffer.from(input.data.buffer));
+  const before = row(["", "", "", ""]);
+  const note = row(["", "Ghi chú thanh toán", "", ""]);
+  const after = row(["", "", "", ""]);
+  const signature = row(["", "ĐẠI DIỆN KHÁCH HÀNG", "", ""]);
+  const image = row(["", "", "", ""]).replace("<w:p>", '<w:p><w:r><w:drawing/></w:r>');
+  zip.file("word/document.xml", zip.file("word/document.xml")!.asText()
+    .replace("<w:tbl>", `<w:tbl>${before}`)
+    .replace(row(["2", "OLD2", "Sản phẩm cũ 2", "200"]), row(["2", "OLD2", "Sản phẩm cũ 2", "200"]) + note + after + signature + after)
+    .replace("</w:body>", `<w:tbl>${after}${image}${after}</w:tbl></w:body>`));
+  input.data = new Binary(zip.generate({ type: "nodebuffer" }));
+  const plan = validPlan(); plan.tables[0]!.productRows = [2, 3];
+  const result = new PizZip(applyWordFillPlan(input, {}, products, plan)).file("word/document.xml")!.asText();
+  const document = new DOMParser().parseFromString(result, "application/xml");
+  assert.equal(document.getElementsByTagNameNS(ns, "tr").length, 11);
+  assert.equal(document.getElementsByTagNameNS(ns, "drawing").length, 1);
+  assert.match(result, /Ghi chú thanh toán/);
+  assert.match(result, /ĐẠI DIỆN KHÁCH HÀNG/);
+});

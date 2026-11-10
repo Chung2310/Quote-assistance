@@ -21,6 +21,7 @@ import { decryptCompanySecret, encryptCompanySecret } from "./secrets.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
 import { estimateFromCustomerQuote } from "./quote-from-customer.js";
+import { quoteHasApprovalBlockers } from "./quote-approval.js";
 import { makeDocumentWord } from "./document-word.js";
 import { contractTemplateMode, renderAcceptanceFile, renderContractFile } from "./contract-template.js";
 import { adjustEstimateWithRequirements, recalculateEstimateWithClarifications } from "./quote-estimate-adjustment.js";
@@ -116,11 +117,7 @@ async function customerQuoteWithPrices(db: Db, quote: Quote): Promise<Quote> {
 }
 
 function quoteHasUnresolvedInformation(quote: Quote) {
-  const normalized = quoteForResponse(quote);
-  return normalized.requiresAiRecalculation === true || normalized.informationNeeded.some((field) => isSupplementalProductInformation(field)
-    ? !normalized.lines.some((line) => line.source === "supplemental" && line.supplementalFor === field && !line.priceUnavailable)
-    : !normalized.additionalInformation?.[field]?.trim())
-    || !normalized.taxRateConfirmed || !normalized.shippingFeeConfirmed;
+  return quoteHasApprovalBlockers(quoteForResponse(quote));
 }
 
 async function quoteInputContext(db: Db, quote: Quote) {
@@ -3065,7 +3062,7 @@ app.post("/api/quotes/:id/submit-review", requireRole("user"), async (request, r
   const quotes = db.collection<Quote>("quotes");
   const quote = await quotes.findOne({ _id: id, companyId: user.companyId });
   if (!quote) return fail(response, "Không tìm thấy báo giá.", 404);
-  if (quote.status !== "draft" || quoteHasUnresolvedInformation(quote)) return fail(response, quote.kind === "customer" ? "Danh sách sản phẩm chưa sẵn sàng để gửi duyệt." : "Hãy xử lý các khoản chưa có giá hoặc điều khoản còn thiếu trước khi gửi duyệt.", 409);
+  if (!["draft", "needs_info"].includes(quote.status) || quoteHasUnresolvedInformation(quote)) return fail(response, quote.kind === "customer" ? "Danh sách sản phẩm chưa sẵn sàng để gửi duyệt." : "Hãy xử lý các khoản chưa có giá hoặc điều khoản còn thiếu trước khi gửi duyệt.", 409);
   await quotes.updateOne({ _id: id, companyId: user.companyId }, { $set: { status: "pending_review", updatedAt: new Date() } });
   await writeAudit(db, user, "quote_submitted", "quote", id.toHexString());
   response.json({ quote: await quotes.findOne({ _id: id, companyId: user.companyId }) });
