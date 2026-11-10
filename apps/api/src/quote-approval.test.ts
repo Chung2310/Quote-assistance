@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { quoteHasApprovalBlockers } from "./quote-approval.js";
+import { quoteApprovalBlockers, quoteHasApprovalBlockers } from "./quote-approval.js";
 import { isSupplementalQuestion } from "./quote-terms.js";
 import type { Quote } from "./types.js";
 
@@ -67,4 +67,18 @@ test("other required information must still be supplied", () => {
   assert.equal(quoteHasApprovalBlockers(quote), true);
   quote.additionalInformation = { [field]: "Hà Nội" };
   assert.equal(quoteHasApprovalBlockers(quote), false);
+});
+
+test("approval explains unconfirmed zero charges without falsely claiming product prices are missing", () => {
+  const quote = estimate();
+  quote.taxRate = 0; quote.taxRateConfirmed = false;
+  quote.shippingFee = 0; quote.shippingFeeConfirmed = false;
+  quote.informationNeeded.push("VAT: cần xác nhận thuế suất.", "Phí vận chuyển: cần xác nhận.");
+  assert.deepEqual(quoteApprovalBlockers(quote), [
+    "VAT chưa chốt. Hãy chọn 0% hoặc nhập thuế suất VAT.",
+    "Phí vận chuyển chưa chốt. Hãy chọn miễn phí hoặc nhập số tiền vận chuyển.",
+  ]);
+  quote.taxRateConfirmed = true; quote.shippingFeeConfirmed = true;
+  quote.informationNeeded = quote.informationNeeded.filter((field) => field.startsWith("Câu hỏi bổ sung:"));
+  assert.deepEqual(quoteApprovalBlockers(quote), []);
 });

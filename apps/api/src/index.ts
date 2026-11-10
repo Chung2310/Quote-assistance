@@ -21,7 +21,7 @@ import { decryptCompanySecret, encryptCompanySecret } from "./secrets.js";
 import { downloadCompanyFile, uploadCompanyFile } from "./cloudinary.js";
 import { calculateQuote, recalculateSnapshot, roundMoney } from "./pricing.js";
 import { estimateFromCustomerQuote } from "./quote-from-customer.js";
-import { quoteHasApprovalBlockers } from "./quote-approval.js";
+import { quoteApprovalBlockers, quoteHasApprovalBlockers } from "./quote-approval.js";
 import { makeDocumentWord } from "./document-word.js";
 import { contractTemplateMode, renderAcceptanceFile, renderContractFile } from "./contract-template.js";
 import { adjustEstimateWithRequirements, recalculateEstimateWithClarifications } from "./quote-estimate-adjustment.js";
@@ -3078,7 +3078,8 @@ app.post("/api/quotes/:id/approve", requireRole("user"), async (request, respons
   const quotes = db.collection<Quote>("quotes");
   const current = await quotes.findOne({ _id: id, companyId: user.companyId });
   if (!current) return fail(response, "Không tìm thấy báo giá.", 404);
-  if (current.kind !== "customer" && quoteHasUnresolvedInformation(current)) return fail(response, "Hãy bổ sung đơn giá và thông tin còn thiếu trước khi duyệt dự toán.", 409);
+  const blockers = quoteApprovalBlockers(quoteForResponse(current));
+  if (current.kind !== "customer" && blockers.length) return fail(response, blockers.join(" "), 409);
   const approvableStatuses: QuoteStatus[] = ["draft", "needs_info", "pending_review"];
   const result = await quotes.findOneAndUpdate(
     {
