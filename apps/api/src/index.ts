@@ -27,7 +27,7 @@ import { contractTemplateMode, renderAcceptanceFile, renderContractFile } from "
 import { adjustEstimateWithRequirements, recalculateEstimateWithClarifications } from "./quote-estimate-adjustment.js";
 import { acceptanceFinancials, settlementContractContext } from "./acceptance-export.js";
 import { extractCatalogProducts, previewCatalogImport, type PriceListColumnRole, type PriceListSheetMapping } from "./price-list-import.js";
-import { cleanMissingInformation, extractQuoteTerms, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
+import { cleanMissingInformation, extractQuoteTerms, isAnsweredQuoteChargeQuestion, isResolvedQuoteTermWarning, isShippingInformation, isSupplementalProductInformation, isTaxInformation } from "./quote-terms.js";
 import { budgetPlanAsQuote, makeBudgetPlanExcel, makeQuoteExcel } from "./quote-excel.js";
 import { attachWeb } from "./web.js";
 import { availablePriceListRows } from "./catalog-availability.js";
@@ -72,7 +72,8 @@ function quoteForResponse(quote: Quote): Quote {
   const taxRateConfirmed = quote.taxRateConfirmed ?? !information.some(isTaxInformation);
   const shippingFeeConfirmed = quote.shippingFeeConfirmed ?? (quote.shippingFee != null || !information.some(isShippingInformation));
   const confirmedInformationNeeded = informationNeeded.filter((field) =>
-    !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
+    !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field))
+    && !isAnsweredQuoteChargeQuestion(field, { taxRate: quote.taxRate, taxRateConfirmed, shippingFee: quote.shippingFee ?? (shippingFeeConfirmed ? 0 : null), shippingFeeConfirmed }),
   );
   if (!taxRateConfirmed && !confirmedInformationNeeded.some(isTaxInformation)) confirmedInformationNeeded.push("VAT: cần xác nhận thuế suất.");
   if (!shippingFeeConfirmed && !confirmedInformationNeeded.some(isShippingInformation)) confirmedInformationNeeded.push("Phí vận chuyển: cần xác nhận số tiền hoặc xác nhận miễn phí.");
@@ -2999,7 +3000,8 @@ app.patch("/api/quotes/:id", requireRole("user"), async (request, response) => {
   }
   const informationConfirmed = request.body?.informationConfirmed === true || quote.informationConfirmed;
   let informationNeeded = currentQuote.informationNeeded.filter((field) =>
-    !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field)),
+    !(taxRateConfirmed && isTaxInformation(field)) && !(shippingFeeConfirmed && isShippingInformation(field))
+    && !isAnsweredQuoteChargeQuestion(field, { taxRate, taxRateConfirmed, shippingFee, shippingFeeConfirmed }),
   );
   informationNeeded = removeAnsweredSupplementalPriceQuestions(informationNeeded, supplementalLines);
   if (!taxRateConfirmed && !informationNeeded.some(isTaxInformation)) informationNeeded.push("VAT: cần xác nhận thuế suất.");
