@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { applyAdjustment, recalculateEstimateWithClarifications, validateAdjustment } from "./quote-estimate-adjustment.js";
+import { adjustEstimateWithRequirements, applyAdjustment, recalculateEstimateWithClarifications, validateAdjustment } from "./quote-estimate-adjustment.js";
 import { estimateFromCustomerQuote } from "./quote-from-customer.js";
 import type { Quote } from "./types.js";
 
@@ -224,4 +224,65 @@ test("câu trả lời miễn phí vận chuyển được hiểu là 0, không 
   assert.equal(result.shippingFee, 0);
   assert.equal(result.shippingFeeConfirmed, true);
   assert.equal(result.total, 3_000_000);
+});
+
+test("first adjustment sends effective VAT and shipping values with the confirmed-form instruction", async () => {
+  const result = await adjustEstimateWithRequirements(base(), "Giữ nguyên sản phẩm. VAT 8%, phí vận chuyển 275.000 VND.", async (messages) => {
+    const payload = JSON.parse(messages.find((message) => message.role === "user")!.content);
+    assert.equal(payload.confirmedTerms.taxRate, .08);
+    assert.equal(payload.confirmedTerms.taxRatePercent, 8);
+    assert.equal(payload.confirmedTerms.taxRateConfirmed, true);
+    assert.equal(payload.confirmedTerms.shippingFee, 275000);
+    assert.equal(payload.confirmedTerms.shippingFeeConfirmed, true);
+    assert.equal(payload.confirmedTerms.shippingMode, "paid");
+    assert.equal(payload.confirmedTerms.currency, "VND");
+    assert.match(messages.filter((message) => message.role === "system").map((message) => message.content).join("\n"), /ô nhập liệu riêng[\s\S]*không hỏi lại[\s\S]*0%[\s\S]*giá trị hợp lệ/);
+    return { changes: [], additions: [], questions: ["VAT áp dụng bao nhiêu?", "Phí vận chuyển bao nhiêu?"] };
+  });
+  assert.equal(result.total, 3515000);
+  assert.deepEqual(result.informationNeeded, []);
+});
+
+test("rerun uses confirmed form values instead of asking stale VAT and shipping questions", async () => {
+  const estimate = { ...base(), taxRate: .08, taxRateConfirmed: true, shippingFee: 275000, shippingFeeConfirmed: true };
+  const color = "Câu hỏi bổ sung: Chọn màu nào?";
+  estimate.informationNeeded = ["Câu hỏi bổ sung: VAT 8% hay 10%?", "Câu hỏi bổ sung: Phí vận chuyển?", color];
+  const before = structuredClone(estimate);
+  const result = await recalculateEstimateWithClarifications(estimate, "VAT 10% hoặc chưa xác nhận; phí vận chuyển chưa chốt.", async (messages) => {
+    const payload = JSON.parse(messages.find((message) => message.role === "user")!.content);
+    assert.equal(payload.confirmedTerms.taxRatePercent, 8);
+    assert.equal(payload.confirmedTerms.shippingFee, 275000);
+    assert.deepEqual(payload.informationNeeded, [color]);
+    return { changes: [], additions: [], questions: ["VAT 8% hay 10%?", "Phí vận chuyển?"] };
+  });
+  assert.equal(result.taxRate, .08);
+  assert.equal(result.shippingFee, 275000);
+  assert.equal(result.total, 3515000);
+  assert.deepEqual(result.informationNeeded, [color]);
+  assert.deepEqual(estimate, before);
+});
+
+test("rerun treats confirmed zero VAT and free shipping as complete, while unconfirmed zero still needs answers", async () => {
+  for (const confirmed of [true, false]) {
+    const estimate = { ...base(), taxRate: 0, taxRateConfirmed: confirmed, shippingFee: 0, shippingFeeConfirmed: confirmed };
+    estimate.informationNeeded = ["Câu hỏi bổ sung: VAT?", "Câu hỏi bổ sung: Phí vận chuyển?"];
+    const result = await recalculateEstimateWithClarifications(estimate, "", async (messages) => {
+      const payload = JSON.parse(messages.find((message) => message.role === "user")!.content);
+      assert.equal(payload.confirmedTerms.taxRatePercent, 0);
+      assert.equal(payload.confirmedTerms.taxRateConfirmed, confirmed);
+      assert.equal(payload.confirmedTerms.shippingMode, confirmed ? "free" : "unconfirmed");
+      return { changes: [], additions: [], questions: [] };
+    });
+    assert.equal(result.total, 3000000);
+    assert.equal(result.informationNeeded.length === 0, confirmed);
+    assert.equal(result.status, confirmed ? "draft" : "needs_info");
+  }
+});
+
+test("confirmed charges do not clear unresolved tax-inclusive prices or combined delivery questions", async () => {
+  const estimate = { ...base(), taxRate: .08, taxRateConfirmed: true, shippingFee: 0, shippingFeeConfirmed: true };
+  estimate.informationNeeded = ["Câu hỏi bổ sung: Đơn giá đã bao gồm VAT chưa?", "Câu hỏi bổ sung: Phí vận chuyển và ngày giao hàng?"];
+  const result = await recalculateEstimateWithClarifications(estimate, "", async () => ({ changes: [], additions: [], questions: [] }));
+  assert.deepEqual(result.informationNeeded, estimate.informationNeeded);
+  assert.equal(result.status, "needs_info");
 });
