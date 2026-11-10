@@ -111,6 +111,10 @@ function normalizedMissingInformation(value: string) {
   return value.toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
 }
 
+function isSupplementalQuestion(value: string) {
+  return normalizedMissingInformation(value).trim().startsWith("cau hoi bo sung:");
+}
+
 function isTaxMissingInformation(value: string) {
   if (normalizedMissingInformation(value).startsWith("cau hoi bo sung:")) return false;
   return /\b(vat|thue|tax)\b/.test(normalizedMissingInformation(value));
@@ -1849,6 +1853,9 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
     || Object.entries(additionalInformation).some(([field, answer]) => answer.trim() !== (quote.additionalInformation?.[field] ?? "").trim())
     || Object.keys(quote.additionalInformation ?? {}).some((field) => !(field in additionalInformation));
   const hasUnresolvedInformation = unresolvedInformation.length > 0 || !taxRateConfirmed || taxRateText.trim() === "" || !shippingFeeIsConfirmed || needsAiRecalculation;
+  const hasApprovalBlockers = unresolvedInformation.some((field) => !isSupplementalQuestion(field))
+    || !taxRateConfirmed || taxRateText.trim() === "" || !shippingFeeIsConfirmed || needsAiRecalculation
+    || quote.lines.some((line) => line.priceUnavailable && line.source !== "supplemental");
   const supplementalInformation = [...new Set([...quote.informationNeeded, ...Object.keys(quote.additionalInformation ?? {})])].filter((field) => !isTaxMissingInformation(field) && !isShippingMissingInformation(field) && !isSupplementalProductInformation(field));
   const unresolvedProductNeeds = unresolvedInformation.filter(isSupplementalProductInformation).map((field) => ({
     field,
@@ -2012,7 +2019,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
               <button
                 type="button"
                 className="button button-primary quote-approve-btn"
-                disabled={busy || hasUnresolvedInformation || hasIncompleteSupplementalProduct}
+                disabled={busy || hasApprovalBlockers || hasIncompleteSupplementalProduct}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Dự toán đã được phê duyệt thành công.")}
               >
                 <Icon name="check" size={16} />
@@ -2079,25 +2086,25 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
       {/* Stepper Pipeline */}
       <section className="quote-stepper-card" aria-label="Quy trình xử lý dự toán">
         <div className="quote-stepper">
-          <div className={`quote-step-item ${quote.status === "needs_info" ? "is-alert" : "is-done"}`}>
+          <div className={`quote-step-item ${quote.status === "needs_info" && hasApprovalBlockers ? "is-alert" : "is-done"}`}>
             <span className="quote-step-icon">
-              {quote.status === "needs_info" ? "!" : <Icon name="check" size={15} />}
+              {quote.status === "needs_info" && hasApprovalBlockers ? "!" : <Icon name="check" size={15} />}
             </span>
             <div className="quote-step-copy">
               <strong>1. Soạn dự toán</strong>
-              <span>{quote.status === "needs_info" ? "Cần bổ sung thông tin" : "Đã tạo bản nháp"}</span>
+              <span>{quote.status === "needs_info" && hasApprovalBlockers ? "Cần bổ sung thông tin" : "Đã tạo bản nháp"}</span>
             </div>
           </div>
 
-          <div className={`quote-step-line ${quote.status !== "needs_info" ? "is-done" : ""}`} />
+          <div className={`quote-step-line ${quote.status !== "needs_info" || !hasApprovalBlockers ? "is-done" : ""}`} />
 
-          <div className={`quote-step-item ${quote.status === "rejected" ? "is-alert" : quote.status === "draft" || quote.status === "pending_review" ? "is-current" : quote.status === "approved" ? "is-done" : "is-upcoming"}`}>
+          <div className={`quote-step-item ${quote.status === "rejected" ? "is-alert" : quote.status === "draft" || quote.status === "pending_review" || quote.status === "needs_info" && !hasApprovalBlockers ? "is-current" : quote.status === "approved" ? "is-done" : "is-upcoming"}`}>
             <span className="quote-step-icon">
               {quote.status === "rejected" ? "!" : quote.status === "pending_review" ? <Icon name="clock" size={15} /> : quote.status === "approved" ? <Icon name="check" size={15} /> : "2"}
             </span>
             <div className="quote-step-copy">
               <strong>2. Phê duyệt dự toán</strong>
-              <span>{quote.status === "rejected" ? "Cần chỉnh sửa" : quote.status === "pending_review" ? "Đang chờ duyệt" : quote.status === "approved" ? "Đã duyệt" : quote.status === "draft" ? "Sẵn sàng duyệt" : "Cần bổ sung thông tin"}</span>
+              <span>{quote.status === "rejected" ? "Cần chỉnh sửa" : quote.status === "pending_review" ? "Đang chờ duyệt" : quote.status === "approved" ? "Đã duyệt" : quote.status === "draft" || quote.status === "needs_info" && !hasApprovalBlockers ? "Sẵn sàng duyệt" : "Cần bổ sung thông tin"}</span>
             </div>
           </div>
 
@@ -2135,7 +2142,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
               <button
                 type="button"
                 className="button button-primary"
-                disabled={busy || hasUnresolvedInformation || hasIncompleteSupplementalProduct}
+                disabled={busy || hasApprovalBlockers || hasIncompleteSupplementalProduct}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Dự toán đã được phê duyệt thành công.")}
               >
                 <Icon name="check" size={16} /> Phê duyệt ngay
@@ -2165,7 +2172,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
           <div className="banner-info-wrap">
             <span className="banner-icon"><Icon name="spark" size={20} /></span>
             <div className="banner-text-box">
-              <h3>Còn {unresolvedItemCount} mục cần xác nhận trước khi duyệt</h3>
+              <h3>{hasApprovalBlockers ? "Cần xác nhận thông tin trước khi duyệt" : `Còn ${unresolvedItemCount} câu hỏi bổ sung`}</h3>
               <p>{[
                 ...unresolvedOtherInformation,
                 ...missingSetupInformation.map((field) => `${field}: chưa xác nhận`),
@@ -2173,7 +2180,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
               ].join(" · ") || "Cần hoàn tất các hạng mục bên dưới."}</p>
             </div>
           </div>
-          <p className="field-hint">Cần chốt các mục này trước khi gửi duyệt.</p>
+          <p className="field-hint">{hasApprovalBlockers ? "Các thông tin bắt buộc cần được xác nhận trước khi duyệt. Câu hỏi bổ sung có thể để lại." : "Các câu hỏi bổ sung vẫn được lưu và không chặn duyệt dự toán hoặc tạo hợp đồng theo số liệu hiện tại."}</p>
           {hasUnresolvedProductInformation && <div className="quote-missing-product-list" aria-label="Hạng mục chưa ghép được">
             {unresolvedProductNeeds.map(({ field, suggestion, draft }) => {
               const name = draft ? draft.name.trim() : suggestion?.name?.trim() ?? "";
@@ -2502,7 +2509,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
                   <span>Tổng tiền thanh toán:</span>
                   <strong>{formatMoney(liveTotal, quote.currency)}</strong>
                 </div>
-                {hasUnresolvedInformation && <small className="quote-total-pending-note">Tạm tính chưa bao gồm các khoản còn thiếu trong danh sách xác nhận.</small>}
+                {hasApprovalBlockers && <small className="quote-total-pending-note">Tạm tính chưa bao gồm các khoản còn thiếu trong danh sách xác nhận.</small>}
               </div>
             </div>
           </section>

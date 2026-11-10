@@ -2,6 +2,10 @@ function normalizedText(value: string) {
   return value.toLocaleLowerCase("vi").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d");
 }
 
+export function isSupplementalQuestion(value: string) {
+  return normalizedText(value).trim().startsWith("cau hoi bo sung:");
+}
+
 export function isGenericMissingPriceWarning(value: string) {
   const text = normalizedText(value);
   const saysPriceIsMissing = /\b(khong co|chua co|khong tim thay|khong xac dinh|thieu|missing|not found|no|without|unavailable)\b/.test(text) && /\b(don gia|gia|price|pricing)\b/.test(text);
