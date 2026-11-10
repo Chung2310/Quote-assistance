@@ -2020,6 +2020,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
                 type="button"
                 className="button button-primary quote-approve-btn"
                 disabled={busy || hasApprovalBlockers || hasIncompleteSupplementalProduct}
+                title={missingSetupInformation.length ? `Chưa chốt ${missingSetupInformation.join(" và ")}. Chọn 0% / Miễn phí nếu không tính các khoản này.` : undefined}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Dự toán đã được phê duyệt thành công.")}
               >
                 <Icon name="check" size={16} />
@@ -2143,6 +2144,7 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
                 type="button"
                 className="button button-primary"
                 disabled={busy || hasApprovalBlockers || hasIncompleteSupplementalProduct}
+                title={missingSetupInformation.length ? `Chưa chốt ${missingSetupInformation.join(" và ")}. Chọn 0% / Miễn phí nếu không tính các khoản này.` : undefined}
                 onClick={() => void perform(`/api/quotes/${quote._id}/approve`, {}, "POST", "Dự toán đã được phê duyệt thành công.")}
               >
                 <Icon name="check" size={16} /> Phê duyệt ngay
@@ -2180,7 +2182,12 @@ function QuoteDetail({ id, user, onBack, onChanged, onAiUsed, onToast, confirm, 
               ].join(" · ") || "Cần hoàn tất các hạng mục bên dưới."}</p>
             </div>
           </div>
-          <p className="field-hint">{hasApprovalBlockers ? "Các thông tin bắt buộc cần được xác nhận trước khi duyệt. Câu hỏi bổ sung có thể để lại." : "Các câu hỏi bổ sung vẫn được lưu và không chặn duyệt dự toán hoặc tạo hợp đồng theo số liệu hiện tại."}</p>
+          <p className="field-hint">{missingSetupInformation.length ? `Chưa chốt ${missingSetupInformation.join(" và ")}. Giá trị 0 chưa xác nhận không tự được hiểu là VAT 0% hoặc miễn phí vận chuyển. Hãy chọn rõ trong Chi phí & điều khoản.` : hasApprovalBlockers ? "Các thông tin bắt buộc cần được xác nhận trước khi duyệt. Câu hỏi bổ sung có thể để lại." : "Các câu hỏi bổ sung vẫn được lưu và không chặn duyệt dự toán hoặc tạo hợp đồng theo số liệu hiện tại."}</p>
+          {editable && missingSetupInformation.length > 0 && <div className="banner-actions"><button type="button" className="button button-soft" onClick={() => {
+            document.querySelector(".quote-terms-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+            const target = !taxRateConfirmed || taxRateText.trim() === "" ? "tax" : "shipping";
+            document.getElementById(`${target}-mode-${quote._id}`)?.focus({ preventScroll: true });
+          }}>Chốt VAT và vận chuyển</button></div>}
           {hasUnresolvedProductInformation && <div className="quote-missing-product-list" aria-label="Hạng mục chưa ghép được">
             {unresolvedProductNeeds.map(({ field, suggestion, draft }) => {
               const name = draft ? draft.name.trim() : suggestion?.name?.trim() ?? "";
