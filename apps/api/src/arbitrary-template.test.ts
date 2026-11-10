@@ -41,6 +41,19 @@ test("Word fixed product placeholders remove surplus physical rows without AI",a
   const output=xml(await renderTemplate(template,quote));assert.equal((output.match(/<w:tr>/g)??[]).length,2);assert.match(output,/Hàng mới/);assert.match(output,/280\.000/);
 });
 
+test("Word fixed placeholders also remove unbound blank slots while preserving the total and signature space", async (t) => {
+  useKey(t, "");
+  const row = (cells: string[]) => `<w:tr>${cells.map(cell => `<w:tc>${p(cell)}</w:tc>`).join("")}</w:tr>`;
+  const blank = row(["", ""]);
+  const template = word(`<w:tbl>${row(["Tên sản phẩm", "Đơn giá"])}${row(["{line_1_name}", "{line_1_unitPrice}"])}${blank}${row(["{line_2_name}", "{line_2_unitPrice}"])}${blank}${row(["Tổng cộng", "{total}"])}${blank}${row(["ĐẠI DIỆN KHÁCH HÀNG", ""])}</w:tbl>`);
+  t.mock.method(globalThis, "fetch", async () => { throw new Error("AI must not run"); });
+  const output = xml(await renderTemplate(template, quote));
+  assert.equal((output.match(/<w:tr>/g) ?? []).length, 5);
+  assert.match(output, /Hàng mới/);
+  assert.match(output, /280\.000/);
+  assert.match(output, /ĐẠI DIỆN KHÁCH HÀNG/);
+});
+
 test("Word templates with only a product table need no mandatory party or money positions",()=>{
   const template=word(`<w:tbl><w:tr><w:tc>${p("Tên hàng")}</w:tc></w:tr><w:tr><w:tc>${p("Hàng cũ")}</w:tc></w:tr></w:tbl>`);
   const output=xml(applyWordFillPlan(template,{},[{name:"Hàng mới"}],{edits:[],tables:[{part:"word/document.xml",table:0,productRows:[1],columns:[{column:0,key:"name"}]}]}));assert.match(output,/Hàng mới/);assert.doesNotMatch(output,/Hàng cũ/);

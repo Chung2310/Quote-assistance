@@ -57,6 +57,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   const [downloading, setDownloading] = useState(false);
   const [generatingFile, setGeneratingFile] = useState(false);
   const [savedWordFile, setSavedWordFile] = useState<GeneratedFileRef | null>(null);
+  const [loadingSavedFile, setLoadingSavedFile] = useState(Boolean(id));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -106,15 +107,18 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
   }, [view, id, notify]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
-    if (!id) { setSavedWordFile(null); return; }
+    if (!id) { setSavedWordFile(null); setLoadingSavedFile(false); return; }
     let active = true;
+    setLoadingSavedFile(true);
     const wordKind = view === "contracts" ? "contract" : "acceptance";
     void getLatestGeneratedFile(id, wordKind).then(({ file }) => {
       if (!active) return;
       setSavedWordFile(file);
+      setLoadingSavedFile(false);
     }).catch(() => {
       if (!active) return;
       setSavedWordFile(null);
+      setLoadingSavedFile(false);
     });
     return () => { active = false; };
   }, [view, id]);
@@ -212,8 +216,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     finally { setDownloading(false); }
   };
 
-  const createContractFile = async () => {
-    if (!contract || busy || generatingFile) return;
+  const createContractFile = async (downloadAfterCreate = false) => {
+    if (!contract || busy || downloading || generatingFile || loadingSavedFile) return;
     setBusy(true);
     setGeneratingFile(true);
     setSavedWordFile(null);
@@ -224,7 +228,8 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       }
       const file = await createGeneratedExport(`/api/contracts/${contract._id}/file?background=1`);
       setSavedWordFile(file);
-      notify("Đã tạo và lưu file hợp đồng theo mẫu đã chọn.", "success");
+      if (downloadAfterCreate) await downloadSavedDocument(file);
+      else notify("Đã tạo và lưu file hợp đồng theo mẫu đã chọn.", "success");
     } catch (error) { notify(`Hợp đồng vẫn được lưu. ${userMessage(error, "Chưa tạo được file. Vui lòng thử lại.")}`, "error"); }
     finally { setBusy(false); setGeneratingFile(false); }
   };
@@ -252,7 +257,7 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
     {contractSourceQuote && <ContractCreationDialog quote={contractSourceQuote} notify={notify} onClose={() => setContractSourceQuote(null)} onCreated={(createdId, fileError) => {
       setContractSourceQuote(null);
       navigate("contracts", createdId);
-      notify(fileError ? `Hợp đồng đã lưu. ${fileError} Bấm “Tạo file hợp đồng” để thử lại.` : "Đã tạo hợp đồng và lưu file theo mẫu.", fileError ? "error" : "success");
+      notify(fileError ? `Hợp đồng đã lưu. ${fileError} Bấm “Tạo và tải file” để thử lại.` : "Đã tạo hợp đồng và lưu file theo mẫu.", fileError ? "error" : "success");
     }} />}
   </div>;
 
@@ -282,8 +287,13 @@ export default function ContractWorkflow({ view, id, navigate, openQuote, notify
       <div className="workflow-toolbar">
         <button className="button button-soft" onClick={() => navigate("contracts")}>← Danh sách hợp đồng</button>
         <div className="workflow-toolbar-actions">
-          <button className="button button-soft" type="button" disabled={busy || downloading || generatingFile} onClick={() => void createContractFile()}>{generatingFile ? "Đang tạo file…" : savedWordFile ? "Tạo lại file" : "Tạo file hợp đồng"}</button>
-          <button className="button button-primary" type="button" disabled={busy || downloading || !savedWordFile} onClick={() => void downloadSavedDocument(savedWordFile)}>Tải file</button>
+          <div className="workflow-contract-file-actions">
+            <button className="button button-primary" type="button" disabled={busy || downloading || generatingFile || loadingSavedFile} onClick={() => void (savedWordFile ? downloadSavedDocument(savedWordFile) : createContractFile(true))}>{loadingSavedFile ? "Đang kiểm tra file…" : downloading ? "Đang tải file…" : generatingFile ? "Đang tạo file…" : savedWordFile ? "Tải file" : "Tạo và tải file"}</button>
+            {savedWordFile && <details className="workflow-file-options">
+              <summary className="button button-soft" aria-label="Tùy chọn file hợp đồng" title="Tùy chọn file hợp đồng">⋯</summary>
+              <div className="workflow-file-options-menu"><button className="button button-soft" type="button" disabled={busy || downloading || generatingFile || loadingSavedFile} onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); void createContractFile(); }}>Tạo lại file</button></div>
+            </details>}
+          </div>
           {contract.status === "signed" && <button className="button button-soft" disabled={busy} onClick={() => void createAcceptance(contract)}>Tạo nghiệm thu</button>}
         </div>
       </div>
